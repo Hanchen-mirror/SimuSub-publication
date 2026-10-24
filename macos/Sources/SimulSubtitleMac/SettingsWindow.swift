@@ -67,22 +67,38 @@ struct SettingsWindow: View {
 
 private struct SubtitleSettingsContent: View {
     @EnvironmentObject private var model: AppModel
+    @State private var showServices = false
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 Text("字幕设置").font(.title2.bold())
                 VStack(alignment: .leading, spacing: 16) {
                     Toggle("背景音乐抑制", isOn: $model.suppressBackgroundMusic)
-                        .help("先用本地模型增强人声，再检测说话。下次开始字幕时生效。")
+                        .help("用增强后的音频判断说话区间，保留原始音频用于识别，减少发音损伤。下次开始字幕时生效。")
                         .accessibilityIdentifier("settings.speech.musicSuppression")
                     Text("减少背景音乐误识别。歌曲中的人声或特别响的音乐仍可能被识别；声音变弱时可关闭对比。")
                         .font(.caption).foregroundStyle(.secondary)
                     Divider()
-                    Text("说话时自动更新字幕，停顿后校订。导出只包含已定稿字幕。")
+                    Text("说话时先显示日语草稿；停顿定稿后只翻译一次，减少中文跳动与重复等待。导出只包含已完成字幕。")
                         .font(.caption).foregroundStyle(.secondary)
                     if model.isBusy { Text("正在处理字幕，停止后可修改以上选项。").font(.caption).foregroundStyle(.secondary) }
                 }.padding(18).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
                     .disabled(model.isBusy)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("中文字幕引擎").font(.headline)
+                    Picker("翻译与上下文核对", selection: $model.selectedTranslationProfileID) {
+                        ForEach(model.profiles.filter { $0.purpose == .translation && $0.isEnabled }) { profile in
+                            Text(profile.name).tag(Optional(profile.id))
+                        }
+                    }.disabled(model.isBusy)
+                    Text("选择 DeepSeek：日语在本地识别，句子定稿后发送文字生成中文；无需本地翻译模型。日语草稿先显示，中文需等待网络返回。原音不上传。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                VTuberGlossaryEditor()
+                Button("配置 DeepSeek / 第三方模型…") { showServices = true }
+                    .sheet(isPresented: $showServices) {
+                        VStack { HStack { Spacer(); Button("完成") { showServices = false } }.padding(); AdvancedServiceSettings() }.frame(width: 760, height: 650)
+                    }
                 SubtitlePermissionTools()
             }.padding(.trailing, 5).padding(.bottom, 16)
         }
@@ -103,6 +119,7 @@ struct AdvancedServiceSettings: View {
                     }
                     Spacer()
                     Menu {
+                        Button("添加 DeepSeek 翻译 / 核对") { model.addDeepSeekProfile() }
                         Button("添加语音识别接口") { model.addProfile(.speechRecognition) }
                         Button("添加翻译接口") { model.addProfile(.translation) }
                     } label: { Label("添加服务", systemImage: "plus") }.disabled(model.isBusy)

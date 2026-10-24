@@ -204,21 +204,26 @@ final class ClipStore: ObservableObject {
                     }
                 case .proofread:
                     guard let range = job.range else { throw ClipError.message("请选择要核对的选段。") }
-                    let engines: ClipServices
-                    if let services { engines = services }
-                    else if let model { engines = try await model.makeClipServices(configured: job.configuredServices) }
+                    let translator: any TextTranslating
+                    if let services { translator = services.translator }
+                    else if let model { translator = try await model.makeProofreadTranslator(configured: job.configuredServices) }
                     else { throw ClipError.message("核对模型尚未准备。") }
-                    let cues = project.captions(for: range).filter { !$0.original.isEmpty }
+                    let cues = project.captions(for: range).filter { !$0.original.isEmpty && !$0.isDraft }.sorted { $0.start < $1.start }
                     guard !cues.isEmpty else { throw ClipError.message("请先添加日语字幕，再使用模型核对。") }
                     var proposals: [Caption] = []
                     for (index, original) in cues.enumerated() {
                         try Task.checkCancellation()
                         var cue = original; cue.start = max(range.start, cue.start); cue.end = min(range.end, cue.end)
-                        cue.translated = try await engines.translator.translate(cue.original, from: "日语", to: "中文")
+                        let context = SubtitleTranslationContext(
+                            previous: cues[..<index].suffix(2).map { .init(original: $0.original, translated: SubtitleDocument.completedTranslation($0) ?? "") },
+                            following: cues.dropFirst(index + 1).prefix(1).map(\.original))
+                        cue.translated = try await translator.translate(cue.original, from: "日语", to: "中文", context: context)
+                        try Task.checkCancellation()
                         if SubtitleDocument.completedTranslation(cue) != nil && cue.translated != original.translated { proposals.append(cue) }
-                        self.progress(jobID, value: Double(index + 1) / Double(cues.count), message: "正在核对字幕 \(index + 1)/\(cues.count)")
+                        // Persist completed suggestions so a network interruption does not discard review work.
+                        self.update(project.id) { p in if let i = p.ranges.firstIndex(where: { $0.id == range.id }) { p.ranges[i].proofreadCandidates = proposals } }
+                        self.progress(jobID, value: Double(index + 1) / Double(cues.count), message: "正在结合上下文核对字幕 \(index + 1)/\(cues.count)")
                     }
-                    self.update(project.id) { p in if let i = p.ranges.firstIndex(where: { $0.id == range.id }) { p.ranges[i].proofreadCandidates = proposals } }
                 case .export:
                     try await self.export(job, project: project)
 

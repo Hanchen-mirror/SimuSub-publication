@@ -88,6 +88,12 @@ enum AppSection: String, CaseIterable, Identifiable {
 }
 
 extension ServiceProfile {
+    var isDeepSeek: Bool { URL(string: baseURL)?.host?.lowercased() == "api.deepseek.com" }
+    static var deepSeek: ServiceProfile {
+        ServiceProfile(name: "DeepSeek 字幕核对 / 翻译", kind: .openAICompatible, purpose: .translation,
+                       baseURL: "https://api.deepseek.com", model: "deepseek-flash", timeoutSeconds: 60)
+    }
+
     func validatedBaseURL() throws -> URL {
         let value = baseURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard let url = URL(string: value), let scheme = url.scheme?.lowercased(),

@@ -57,12 +57,26 @@ final class LocalLlamaTranslator: TextTranslating, @unchecked Sendable {
     }
 
     func translate(_ text: String, from source: String, to target: String, context translationContext: SubtitleTranslationContext) async throws -> String {
-        try await Task.detached(priority: .userInitiated) { [self] in
+        try Task.checkCancellation()
+        let task = Task.detached(priority: .userInitiated) { [self] in
             try lock.withLock {
                 try Task.checkCancellation()
-                return try generate("<|im_start|>user\n\(translationContext.prompt(for: text))<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n", maxTokens: translationContext.isFinal ? 512 : 256)
+                var bounded = translationContext.localContext(for: text)
+                for attempt in 0..<3 {
+                    do {
+                        return try generate("<|im_start|>user\n\(bounded.prompt(for: text))<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n", maxTokens: bounded.isFinal ? 512 : 256)
+                    } catch LocalLlamaError.promptTooLong {
+                        // Preserve the complete source; shorten only optional context.
+                        if attempt == 0 {
+                            bounded.previous = Array(bounded.previous.suffix(1)); bounded.following = []
+                            bounded.terms = Array(bounded.terms.prefix(3))
+                        } else { bounded.previous = []; bounded.terms = [] }
+                    }
+                }
+                throw LocalLlamaError.promptTooLong
             }
-        }.value
+        }
+        return try await withTaskCancellationHandler(operation: { try await task.value }, onCancel: { task.cancel() })
     }
 
     private func generate(_ prompt: String, maxTokens: Int) throws -> String {

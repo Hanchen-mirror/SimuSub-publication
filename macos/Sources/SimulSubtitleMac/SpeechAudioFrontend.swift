@@ -6,6 +6,7 @@ import SherpaOnnxC
 struct SubtitleProcessingOptions: Equatable, Sendable {
     var suppressMusic = true
     var showDrafts = true
+    var preserveOriginal = true
 }
 
 protocol CaptionRevision: Identifiable, Sendable where ID == UUID {
@@ -81,6 +82,8 @@ final class SpeechAudioFrontend: @unchecked Sendable {
     private let denoiser: SherpaOnnxOnlineSpeechDenoiserWrapper?
     private let vad: OpaquePointer
     private let options: SubtitleProcessingOptions
+    private var rawHistory: [Float] = []
+    private var rawHistoryStart = 0
     private var pending: [Float] = []
     private var history: [Float] = []
     private var historyStart = 0
@@ -125,6 +128,7 @@ final class SpeechAudioFrontend: @unchecked Sendable {
 
     func accept(_ samples: [Float]) {
         guard !samples.isEmpty else { return }
+        if options.preserveOriginal && denoiser != nil { rawHistory.append(contentsOf: samples) }
         consume(denoiser?.run(samples: samples, sampleRate: Self.sampleRate).samples ?? samples)
     }
 
@@ -136,6 +140,11 @@ final class SpeechAudioFrontend: @unchecked Sendable {
         }
         SherpaOnnxVoiceActivityDetectorFlush(vad)
         drainCompleted()
+    }
+
+    static func draftInterval(for duration: Int) -> Int {
+        // Offline ASR re-decodes the entire growing sentence; bound redundant work.
+        min(64_000, max(24_000, duration / 3))
     }
 
     private func consume(_ samples: [Float]) {
@@ -160,7 +169,7 @@ final class SpeechAudioFrontend: @unchecked Sendable {
                     // Safety limit only; ordinary sentence boundaries come from VAD.
                     SherpaOnnxVoiceActivityDetectorFlush(vad)
                     drainCompleted()
-                } else if options.showDrafts && processed - lastDraftSample >= 24_000 {
+                } else if options.showDrafts && processed - lastDraftSample >= Self.draftInterval(for: duration) {
                     let start = max(0, activeStart - historyStart)
                     emit(Array(history.dropFirst(start)), start: activeStart, final: false)
                     lastDraftSample = processed
@@ -171,6 +180,8 @@ final class SpeechAudioFrontend: @unchecked Sendable {
                 let count = min(history.count, retainFrom - historyStart)
                 history.removeFirst(count)
                 historyStart += count
+                let rawCount = min(rawHistory.count, max(0, retainFrom - rawHistoryStart))
+                if rawCount > 0 { rawHistory.removeFirst(rawCount); rawHistoryStart += rawCount }
             }
         }
         if offset > 0 { pending.removeFirst(offset) }
@@ -195,8 +206,14 @@ final class SpeechAudioFrontend: @unchecked Sendable {
         guard !samples.isEmpty else { return }
         if activeID == nil { activeID = UUID() }
         revision += 1
+        var recognitionSamples = samples
+        if options.preserveOriginal && denoiser != nil {
+            let lower = max(0, start - rawHistoryStart)
+            let upper = min(rawHistory.count, lower + samples.count)
+            if upper > lower { recognitionSamples = Array(rawHistory[lower..<upper]) }
+        }
         onSegment?(AudioSegment(id: activeID!, revision: revision, isFinal: final,
-            samples: samples, timestamp: epoch.addingTimeInterval(Double(start) / Double(Self.sampleRate))))
+            samples: recognitionSamples, timestamp: epoch.addingTimeInterval(Double(start) / Double(Self.sampleRate))))
     }
 
     enum FrontendError: LocalizedError {

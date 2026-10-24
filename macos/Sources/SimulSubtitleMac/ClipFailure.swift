@@ -25,6 +25,11 @@ enum ClipFailure {
         if let error = error as? ClipError { return error.localizedDescription }
         if error is CancellationError { return "操作已取消，已保存内容保留。" }
         let ns = error as NSError
+        if ns.domain == NSURLErrorDomain {
+            return ns.code == NSURLErrorTimedOut
+                ? "云端请求超时，已保存的字幕和核对建议保留。请稍后重试或改用本地模型。［API-TIMEOUT］"
+                : "云端连接中断，请检查网络后重试。已保存的字幕和核对建议保留。［API-NETWORK］"
+        }
         if ns.domain == NSCocoaErrorDomain {
             switch ns.code {
             case NSFileNoSuchFileError, NSFileReadNoSuchFileError:

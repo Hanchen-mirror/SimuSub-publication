@@ -50,15 +50,17 @@ struct OpenAICompatibleTranslator: TextTranslating {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         let prompt = context.prompt(for: text)
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": profile.model,
             "messages": [["role": "user", "content": prompt]],
-            "temperature": 0
-        ])
+            "temperature": 0, "stream": false, "max_tokens": 1024
+        ]
+        if profile.isDeepSeek { body["thinking"] = ["type": "disabled"] }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw ServiceError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else { throw ServiceError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
-        let decoded = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
+        guard let decoded = try? JSONDecoder().decode(ChatCompletionResponse.self, from: data) else { throw ServiceError.invalidResponse }
         if decoded.choices.first?.finish_reason == "length" { throw LocalLlamaError.outputTruncated }
         guard let content = decoded.choices.first?.message.content?.trimmingCharacters(in: .whitespacesAndNewlines), !content.isEmpty else {
             throw ServiceError.emptyResponse
@@ -91,7 +93,15 @@ enum ServiceError: Error, LocalizedError {
         case .invalidURL: "服务地址无效"
         case .invalidResponse: "服务返回了无法识别的响应"
         case .emptyResponse: "服务没有返回内容"
-        case .http(let status, let details): "API 请求失败（HTTP \(status)）：\(details.prefix(240))"
+        case .http(let status, _):
+            switch status {
+            case 401, 403: "API 身份验证失败，请检查密钥和模型权限。［API-\(status)］"
+            case 402: "API 余额不足，请充值或切回本地模型。［API-402］"
+            case 404: "API 地址或模型不存在，请检查服务地址与模型名称。［API-404］"
+            case 429: "API 请求过于频繁或额度不足，请稍后手动重试。已保存的字幕保留。［API-429］"
+            case 500...599: "云端服务暂时不可用，请稍后重试或改用本地模型。［API-\(status)］"
+            default: "API 请求未完成，请检查模型配置后重试。［API-\(status)］"
+            }
         case .missingAPIKey(let name): "请先在设置中保存 \(name) 的 API Key"
         case .modelFilesMissing: "本地引擎文件尚未准备完成，请返回日中同传查看自动安装状态"
         case .modelNotInstalled(let name): "\(name)尚未就绪，请返回日中同传重试自动准备"

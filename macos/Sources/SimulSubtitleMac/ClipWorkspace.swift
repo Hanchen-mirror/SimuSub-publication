@@ -364,7 +364,8 @@ struct ClipEditor: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack { Text("模型核对").font(.title3.bold()); Spacer(); Button("完成") { showingProofread = false } }
             Text("根据现有日语生成中文译文建议，比较后再应用。不会自动改写原字幕。").font(.callout).foregroundStyle(.secondary)
-            Text(configured ? "使用服务设置中所选模型；云端接口会收到当前日语文字。" : "使用本机翻译模型，不上传字幕。").font(.caption).foregroundStyle(.secondary)
+            Toggle("使用服务设置中选定的翻译模型", isOn: $configured).disabled(clips.isBusy)
+            Text(configured ? "云端核对将发送当前日语、前两句日中字幕、后一句日语和邻近上下文匹配的术语；不发送音视频。请先在字幕设置中配置并选用 DeepSeek。" : "使用本机翻译模型，结合前后文和本地术语库，不上传字幕。").font(.caption).foregroundStyle(.secondary)
             Button("开始核对当前选段") {
                 if saveWorking() { clips.start(ClipJob(projectID: project.id, kind: .proofread, range: active, configuredServices: configured), model: model) }
             }.disabled(clips.isBusy || cues.allSatisfy { $0.original.isEmpty })

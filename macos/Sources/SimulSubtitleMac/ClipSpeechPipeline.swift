@@ -53,7 +53,7 @@ enum ClipSpeechPipeline {
         }
         while cursor < range.end - 0.001 {
             try Task.checkCancellation()
-            let span = min(120, range.end - cursor), wav = temp.appendingPathComponent(UUID().uuidString + ".wav")
+            let span = min(30, range.end - cursor), wav = temp.appendingPathComponent(UUID().uuidString + ".wav")
             await progress((cursor - range.start) / range.duration, "正在读取音轨 " + ClipTime.label(cursor))
             try await ClipMediaEngine.extractAudio(media: media, start: cursor, duration: span, output: wav)
             let samples = try AudioFileReader.read(wav)

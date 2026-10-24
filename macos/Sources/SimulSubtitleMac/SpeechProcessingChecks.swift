@@ -118,6 +118,9 @@ enum SpeechProcessingChecks {
         let negative = try await translator.translate("今日はゲームをしません。", from: "Japanese", to: "中文", context: .init())
         guard negative.contains("不") || negative.contains("没") else { throw CheckError.failed("Negation was lost") }
         results["negationTranslation"] = negative
+        let reaction = try await translator.translate("へえ", from: "Japanese", to: "中文", context: .init(previous: [.init(original: "阿部寛はもともとモデルだった", translated: "原来阿部宽本来就是模特啊，真没想到。")]))
+        guard reaction.count < 16, !reaction.contains("阿部"), !reaction.contains("模特") else { throw CheckError.failed("Short reaction copied prior translation") }
+        results["shortReactionWithContext"] = reaction
         results["limitations"] = "One short Japanese fixture, synthetic instrumental and optional piano recording only; not proof for singing or all live-stream music."
         results["passed"] = true
         try JSONSerialization.data(withJSONObject: results, options: [.prettyPrinted, .sortedKeys]).write(to: report)

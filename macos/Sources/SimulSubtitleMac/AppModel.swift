@@ -58,7 +58,7 @@ final class AppModel: ObservableObject {
         ServiceProfile(name: "本地翻译", kind: .local, purpose: .translation, model: "Index-Translate-2B"),
         ServiceProfile(name: "OpenAI 转写", kind: .openAICompatible, purpose: .speechRecognition, baseURL: "https://api.openai.com/v1", model: "whisper-1"),
         ServiceProfile(name: "OpenAI 翻译", kind: .openAICompatible, purpose: .translation, baseURL: "https://api.openai.com/v1", model: "gpt-4o-mini"),
-        ServiceProfile(name: "DeepSeek 翻译", kind: .openAICompatible, purpose: .translation, baseURL: "https://api.deepseek.com/v1", model: "deepseek-chat")
+        .deepSeek
     ] { didSet { persistProfiles() } }
 
     let permissions = CapturePermissionCenter()
@@ -81,7 +81,6 @@ final class AppModel: ObservableObject {
     private var speechQueue: CaptionRevisionQueue<CapturedAudioSegment>?
     private var captionGeneration = UUID()
     private var captionRevisions: [UUID: Int] = [:]
-    private var lastDraftTranslationEnd: [UUID: Double] = [:]
     private var sessionFirstCaptionIndex = 0
     private var sessionProfile: ServiceProfile?
     private var sessionASRProfile: ServiceProfile?
@@ -141,6 +140,11 @@ final class AppModel: ObservableObject {
                 if value.kind == .local && value.purpose == .speechRecognition { value.name = "本地日语识别"; value.model = "ReazonSpeech ja" }
                 return value
             }
+        }
+        if let data = defaults.data(forKey: "vtuber.glossary.v122"), let saved = try? JSONDecoder().decode([VTuberTerm].self, from: data) { glossary = saved }
+        // Migrate only the retired official IDs, retaining profile UUID and Keychain account.
+        for i in profiles.indices where profiles[i].isDeepSeek && ["deepseek-chat", "deepseek-reasoner"].contains(profiles[i].model) {
+            profiles[i].model = "deepseek-flash"
         }
         let savedASR = defaults.string(forKey: "selectedASRProfileID.v2").flatMap(UUID.init(uuidString:))
         let savedMT = defaults.string(forKey: "selectedTranslationProfileID.v2").flatMap(UUID.init(uuidString:))
@@ -234,7 +238,6 @@ final class AppModel: ObservableObject {
                 sessionBase = captions.last?.end ?? 0
                 sessionFirstCaptionIndex = captions.count
                 captionRevisions.removeAll()
-                lastDraftTranslationEnd.removeAll()
                 try await capture.start(selectedBundleID: selectedAppBundleID, generation: generation)
                 try Task.checkCancellation()
                 captureEngine = capture
@@ -308,7 +311,6 @@ final class AppModel: ObservableObject {
         translationQueue?.discardPending()
         captions.removeAll()
         captionRevisions.removeAll()
-        lastDraftTranslationEnd.removeAll()
         sessionFirstCaptionIndex = 0
         status = "字幕已清空"
         if let captureEngine, isCapturing {
@@ -413,14 +415,15 @@ final class AppModel: ObservableObject {
     func ensureLocalModels() {
         guard !isDownloadingModels, !isBusy else { return }
         refreshModels()
-        guard !asrInstalled || !translationInstalled else { return }
-        let total = Double(modelStore.asrDownloadBytes + modelStore.translationDownloadBytes)
-        let initiallyInstalled = (asrInstalled ? Double(modelStore.asrDownloadBytes) : 0)
-            + (translationInstalled ? Double(modelStore.translationDownloadBytes) : 0)
+        let needsASR = profiles.first { $0.id == selectedASRProfileID }?.kind == .local
+        let needsMT = profiles.first { $0.id == selectedTranslationProfileID }?.kind == .local
         let pending: [(ServicePurpose, Double)] = [
-            (.speechRecognition, asrInstalled ? 0 : Double(modelStore.asrDownloadBytes)),
-            (.translation, translationInstalled ? 0 : Double(modelStore.translationDownloadBytes))
+            (.speechRecognition, needsASR && !asrInstalled ? Double(modelStore.asrDownloadBytes) : 0),
+            (.translation, needsMT && !translationInstalled ? Double(modelStore.translationDownloadBytes) : 0)
         ].filter { $0.1 > 0 }
+        guard !pending.isEmpty else { return }
+        let total = pending.reduce(0.0) { $0 + $1.1 }
+        let initiallyInstalled = 0.0
         isDownloadingModels = true
         downloadProgress = initiallyInstalled / total
         downloadStatus = "正在自动准备本地日中引擎…"
@@ -546,13 +549,62 @@ final class AppModel: ObservableObject {
         return key
     }
 
+    @Published var glossary: [VTuberTerm] = VTuberGlossary.defaults
+    private var cachedRecognizer: ReazonSpeechRecognizer?
+    private var cachedTranslator: LocalLlamaTranslator?
+
+    func saveGlossary(_ text: String) throws {
+        let parsed = try VTuberGlossary.parse(text)
+        let data = try JSONEncoder().encode(parsed)
+        defaults.set(data, forKey: "vtuber.glossary.v122")
+        glossary = parsed
+    }
+    func addDeepSeekProfile() {
+        guard !profiles.contains(where: { $0.isDeepSeek && $0.purpose == .translation }) else { return }
+        profiles.append(.deepSeek)
+        persistProfiles()
+    }
+    private func localRecognizer() async throws -> ReazonSpeechRecognizer {
+        if let cachedRecognizer { return cachedRecognizer }
+        guard modelStore.isASRInstalled else { throw ServiceError.modelNotInstalled("日语识别") }
+        let store = modelStore
+        let engine = try await Task.detached(priority: .utility) { try ReazonSpeechRecognizer(store: store) }.value
+        try Task.checkCancellation()
+        cachedRecognizer = engine
+        return engine
+    }
+    private func translator(for profile: ServiceProfile) async throws -> any TextTranslating {
+        let engine: any TextTranslating
+        if profile.kind == .local {
+            guard modelStore.isTranslationInstalled else { throw ServiceError.modelNotInstalled("本地翻译") }
+            if let cachedTranslator { engine = cachedTranslator }
+            else {
+                let path = modelStore.translationModelPath
+                let loaded = try await Task.detached(priority: .utility) { try LocalLlamaTranslator(modelPath: path) }.value
+                try Task.checkCancellation()
+                cachedTranslator = loaded; engine = loaded
+            }
+        } else {
+            _ = try profile.validatedBaseURL()
+            engine = OpenAICompatibleTranslator(profile: profile, apiKey: try credential(for: profile))
+        }
+        return GlossaryTranslator(base: engine, terms: glossary)
+    }
+    func makeProofreadTranslator(configured: Bool) async throws -> any TextTranslating {
+        guard !isBusy else { throw ClipError.message("请先停止实时字幕，再进行字幕核对。") }
+        let profile = configured ? profiles.first { $0.id == selectedTranslationProfileID }
+            : profiles.first { $0.kind == .local && $0.purpose == .translation }
+        guard let profile, profile.isEnabled else { throw ClipError.message("请在服务设置中启用翻译模型。") }
+        return try await translator(for: profile)
+    }
+
     private func persistProfiles() {
         guard let data = try? JSONEncoder().encode(profiles) else { return }
         defaults.set(data, forKey: Self.profilesKey)
     }
 
-    /// Batch work creates its own engines; it never shares a mutable recognizer
-    /// with the realtime pipeline, and defaults to fully local processing.
+    /// Reuse local engines across jobs; native inference is serialized and realtime
+    /// capture cannot run concurrently with batch work. Local is the default.
     func makeClipServices(configured: Bool) async throws -> ClipServices {
         guard !isBusy else { throw ClipError.message("请先停止实时字幕或文件处理，再生成切片字幕。") }
         let asr = configured ? profiles.first(where: { $0.id == selectedASRProfileID }) : profiles.first(where: { $0.purpose == .speechRecognition && $0.kind == .local })
@@ -563,21 +615,13 @@ final class AppModel: ObservableObject {
         let translator: any TextTranslating
         if asr.kind == .local {
             guard modelStore.isASRInstalled else { throw ServiceError.modelNotInstalled("日语识别") }
-            let store = modelStore
-            recognizer = try await Task.detached(priority: .utility) { try ReazonSpeechRecognizer(store: store, threads: 2) }.value
+            recognizer = try await localRecognizer()
         } else {
             _ = try asr.validatedBaseURL()
             recognizer = OpenAICompatibleSpeechRecognizer(profile: asr, apiKey: try credential(for: asr))
         }
         try Task.checkCancellation()
-        if mt.kind == .local {
-            guard modelStore.isTranslationInstalled else { throw ServiceError.modelNotInstalled("本地翻译") }
-            let path = modelStore.translationModelPath
-            translator = try await Task.detached(priority: .utility) { try LocalLlamaTranslator(modelPath: path) }.value
-        } else {
-            _ = try mt.validatedBaseURL()
-            translator = OpenAICompatibleTranslator(profile: mt, apiKey: try credential(for: mt))
-        }
+        translator = try await self.translator(for: mt)
         try Task.checkCancellation()
         return ClipServices(recognizer: recognizer, translator: translator)
     }
@@ -591,20 +635,12 @@ final class AppModel: ObservableObject {
         sessionASRProfile = asr
         if asr.kind == .local {
             guard modelStore.isASRInstalled else { throw ServiceError.modelNotInstalled("日语识别") }
-            let store = modelStore
-            speechRecognizer = try await Task.detached { try ReazonSpeechRecognizer(store: store) }.value
+            speechRecognizer = try await localRecognizer()
         } else {
             _ = try asr.validatedBaseURL()
             speechRecognizer = OpenAICompatibleSpeechRecognizer(profile: asr, apiKey: try credential(for: asr))
         }
-        if mt.kind == .local {
-            guard modelStore.isTranslationInstalled else { throw ServiceError.modelNotInstalled("本地翻译") }
-            let path = modelStore.translationModelPath
-            textTranslator = try await Task.detached { try LocalLlamaTranslator(modelPath: path) }.value
-        } else {
-            _ = try mt.validatedBaseURL()
-            textTranslator = OpenAICompatibleTranslator(profile: mt, apiKey: try credential(for: mt))
-        }
+        textTranslator = try await translator(for: mt)
     }
 
     func process(_ samples: [Float], start: Double, queueTranslation: Bool = false,
@@ -632,16 +668,16 @@ final class AppModel: ObservableObject {
                 captions[index].end = end
                 captions[index].isDraft = true
             } else {
-                captions.append(Caption(id: id, start: start, end: end, original: original, translated: "正在翻译…", isDraft: true))
+                captions.append(Caption(id: id, start: start, end: end, original: original, translated: "", isDraft: true))
             }
             if queueTranslation, firstOriginalLatency == nil { firstOriginalLatency = Date().timeIntervalSince(sessionStart) }
-            // Recognition can refresh faster than translation. Avoid re-translating
-            // every small extension, but always retranslate the complete final audio.
-            if !isFinal {
-                guard original.count >= 4,
-                      end - (lastDraftTranslationEnd[id] ?? start) >= 1.4 else { return }
-                lastDraftTranslationEnd[id] = end
+            // A changing Japanese draft is useful, but translating each revision
+            // repeats work and makes finalized Chinese wait behind obsolete drafts.
+            guard isFinal else {
+                status = "日语草稿 · 停顿定稿后翻译一次"
+                return
             }
+            if let index = captions.firstIndex(where: { $0.id == id }) { captions[index].translated = "正在翻译…" }
             let item = TranslationSegment(id: id, revision: revision, isFinal: isFinal,
                 original: original, source: "Japanese", target: "中文", live: queueTranslation, generation: generation)
             if queueTranslation {
@@ -668,9 +704,12 @@ final class AppModel: ObservableObject {
         // are queued separately and cannot be overwritten by a stale draft result.
         guard item.generation == captionGeneration, captionRevisions[item.id] == item.revision else { return }
         do {
-            let previous = captions.dropFirst(sessionFirstCaptionIndex).filter { $0.id != item.id && !$0.isDraft }
+            let currentStart = captions.first { $0.id == item.id }?.start ?? 0
+            let previous = captions.dropFirst(sessionFirstCaptionIndex).filter {
+                $0.id != item.id && !$0.isDraft && $0.end <= currentStart + 0.001
+            }.sorted { $0.start < $1.start }
             let context = SubtitleTranslationContext(previous: previous.suffix(2).map {
-                .init(original: $0.original, translated: $0.translated)
+                .init(original: $0.original, translated: SubtitleDocument.completedTranslation($0) ?? "")
             }, isFinal: item.isFinal)
             let translated = try await textTranslator.translate(item.original, from: item.source, to: item.target, context: context)
             guard item.generation == captionGeneration, captionRevisions[item.id] == item.revision else { return }

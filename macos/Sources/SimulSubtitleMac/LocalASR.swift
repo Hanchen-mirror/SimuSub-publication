@@ -129,8 +129,9 @@ final class LocalModelStore: @unchecked Sendable {
 
 final class ReazonSpeechRecognizer: SpeechRecognizing, @unchecked Sendable {
     private let recognizer: SherpaOnnxOfflineRecognizer
+    private let decodeLock = NSLock()
 
-    init(store: LocalModelStore, threads: Int = 4) throws {
+    init(store: LocalModelStore, threads: Int = 4, decoding: String = "greedy_search") throws {
         let encoder = store.path("asr-ja/encoder.int8.onnx")
         let decoder = store.path("asr-ja/decoder.onnx")
         let joiner = store.path("asr-ja/joiner.int8.onnx")
@@ -141,18 +142,25 @@ final class ReazonSpeechRecognizer: SpeechRecognizing, @unchecked Sendable {
         let transducer = sherpaOnnxOfflineTransducerModelConfig(encoder: encoder, decoder: decoder, joiner: joiner)
         let model = sherpaOnnxOfflineModelConfig(tokens: tokens, transducer: transducer, numThreads: threads, provider: "cpu", modelType: "transducer")
         let feature = sherpaOnnxFeatureConfig(sampleRate: 16_000, featureDim: 80)
-        var config = sherpaOnnxOfflineRecognizerConfig(featConfig: feature, modelConfig: model, decodingMethod: "greedy_search")
+        var config = sherpaOnnxOfflineRecognizerConfig(featConfig: feature, modelConfig: model, decodingMethod: decoding)
         recognizer = withUnsafePointer(to: &config) { SherpaOnnxOfflineRecognizer(config: $0) }
     }
 
     func recognize(samples: [Float]) async throws -> String {
         guard !samples.isEmpty else { return "" }
-        return await Task.detached(priority: .userInitiated) { [recognizer] in
+        try Task.checkCancellation()
+        let task = Task.detached(priority: .userInitiated) { [self] in
+          try decodeLock.withLock {
+            try Task.checkCancellation()
             var padded = [Float](repeating: 0, count: 4_800)
             padded.append(contentsOf: samples)
             padded.append(contentsOf: repeatElement(0, count: 4_800))
-            return recognizer.decode(samples: padded, sampleRate: 16_000).text
-        }.value
+            let text = recognizer.decode(samples: padded, sampleRate: 16_000).text
+            try Task.checkCancellation()
+            return text
+          }
+        }
+        return try await withTaskCancellationHandler(operation: { try await task.value }, onCancel: { task.cancel() })
     }
 }
 
