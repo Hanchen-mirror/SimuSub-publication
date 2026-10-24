@@ -40,12 +40,20 @@ enum SpeechBenchmark {
             let frontendTime = Date().timeIntervalSince(started)
             var texts: [[String: Any]] = [], finalText = "", asrTime = 0.0, finalTime = 0.0
             var previous: [SubtitleTranslationContext.Line] = []
+            var revisionGuards: [UUID: ASRRevisionGuard] = [:]
             var confirmations: [UUID: StablePrefixConfirmation] = [:]
             var early: [UUID: (text: String, at: Double, chinese: String)] = [:]
             var prefixEvents: [[String: Any]] = []
             for (segmentIndex, segment) in segments.enumerated() {
                 let start = Date()
-                let text = try await engine.recognize(samples: segment.samples)
+                var revisionGuard = revisionGuards[segment.id] ?? ASRRevisionGuard()
+                let recognized = try await engine.recognizeDetailed(samples: segment.samples)
+                let resolved = revisionGuard.reconcile(recognized, start: segment.timestamp.timeIntervalSince1970,
+                    end: segment.timestamp.timeIntervalSince1970 + Double(segment.samples.count) / 16000)
+                let protected = revisionGuard.protectRollback(resolved.text, start: segment.timestamp.timeIntervalSince1970,
+                    end: segment.timestamp.timeIntervalSince1970 + Double(segment.samples.count) / 16000)
+                revisionGuards[segment.id] = segment.isFinal ? nil : revisionGuard
+                let text = protected.text
                 let elapsed = Date().timeIntervalSince(start)
                 asrTime += elapsed
                 if segment.isFinal { finalText += text; finalTime += elapsed }
@@ -78,7 +86,7 @@ enum SpeechBenchmark {
                     mtTime = Date().timeIntervalSince(mtStart)
                     previous.append(.init(original: text, translated: chinese))
                 }
-                texts.append(["utterance": segment.id.uuidString, "revision": segment.revision, "chinese": chinese, "translationSeconds": mtTime, "start": segment.timestamp.timeIntervalSince1970, "duration": Double(segment.samples.count)/16000,
+                texts.append(["rollbackBlocked": protected.pending != nil, "pendingCandidate": protected.pending ?? "", "rawText": recognized.text, "restoredOmission": resolved.restored, "timedTokens": recognized.tokens.map { ["text": $0.text, "time": $0.time] as [String: Any] }, "utterance": segment.id.uuidString, "revision": segment.revision, "chinese": chinese, "translationSeconds": mtTime, "start": segment.timestamp.timeIntervalSince1970, "duration": Double(segment.samples.count)/16000,
                               "emittedAt": emittedAt[segmentIndex], "final": segment.isFinal, "text": text, "seconds": elapsed])
             }
             var row: [String: Any] = ["name": item.name, "audioSeconds": Double(samples.count)/16000,

@@ -161,7 +161,11 @@ final class ReazonSpeechRecognizer: SpeechRecognizing, @unchecked Sendable {
     deinit { if let hotwordFile { try? FileManager.default.removeItem(at: hotwordFile) } }
 
     func recognize(samples: [Float]) async throws -> String {
-        guard !samples.isEmpty else { return "" }
+        try await recognizeDetailed(samples: samples).text
+    }
+
+    func recognizeDetailed(samples: [Float]) async throws -> RecognizedSpeech {
+        guard !samples.isEmpty else { return RecognizedSpeech(text: "") }
         try Task.checkCancellation()
         let task = Task.detached(priority: .userInitiated) { [self] in
           try decodeLock.withLock {
@@ -169,9 +173,20 @@ final class ReazonSpeechRecognizer: SpeechRecognizing, @unchecked Sendable {
             var padded = [Float](repeating: 0, count: 4_800)
             padded.append(contentsOf: samples)
             padded.append(contentsOf: repeatElement(0, count: 4_800))
-            let text = recognizer.decode(samples: padded, sampleRate: 16_000).text
+            let result = recognizer.decode(samples: padded, sampleRate: 16_000)
+            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            var tokens: [RecognizedSpeech.Token] = []
+            if let pointers = result.result.pointee.tokens_arr, result.timestamps.count == result.count {
+                for i in 0..<result.count {
+                    guard let pointer = pointers[i] else { tokens = []; break }
+                    let token = String(cString: pointer).replacingOccurrences(of: "▁", with: " ")
+                    tokens.append(.init(text: token, time: max(0, Double(result.timestamps[i]) - 0.3)))
+                }
+            }
+            // Do not invent offsets when token reconstruction differs from text.
+            if tokens.map(\.text).joined() != text { tokens = [] }
             try Task.checkCancellation()
-            return text
+            return RecognizedSpeech(text: text, tokens: tokens)
           }
         }
         return try await withTaskCancellationHandler(operation: { try await task.value }, onCancel: { task.cancel() })

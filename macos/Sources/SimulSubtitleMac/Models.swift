@@ -10,12 +10,14 @@ struct Caption: Identifiable, Codable, Equatable {
     var confirmedPrefix: String = ""
     var originalRevisions: [String] = []
     var recognitionNotice: String = ""
+    var pendingOriginal: String? = nil
+    var recognitionNeedsReview = false
 
     init(id: UUID = UUID(), start: TimeInterval, end: TimeInterval, original: String, translated: String, isDraft: Bool = false) {
         self.id = id; self.start = start; self.end = end
         self.original = original; self.translated = translated; self.isDraft = isDraft
     }
-    private enum CodingKeys: String, CodingKey { case id, start, end, original, translated, isDraft, confirmedPrefix, originalRevisions, recognitionNotice }
+    private enum CodingKeys: String, CodingKey { case id, start, end, original, translated, isDraft, confirmedPrefix, originalRevisions, recognitionNotice, pendingOriginal, recognitionNeedsReview }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(UUID.self, forKey: .id)
@@ -27,6 +29,8 @@ struct Caption: Identifiable, Codable, Equatable {
         confirmedPrefix = try values.decodeIfPresent(String.self, forKey: .confirmedPrefix) ?? ""
         originalRevisions = try values.decodeIfPresent([String].self, forKey: .originalRevisions) ?? []
         recognitionNotice = try values.decodeIfPresent(String.self, forKey: .recognitionNotice) ?? ""
+        pendingOriginal = try values.decodeIfPresent(String.self, forKey: .pendingOriginal)
+        recognitionNeedsReview = try values.decodeIfPresent(Bool.self, forKey: .recognitionNeedsReview) ?? false
     }
 }
 
@@ -65,6 +69,13 @@ struct ServiceProfile: Identifiable, Codable, Equatable, Sendable {
 
 protocol SpeechRecognizing: Sendable {
     func recognize(samples: [Float]) async throws -> String
+    func recognizeDetailed(samples: [Float]) async throws -> RecognizedSpeech
+}
+
+extension SpeechRecognizing {
+    func recognizeDetailed(samples: [Float]) async throws -> RecognizedSpeech {
+        RecognizedSpeech(text: try await recognize(samples: samples))
+    }
 }
 
 protocol TextTranslating: Sendable {

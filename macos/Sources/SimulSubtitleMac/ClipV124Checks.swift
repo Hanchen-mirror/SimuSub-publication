@@ -49,6 +49,9 @@ enum ClipV124Checks {
             let caption = model.captions[0]
             if final.isEmpty {
                 try require(caption.original == first && caption.isDraft && !caption.recognitionNotice.isEmpty && SubtitleDocument.render([caption], format: .srt, mode: .bilingual).isEmpty, "v124_empty_final_keeps_visible_draft_not_false_export")
+            } else if final == "明日は行きません" {
+                try require(caption.original == first && caption.pendingOriginal == final && caption.recognitionNeedsReview && caption.isDraft,
+                    "v125_large_rollback_keeps_original_and_pending_candidate")
             } else {
                 try require(caption.original == final && caption.originalRevisions == [first] && !caption.isDraft, "v124_correction_keeps_prior_text_without_concatenation_\(checks.count)")
             }

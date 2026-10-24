@@ -88,6 +88,7 @@ final class AppModel: ObservableObject {
     private var speechQueue: CaptionRevisionQueue<CapturedAudioSegment>?
     private var captionGeneration = UUID()
     private var captionRevisions: [UUID: Int] = [:]
+    private var revisionGuards: [UUID: ASRRevisionGuard] = [:]
     private var prefixConfirmations: [UUID: StablePrefixConfirmation] = [:]
     private var prefixTranslations: [UUID: (source: String, chinese: String)] = [:]
     private var sessionFirstCaptionIndex = 0
@@ -248,7 +249,7 @@ final class AppModel: ObservableObject {
                 sessionStart = Date()
                 sessionBase = captions.last?.end ?? 0
                 sessionFirstCaptionIndex = captions.count
-                captionRevisions.removeAll(); prefixConfirmations.removeAll(); prefixTranslations.removeAll()
+                captionRevisions.removeAll(); revisionGuards.removeAll(); prefixConfirmations.removeAll(); prefixTranslations.removeAll()
                 try await capture.start(selectedBundleID: selectedAppBundleID, generation: generation)
                 try Task.checkCancellation()
                 captureEngine = capture
@@ -321,7 +322,7 @@ final class AppModel: ObservableObject {
         speechQueue?.discardPending()
         translationQueue?.discardPending()
         captions.removeAll()
-        captionRevisions.removeAll(); prefixConfirmations.removeAll(); prefixTranslations.removeAll()
+        captionRevisions.removeAll(); revisionGuards.removeAll(); prefixConfirmations.removeAll(); prefixTranslations.removeAll()
         sessionFirstCaptionIndex = 0
         status = "字幕已清空"
         if let captureEngine, isCapturing {
@@ -668,15 +669,23 @@ final class AppModel: ObservableObject {
         guard samples.contains(where: { abs($0) > 0.003 }) else { status = "正在监听，等待声音…"; return }
         do {
             status = "正在识别…"
-            let original = try await speechRecognizer.recognize(samples: samples).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard revision > (captionRevisions[id] ?? 0) else { return }
+            var revisionGuard = revisionGuards[id] ?? ASRRevisionGuard()
+            let recognition = try await speechRecognizer.recognizeDetailed(samples: samples)
             guard generation == captionGeneration else { return }
             guard revision > (captionRevisions[id] ?? 0) else { return }
+            let end = start + Double(samples.count) / 16_000
+            let reconciliation = revisionGuard.reconcile(recognition, start: start, end: end)
+            let protected = revisionGuard.protectRollback(reconciliation.text.trimmingCharacters(in: .whitespacesAndNewlines), start: start, end: end)
+            revisionGuards[id] = isFinal ? nil : revisionGuard
+            let original = protected.text
             if original.isEmpty {
                 if isFinal {
                     captionRevisions[id] = revision; prefixConfirmations[id] = nil; prefixTranslations[id] = nil
                     if let index = captions.firstIndex(where: { $0.id == id }) {
                         captions[index].recognitionNotice = "整句识别为空，已保留上一版日语；待核对，不作为定稿导出。"
                         captions[index].confirmedPrefix = ""
+                        captions[index].pendingOriginal = ""; captions[index].recognitionNeedsReview = true
                         captions[index].translated = "译文未完成：整句识别为空，已保留日语草稿"
                     }
                 }
@@ -684,14 +693,21 @@ final class AppModel: ObservableObject {
                 return
             }
             captionRevisions[id] = revision
-            let end = start + Double(samples.count) / 16_000
             if let index = captions.firstIndex(where: { $0.id == id }) {
                 let previous = captions[index].original
                 if previous != original && !previous.isEmpty {
                     captions[index].originalRevisions.append(previous)
                 }
-                captions[index].recognitionNotice = previous.count - original.count >= 6
+                if reconciliation.restored { captions[index].originalRevisions.append("本次识别候选：" + recognition.text) }
+                captions[index].recognitionNotice = reconciliation.restored
+                    ? "已恢复连续识别一致、且音频时间戳支持的遗漏前段。原始候选保留在修订记录中。"
+                    : previous.count - original.count >= 6
                     ? "识别结果比上一版缩短，旧文字已保留在日语修订记录中，可检查是否遗漏。" : ""
+                captions[index].pendingOriginal = protected.pending
+                captions[index].recognitionNeedsReview = isFinal && protected.pending != nil
+                if protected.pending != nil {
+                    captions[index].recognitionNotice = isFinal ? "已拦截日语大幅回退：保留原文，新结果待核对。" : "检测到日语回退，暂时保留原文，等待后续识别。"
+                }
                 captions[index].original = original
                 captions[index].start = start
                 captions[index].end = end
@@ -699,6 +715,14 @@ final class AppModel: ObservableObject {
                 if isFinal || !original.hasPrefix(captions[index].confirmedPrefix) { captions[index].confirmedPrefix = "" }
             } else {
                 captions.append(Caption(id: id, start: start, end: end, original: original, translated: "", isDraft: true))
+            }
+            if protected.pending != nil {
+                if let index = captions.firstIndex(where: { $0.id == id }) {
+                    captions[index].translated = "译文未完成：日语识别回退，已保留原文"
+                }
+                if isFinal { prefixConfirmations[id] = nil; prefixTranslations[id] = nil }
+                status = isFinal ? "日语出现大幅回退，请在字幕记录核对候选" : "日语回退保护中，等待后续识别"
+                return
             }
             if queueTranslation, firstOriginalLatency == nil { firstOriginalLatency = Date().timeIntervalSince(sessionStart) }
             // A changing Japanese draft is useful, but translating each revision
@@ -739,6 +763,7 @@ final class AppModel: ObservableObject {
         } catch {
             guard generation == captionGeneration else { return }
             if isFinal {
+                revisionGuards[id] = nil
                 captionRevisions[id] = revision
                 prefixConfirmations[id] = nil; prefixTranslations[id] = nil
                 if let index = captions.firstIndex(where: { $0.id == id }) {
@@ -752,6 +777,7 @@ final class AppModel: ObservableObject {
 
     private func translateCaption(_ item: TranslationSegment) async {
         guard let textTranslator else { return }
+        guard captions.first(where: { $0.id == item.id })?.pendingOriginal == nil else { return }
         // A pending newer source revision makes this work obsolete. Final revisions
         // are queued separately and cannot be overwritten by a stale draft result.
         guard item.generation == captionGeneration else { return }
@@ -776,6 +802,7 @@ final class AppModel: ObservableObject {
             if item.isFinal { guard captionRevisions[item.id] == item.revision else { return } }
             else { guard captions.contains(where: { $0.id == item.id && $0.isDraft && $0.original.hasPrefix(item.original) }) else { return } }
             guard !translated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ServiceError.emptyResponse }
+            guard captions.first(where: { $0.id == item.id })?.pendingOriginal == nil else { return }
             if let index = captions.firstIndex(where: { $0.id == item.id }) {
                 captions[index].translated = translated + (item.isFinal ? "" : " …")
                 captions[index].isDraft = !item.isFinal
@@ -791,6 +818,35 @@ final class AppModel: ObservableObject {
             if let index = captions.firstIndex(where: { $0.id == item.id }) { captions[index].translated = "翻译失败：\(error.localizedDescription)" }
             status = "已保留原文，翻译失败：\(error.localizedDescription)"
         }
+    }
+
+    func resolveRecognition(_ id: UUID, useCandidate: Bool) async {
+        guard let snapshot = captions.first(where: { $0.id == id }), snapshot.recognitionNeedsReview,
+              let candidate = snapshot.pendingOriginal else { return }
+        guard !useCandidate || !candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let generation = captionGeneration
+        let revision = captionRevisions[id] ?? 0
+        do {
+            if textTranslator == nil { try await prepareServices() }
+            guard generation == captionGeneration, revision == captionRevisions[id],
+                  let index = captions.firstIndex(where: { $0.id == id }) else { return }
+            let chosen = useCandidate ? candidate : snapshot.original
+            captions[index].originalRevisions.append("回退候选：" + candidate)
+            if useCandidate { captions[index].originalRevisions.append(snapshot.original) }
+            captions[index].original = chosen
+            captions[index].pendingOriginal = nil; captions[index].recognitionNeedsReview = false
+            captions[index].recognitionNotice = "已由用户核对日语原文"
+            captions[index].translated = "正在翻译…"
+            captionRevisions[id] = revision + 1
+            await translateCaption(.init(id: id, revision: revision + 1, isFinal: true, original: chosen,
+                source: "Japanese", target: "中文", live: false, generation: generation))
+            if generation == captionGeneration, captionRevisions[id] == revision + 1,
+               let failedIndex = captions.firstIndex(where: { $0.id == id }), captions[failedIndex].isDraft {
+                captions[failedIndex].pendingOriginal = chosen
+                captions[failedIndex].recognitionNeedsReview = true
+                captions[failedIndex].recognitionNotice = "已保存核对后的日语，翻译未完成；可点击保留原文并翻译重试。"
+            }
+        } catch { errorMessage = "核对后翻译未启动：" + error.localizedDescription }
     }
 
     private func handleProcessingOverload() {
