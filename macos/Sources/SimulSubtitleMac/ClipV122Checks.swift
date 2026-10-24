@@ -101,6 +101,23 @@ enum ClipV122Checks {
         }
         let result = try await cloud.translate("歌枠", from: "ja", to: "zh", context: .init(previous: [.init(original: "前文", translated: "前文")], following: ["後文"], terms: terms))
         try require(validRequest && result == "歌回开始了", "v122_deepseek_official_request_context_text_only_and_content_response")
+        var customProfile = ServiceProfile.deepSeek
+        customProfile.translationPrompt = "这是 FF11 直播，不要省略否定。"
+        var promptCalls = 0
+        ReviewURLProtocol.handler = { request in
+            promptCalls += 1
+            let object = try JSONSerialization.jsonObject(with: ReviewURLProtocol.body(request)) as! [String: Any]
+            let messages = object["messages"] as! [[String: String]]
+            guard messages.first?["role"] == "system", messages.first?["content"] == customProfile.translationPrompt,
+                  messages.last?["role"] == "user", messages.last?["content"]?.contains("行きません") == true else {
+                throw ClipError.message("Custom prompt missing or mixed into source")
+            }
+            return (200, Data(#"{"choices":[{"message":{"content":"不去"},"finish_reason":"stop"}]}"#.utf8))
+        }
+        let custom = OpenAICompatibleTranslator(profile: customProfile, apiKey: "test-only", session: session)
+        _ = try await custom.translate("行きません", from: "ja", to: "zh")
+        _ = try await custom.translate("行きません", from: "ja", to: "zh", context: .init(isStablePrefix: true))
+        try require(promptCalls == 2, "v124_custom_prompt_sent_in_final_and_prefix_with_one_request_each")
         var earlyTimeout = 0.0
         ReviewURLProtocol.handler = { request in
             earlyTimeout = request.timeoutInterval

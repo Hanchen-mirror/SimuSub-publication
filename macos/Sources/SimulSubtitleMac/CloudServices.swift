@@ -50,9 +50,14 @@ struct OpenAICompatibleTranslator: TextTranslating {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         let prompt = context.prompt(for: text)
+        var messages: [[String: String]] = []
+        if !profile.effectiveTranslationPrompt.isEmpty {
+            messages.append(["role": "system", "content": profile.effectiveTranslationPrompt])
+        }
+        messages.append(["role": "user", "content": prompt])
         var body: [String: Any] = [
             "model": profile.model,
-            "messages": [["role": "user", "content": prompt]],
+            "messages": messages,
             "temperature": 0, "stream": false, "max_tokens": 1024
         ]
         if profile.isDeepSeek { body["thinking"] = ["type": "disabled"] }

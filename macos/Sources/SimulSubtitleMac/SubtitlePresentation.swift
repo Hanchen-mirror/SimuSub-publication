@@ -236,6 +236,10 @@ private struct PaperCaption: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: shortWindow ? 2 : 5) {
+            if !caption.recognitionNotice.isEmpty {
+                Text("日语识别有修订 · 记录中可核对").font(.system(size: 10)).foregroundStyle(.orange)
+                    .help(caption.recognitionNotice)
+            }
             if caption.isDraft && !caption.confirmedPrefix.isEmpty {
                 Text("前段已确认 · 后文识别中").font(.system(size: 10)).foregroundStyle(.secondary)
                     .help(caption.confirmedPrefix)

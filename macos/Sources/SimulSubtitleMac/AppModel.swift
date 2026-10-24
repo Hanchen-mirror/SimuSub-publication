@@ -672,13 +672,26 @@ final class AppModel: ObservableObject {
             guard generation == captionGeneration else { return }
             guard revision > (captionRevisions[id] ?? 0) else { return }
             if original.isEmpty {
-                if isFinal { captions.removeAll { $0.id == id && $0.isDraft }; captionRevisions[id] = revision; prefixConfirmations[id] = nil; prefixTranslations[id] = nil }
+                if isFinal {
+                    captionRevisions[id] = revision; prefixConfirmations[id] = nil; prefixTranslations[id] = nil
+                    if let index = captions.firstIndex(where: { $0.id == id }) {
+                        captions[index].recognitionNotice = "整句识别为空，已保留上一版日语；待核对，不作为定稿导出。"
+                        captions[index].confirmedPrefix = ""
+                        captions[index].translated = "译文未完成：整句识别为空，已保留日语草稿"
+                    }
+                }
                 status = "正在监听，等待说话…"
                 return
             }
             captionRevisions[id] = revision
             let end = start + Double(samples.count) / 16_000
             if let index = captions.firstIndex(where: { $0.id == id }) {
+                let previous = captions[index].original
+                if previous != original && !previous.isEmpty {
+                    captions[index].originalRevisions.append(previous)
+                }
+                captions[index].recognitionNotice = previous.count - original.count >= 6
+                    ? "识别结果比上一版缩短，旧文字已保留在日语修订记录中，可检查是否遗漏。" : ""
                 captions[index].original = original
                 captions[index].start = start
                 captions[index].end = end
@@ -730,6 +743,7 @@ final class AppModel: ObservableObject {
                 prefixConfirmations[id] = nil; prefixTranslations[id] = nil
                 if let index = captions.firstIndex(where: { $0.id == id }) {
                     captions[index].translated = "译文未完成：整句识别失败"
+                    captions[index].recognitionNotice = "整句识别失败，已保留日语草稿与修订记录。"
                 }
             }
             status = "识别失败：\(error.localizedDescription)"

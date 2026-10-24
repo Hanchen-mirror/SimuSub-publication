@@ -93,6 +93,8 @@ final class SpeechAudioFrontend: @unchecked Sendable {
     private var activeStart = 0
     private var revision = 0
     private var lastDraftSample = 0
+    private var emittedDraftRange: Range<Int>?
+    private var lastFinalEnd = 0
     private var epoch = Date()
     var onSegment: ((AudioSegment) -> Void)?
 
@@ -161,8 +163,9 @@ final class SpeechAudioFrontend: @unchecked Sendable {
             if SherpaOnnxVoiceActivityDetectorDetected(vad) == 1 {
                 if activeID == nil {
                     activeID = UUID()
-                    activeStart = max(historyStart, processed - 8_000)
+                    activeStart = max(lastFinalEnd, max(historyStart, processed - 8_000))
                     revision = 0
+                    emittedDraftRange = nil
                     lastDraftSample = activeStart
                 }
                 let duration = processed - activeStart
@@ -176,7 +179,8 @@ final class SpeechAudioFrontend: @unchecked Sendable {
                     lastDraftSample = processed
                 }
             }
-            let retainFrom = activeID == nil ? processed - 8_000 : activeStart
+            // Keep pre-roll for the VAD start, which can precede draft activation.
+            let retainFrom = activeID == nil ? processed - 32_000 : activeStart - 32_000
             if retainFrom > historyStart {
                 let count = min(history.count, retainFrom - historyStart)
                 history.removeFirst(count)
@@ -193,14 +197,43 @@ final class SpeechAudioFrontend: @unchecked Sendable {
             if let speech = SherpaOnnxVoiceActivityDetectorFront(vad) {
                 let count = Int(speech.pointee.n)
                 if count >= 2_880, let data = speech.pointee.samples {
-                    emit(Array(UnsafeBufferPointer(start: data, count: count)), start: Int(speech.pointee.start), final: true)
+                    let vadSamples = Array(UnsafeBufferPointer(start: data, count: count))
+                    let vadStart = Int(speech.pointee.start)
+                    let range = Self.finalRange(vad: vadStart..<(vadStart + count), draft: emittedDraftRange)
+                    // Final decoding must cover everything already heard by a draft.
+                    // Overlay the retained samples on VAD's exact source coordinates.
+                    var complete = [Float](repeating: 0, count: range.count)
+                    complete.replaceSubrange((vadStart - range.lowerBound)..<(vadStart - range.lowerBound + count), with: vadSamples)
+                    let lower = max(range.lowerBound, historyStart)
+                    let upper = min(range.upperBound, historyStart + history.count)
+                    if upper > lower {
+                        complete.replaceSubrange((lower - range.lowerBound)..<(upper - range.lowerBound),
+                            with: history[(lower - historyStart)..<(upper - historyStart)])
+                    }
+                    emit(complete, start: range.lowerBound, final: true)
                 }
                 SherpaOnnxDestroySpeechSegment(speech)
             }
             SherpaOnnxVoiceActivityDetectorPop(vad)
             activeID = nil
+            emittedDraftRange = nil
             revision = 0
         }
+    }
+
+    static func finalRange(vad: Range<Int>, draft: Range<Int>?) -> Range<Int> {
+        guard let draft else { return vad }
+        return min(vad.lowerBound, draft.lowerBound)..<max(vad.upperBound, draft.upperBound)
+    }
+
+    static func originalSamples(fallback: [Float], start: Int, raw: [Float], rawStart: Int) -> [Float] {
+        var result = fallback
+        let lower = max(start, rawStart)
+        let upper = min(start + fallback.count, rawStart + raw.count)
+        if upper > lower {
+            result.replaceSubrange((lower - start)..<(upper - start), with: raw[(lower - rawStart)..<(upper - rawStart)])
+        }
+        return result
     }
 
     private func emit(_ samples: [Float], start: Int, final: Bool) {
@@ -209,10 +242,10 @@ final class SpeechAudioFrontend: @unchecked Sendable {
         revision += 1
         var recognitionSamples = samples
         if options.preserveOriginal && denoiser != nil {
-            let lower = max(0, start - rawHistoryStart)
-            let upper = min(rawHistory.count, lower + samples.count)
-            if upper > lower { recognitionSamples = Array(rawHistory[lower..<upper]) }
+            recognitionSamples = Self.originalSamples(fallback: samples, start: start, raw: rawHistory, rawStart: rawHistoryStart)
         }
+        if !final { emittedDraftRange = start..<(start + recognitionSamples.count) }
+        else { lastFinalEnd = start + recognitionSamples.count }
         onSegment?(AudioSegment(id: activeID!, revision: revision, isFinal: final,
             samples: recognitionSamples, timestamp: epoch.addingTimeInterval(Double(start) / Double(Self.sampleRate))))
     }

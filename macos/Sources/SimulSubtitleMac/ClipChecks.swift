@@ -46,6 +46,7 @@ enum ClipChecks {
             checks += try await ClipV121Checks.run(fixture: fixture, directory: directory)
             checks += try await ClipV122Checks.run(fixture: fixture, directory: directory)
             checks += try await ClipV123Checks.run(directory: directory)
+            checks += try await ClipV124Checks.run(directory: directory)
             checks += try ClipHighlightChecks.run(media: media)
             let changedURL = directory.appendingPathComponent("changed-source.mp4")
             try FileManager.default.copyItem(at: fixture, to: changedURL)

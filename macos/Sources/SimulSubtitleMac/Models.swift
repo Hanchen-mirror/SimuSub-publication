@@ -8,12 +8,14 @@ struct Caption: Identifiable, Codable, Equatable {
     var translated: String
     var isDraft: Bool = false
     var confirmedPrefix: String = ""
+    var originalRevisions: [String] = []
+    var recognitionNotice: String = ""
 
     init(id: UUID = UUID(), start: TimeInterval, end: TimeInterval, original: String, translated: String, isDraft: Bool = false) {
         self.id = id; self.start = start; self.end = end
         self.original = original; self.translated = translated; self.isDraft = isDraft
     }
-    private enum CodingKeys: String, CodingKey { case id, start, end, original, translated, isDraft, confirmedPrefix }
+    private enum CodingKeys: String, CodingKey { case id, start, end, original, translated, isDraft, confirmedPrefix, originalRevisions, recognitionNotice }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(UUID.self, forKey: .id)
@@ -23,6 +25,8 @@ struct Caption: Identifiable, Codable, Equatable {
         translated = try values.decode(String.self, forKey: .translated)
         isDraft = try values.decodeIfPresent(Bool.self, forKey: .isDraft) ?? false
         confirmedPrefix = try values.decodeIfPresent(String.self, forKey: .confirmedPrefix) ?? ""
+        originalRevisions = try values.decodeIfPresent([String].self, forKey: .originalRevisions) ?? []
+        recognitionNotice = try values.decodeIfPresent(String.self, forKey: .recognitionNotice) ?? ""
     }
 }
 
@@ -50,6 +54,13 @@ struct ServiceProfile: Identifiable, Codable, Equatable, Sendable {
     var targetLanguage: String = "中文"
     var timeoutSeconds: Int = 30
     var isEnabled: Bool = true
+    // Optional for backward-compatible decoding of v1.23 saved profiles.
+    var translationPrompt: String? = nil
+
+    static let defaultTranslationPrompt = "这是日语 VTuber 直播。结合上下文翻译为自然的简体中文，保留否定、语气和人物关系。不总结、不遗漏、不补写。优先采用术语库译名，只输出当前内容的译文。"
+    var effectiveTranslationPrompt: String {
+        String((translationPrompt ?? Self.defaultTranslationPrompt).trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
+    }
 }
 
 protocol SpeechRecognizing: Sendable {

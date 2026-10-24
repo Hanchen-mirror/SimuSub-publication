@@ -186,6 +186,22 @@ private struct ServiceProfileCard: View {
                         Text("模型名称").font(.caption).foregroundStyle(.secondary)
                         TextField(profile.purpose == .speechRecognition ? "whisper-1" : "gpt-4o-mini", text: binding.model).textFieldStyle(.roundedBorder)
                     }
+                    if profile.purpose == .translation {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("API 翻译提示词").font(.headline)
+                                Spacer()
+                                Button("恢复默认") { binding.wrappedValue.translationPrompt = nil }
+                            }
+                            TextEditor(text: Binding(get: { binding.wrappedValue.translationPrompt ?? ServiceProfile.defaultTranslationPrompt },
+                                set: { binding.wrappedValue.translationPrompt = String($0.prefix(2000)) }))
+                                .font(.body).frame(height: 110)
+                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
+                                .accessibilityLabel("API 翻译提示词")
+                            Text("自动保存 · 最多 2000 字 · 清空可关闭附加提示词。仅发送给此翻译服务，不修改日语识别原文；内容越长，可能增加费用与延迟。停止字幕后修改，下次启动生效。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     HStack(alignment: .bottom, spacing: 12) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(model.savedCredentialIDs.contains(profile.id) ? "API Key · 已保存" : "API Key · 未保存")

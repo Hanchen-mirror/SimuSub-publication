@@ -78,7 +78,7 @@ enum SpeechBenchmark {
                     mtTime = Date().timeIntervalSince(mtStart)
                     previous.append(.init(original: text, translated: chinese))
                 }
-                texts.append(["chinese": chinese, "translationSeconds": mtTime, "start": segment.timestamp.timeIntervalSince1970, "duration": Double(segment.samples.count)/16000,
+                texts.append(["utterance": segment.id.uuidString, "revision": segment.revision, "chinese": chinese, "translationSeconds": mtTime, "start": segment.timestamp.timeIntervalSince1970, "duration": Double(segment.samples.count)/16000,
                               "emittedAt": emittedAt[segmentIndex], "final": segment.isFinal, "text": text, "seconds": elapsed])
             }
             var row: [String: Any] = ["name": item.name, "audioSeconds": Double(samples.count)/16000,
