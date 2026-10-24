@@ -27,7 +27,8 @@ private actor ContextProbe: TextTranslating {
     var contexts: [SubtitleTranslationContext] = []
     var texts: [String] = []
     let failAt: Int?
-    init(failAt: Int? = nil) { self.failAt = failAt }
+    nonisolated let requiresFullUtterance: Bool
+    init(failAt: Int? = nil, requiresFullUtterance: Bool = false) { self.failAt = failAt; self.requiresFullUtterance = requiresFullUtterance }
     func translate(_ text: String, from source: String, to target: String) async throws -> String { throw ClipError.message("Context-free path used") }
     func translate(_ text: String, from source: String, to target: String, context: SubtitleTranslationContext) async throws -> String {
         contexts.append(context); texts.append(text)
@@ -61,6 +62,12 @@ enum ClipV122Checks {
         let captured = await probe.contexts
         try require(captured[0].terms.count == 1 && captured[0].following == ["後文"], "v122_glossary_wrapper_preserves_context")
         try require(SpeechAudioFrontend.draftInterval(for: 24_000) == 24_000 && SpeechAudioFrontend.draftInterval(for: 320_000) == 64_000, "v122_drafts_keep_first_latency_and_bound_repeated_work")
+        let conservative = ContextProbe(requiresFullUtterance: true)
+        let localWrapper = GlossaryTranslator(base: conservative, terms: terms)
+        _ = try await localWrapper.translate("それです", from: "ja", to: "zh", context: .init(previous: [.init(original: "今日は歌枠です", translated: "歌回")]))
+        let localContexts = await conservative.contexts
+        try require(localWrapper.requiresFullUtterance && localContexts[0].terms.isEmpty && localContexts[0].previous.count == 1,
+                    "v123_local_context_kept_without_injecting_absent_terms")
         let nearby = ContextProbe()
         _ = try await GlossaryTranslator(base: nearby, terms: terms).translate("それです", from: "ja", to: "zh", context: .init(previous: [.init(original: "今日は歌枠です", translated: "歌回")]))
         let nearbyContext = await nearby.contexts
@@ -68,6 +75,7 @@ enum ClipV122Checks {
         let draftProbe = ContextProbe()
         let draftModel = AppModel(defaults: UserDefaults(suiteName: "SimuSub.DraftChecks." + UUID().uuidString)!,
             modelStore: LocalModelStore(root: directory.appendingPathComponent("no-models")), recognizer: DraftRecognizer(), translator: draftProbe)
+        draftModel.stablePrefixesEnabled = false
         let draftID = UUID(), audio = [Float](repeating: 0.1, count: 16_000)
         for revision in 1...3 { await draftModel.process(audio, start: 2, id: draftID, revision: revision, isFinal: false) }
         let beforeFinal = await draftProbe.texts
@@ -93,6 +101,13 @@ enum ClipV122Checks {
         }
         let result = try await cloud.translate("歌枠", from: "ja", to: "zh", context: .init(previous: [.init(original: "前文", translated: "前文")], following: ["後文"], terms: terms))
         try require(validRequest && result == "歌回开始了", "v122_deepseek_official_request_context_text_only_and_content_response")
+        var earlyTimeout = 0.0
+        ReviewURLProtocol.handler = { request in
+            earlyTimeout = request.timeoutInterval
+            return (200, Data(#"{"choices":[{"message":{"content":"提前译文"},"finish_reason":"stop"}]}"#.utf8))
+        }
+        _ = try await cloud.translate("歌枠です", from: "ja", to: "zh", context: .init(isStablePrefix: true))
+        try require(earlyTimeout == 4, "v123_cloud_prefix_short_timeout_does_not_use_full_minute")
         for status in [401,402,404,429,503] {
             var calls = 0
             ReviewURLProtocol.handler = { _ in calls += 1; return (status, Data("secret_key source text".utf8)) }

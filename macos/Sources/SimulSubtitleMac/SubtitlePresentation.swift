@@ -36,6 +36,7 @@ struct SubtitleStrip: View {
     var isBusy = false
     var canStartStop = true
     var onStartStop: (() -> Void)? = nil
+    var onSettings: () -> Void = {}
     @State private var pointerInside = false
     @State private var showingExport = false
     @State private var showingClearConfirmation = false
@@ -54,7 +55,7 @@ struct SubtitleStrip: View {
                     .multilineTextAlignment(.center).lineLimit(compact ? 1 : nil)
                     .truncationMode(.tail).help(idleText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                    .padding(.leading, 112).padding(.trailing, compact ? 160 : 112)
+                    .padding(.leading, 112).padding(.trailing, compact ? 190 : 112)
             } else if compact, let latest = captions.last {
                 HStack(spacing: 6) {
                     if displayMode == .bilingual {
@@ -68,7 +69,7 @@ struct SubtitleStrip: View {
                 }
                 .help(compactText(latest))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                .padding(.leading, 112).padding(.trailing, 160)
+                .padding(.leading, 112).padding(.trailing, 190)
             } else {
                 ScrollViewReader { reader in
                     ScrollView(.vertical, showsIndicators: true) {
@@ -123,7 +124,7 @@ struct SubtitleStrip: View {
     }
 
     private func compactLine(_ text: String, original: Bool) -> String {
-        let available = max(24, size.width - 272)
+        let available = max(24, size.width - 302)
         let width = displayMode == .bilingual ? max(24, (available - 24) / 2) : available
         // A one-row strip follows the current tail; the full text remains in
         // history, in the hover description, and in exports.
@@ -155,14 +156,14 @@ struct SubtitleStrip: View {
     private var rightControls: some View {
         Group {
             if compact {
-                HStack(spacing: 4) { pinButton; homeButton; languageButton; exportButton; clearButton }
+                HStack(spacing: 4) { pinButton; homeButton; languageButton; exportButton; clearButton; settingsButton }
             } else {
                 HStack(spacing: 4) {
                     VStack(spacing: 4) {
                         HStack(spacing: 4) { pinButton; homeButton }
                         HStack(spacing: 4) { languageButton; exportButton }
                     }
-                    clearButton
+                    VStack(spacing: 4) { clearButton; settingsButton }
                 }
             }
         }
@@ -193,6 +194,11 @@ struct SubtitleStrip: View {
                     DispatchQueue.main.async { onExport(format) }
                 }
             }
+    }
+
+    private var settingsButton: some View {
+        toolButton("gearshape", title: "字幕设置 · 术语库与翻译模型", action: onSettings)
+            .accessibilityIdentifier("subtitle.settings")
     }
 
     private var clearButton: some View {
@@ -230,6 +236,10 @@ private struct PaperCaption: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: shortWindow ? 2 : 5) {
+            if caption.isDraft && !caption.confirmedPrefix.isEmpty {
+                Text("前段已确认 · 后文识别中").font(.system(size: 10)).foregroundStyle(.secondary)
+                    .help(caption.confirmedPrefix)
+            }
             if mode == .bilingual {
                 Text(SubtitleLineLayout.format(caption.original, language: .japanese, width: textWidth, font: .systemFont(ofSize: originalSize)))
                     .font(.system(size: originalSize, weight: .regular))

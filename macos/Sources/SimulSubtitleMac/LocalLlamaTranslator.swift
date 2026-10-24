@@ -2,6 +2,9 @@ import Foundation
 import LlamaSwift
 
 final class LocalLlamaTranslator: TextTranslating, @unchecked Sendable {
+    // The bundled 2B model mistranslates context-dependent clause tails in real
+    // livestream tests. Keep full sentences until a better model is validated.
+    let requiresFullUtterance = true
     private let model: OpaquePointer
     private let context: OpaquePointer
     private let vocabulary: OpaquePointer

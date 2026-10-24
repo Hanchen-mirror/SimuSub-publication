@@ -23,6 +23,14 @@ enum SubtitlePanelChecks {
             try await Task.sleep(nanoseconds: 250_000_000)
             guard let panel = controller.panel, let home = controller.homeWindow else { throw CheckFailure("missing_windows") }
             try require(panel.isVisible && !home.isVisible, "independent_panel_home_hidden", &checks)
+            let originalFrame = panel.frame
+            controller.openSubtitleSettings()
+            try await Task.sleep(nanoseconds: 250_000_000)
+            try require(controller.settingsWindow?.isVisible == true && panel.frame == originalFrame && !home.isVisible,
+                        "v123_sixth_settings_opens_without_leaving_or_resizing_subtitles", &checks)
+            if let settings = controller.settingsWindow { try snapshot(settings, to: directory.appendingPathComponent("第六按钮-字幕设置.png")); settings.close() }
+            try require(panel.isVisible && panel.frame == originalFrame, "v123_closing_settings_keeps_subtitles", &checks)
+            try snapshot(panel, to: directory.appendingPathComponent("字幕-六按钮.png"))
             try require(panel.frame.height == 96 && panel.frame.width <= 800, "initial_two_line_size", &checks)
             try require(panel.styleMask.contains(.nonactivatingPanel) && !panel.hidesOnDeactivate,
                         "nonactivating_panel_survives_deactivation", &checks)

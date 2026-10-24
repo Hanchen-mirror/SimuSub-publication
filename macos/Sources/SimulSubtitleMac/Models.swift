@@ -7,12 +7,13 @@ struct Caption: Identifiable, Codable, Equatable {
     var original: String
     var translated: String
     var isDraft: Bool = false
+    var confirmedPrefix: String = ""
 
     init(id: UUID = UUID(), start: TimeInterval, end: TimeInterval, original: String, translated: String, isDraft: Bool = false) {
         self.id = id; self.start = start; self.end = end
         self.original = original; self.translated = translated; self.isDraft = isDraft
     }
-    private enum CodingKeys: String, CodingKey { case id, start, end, original, translated, isDraft }
+    private enum CodingKeys: String, CodingKey { case id, start, end, original, translated, isDraft, confirmedPrefix }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(UUID.self, forKey: .id)
@@ -21,6 +22,7 @@ struct Caption: Identifiable, Codable, Equatable {
         original = try values.decode(String.self, forKey: .original)
         translated = try values.decode(String.self, forKey: .translated)
         isDraft = try values.decodeIfPresent(Bool.self, forKey: .isDraft) ?? false
+        confirmedPrefix = try values.decodeIfPresent(String.self, forKey: .confirmedPrefix) ?? ""
     }
 }
 
@@ -55,11 +57,13 @@ protocol SpeechRecognizing: Sendable {
 }
 
 protocol TextTranslating: Sendable {
+    var requiresFullUtterance: Bool { get }
     func translate(_ text: String, from source: String, to target: String) async throws -> String
     func translate(_ text: String, from source: String, to target: String, context: SubtitleTranslationContext) async throws -> String
 }
 
 extension TextTranslating {
+    var requiresFullUtterance: Bool { false }
     func translate(_ text: String, from source: String, to target: String, context: SubtitleTranslationContext) async throws -> String {
         try await translate(text, from: source, to: target)
     }

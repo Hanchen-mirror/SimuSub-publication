@@ -37,6 +37,7 @@ enum VTuberGlossary {
     }
 }
 struct GlossaryTranslator: TextTranslating {
+    var requiresFullUtterance: Bool { base.requiresFullUtterance }
     let base: any TextTranslating
     let terms: [VTuberTerm]
     func translate(_ text: String, from source: String, to target: String) async throws -> String {
@@ -47,7 +48,7 @@ struct GlossaryTranslator: TextTranslating {
         // Bound term retrieval to the current utterance and neighboring source text.
         // The complete personal dictionary is never sent to the cloud.
         let neighborhood = ([text] + context.previous.suffix(2).map(\.original) + context.following.prefix(1)).joined(separator: "\n")
-        enriched.terms = VTuberGlossary.matching(terms, text: neighborhood)
+        enriched.terms = VTuberGlossary.matching(terms, text: base.requiresFullUtterance ? text : neighborhood)
         return try await base.translate(text, from: source, to: target, context: enriched)
     }
 }
@@ -58,7 +59,7 @@ struct VTuberGlossaryEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("本地 VTuber 术语库").font(.headline)
-            Text("每行「日语 = 中文」。可添加主播名、游戏名和常用梗。用于翻译与核对，不会直接替换日语识别原文。")
+            Text("每行「日语 = 中文」。可添加主播名、游戏名和常用梗。用于本地识别热词、翻译与核对。热词是识别提示，不强行替换原文；模型不支持的字会提示跳过。")
                 .font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $text).font(.system(.body, design: .monospaced)).frame(height: 145)
                 .accessibilityIdentifier("settings.glossary.editor")

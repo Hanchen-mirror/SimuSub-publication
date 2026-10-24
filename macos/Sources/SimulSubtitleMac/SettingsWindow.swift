@@ -65,7 +65,7 @@ struct SettingsWindow: View {
     }
 }
 
-private struct SubtitleSettingsContent: View {
+struct SubtitleSettingsContent: View {
     @EnvironmentObject private var model: AppModel
     @State private var showServices = false
     var body: some View {
@@ -79,7 +79,10 @@ private struct SubtitleSettingsContent: View {
                     Text("减少背景音乐误识别。歌曲中的人声或特别响的音乐仍可能被识别；声音变弱时可关闭对比。")
                         .font(.caption).foregroundStyle(.secondary)
                     Divider()
-                    Text("说话时先显示日语草稿；停顿定稿后只翻译一次，减少中文跳动与重复等待。导出只包含已完成字幕。")
+                    Toggle("稳定前缀确认", isOn: $model.stablePrefixesEnabled)
+                    Toggle("术语库辅助本地识别", isOn: $model.asrHotwordsEnabled)
+                    Text(model.asrHotwordStatus).font(.caption).foregroundStyle(.secondary)
+                    Text("日语先确认连续两次一致的分句。本地小模型保留整句翻译，避免拆句误译；云端可提前翻译稳定分句，定稿后复用或纠正，每句话最多提前请求一次（4 秒超时）。热词会增加计算量，也可能误导识别，可关闭对比。")
                         .font(.caption).foregroundStyle(.secondary)
                     if model.isBusy { Text("正在处理字幕，停止后可修改以上选项。").font(.caption).foregroundStyle(.secondary) }
                 }.padding(18).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
@@ -91,7 +94,7 @@ private struct SubtitleSettingsContent: View {
                             Text(profile.name).tag(Optional(profile.id))
                         }
                     }.disabled(model.isBusy)
-                    Text("选择 DeepSeek：日语在本地识别，句子定稿后发送文字生成中文；无需本地翻译模型。日语草稿先显示，中文需等待网络返回。原音不上传。")
+                    Text("选择 DeepSeek：日语在本地识别，稳定分句或定稿后发送文字生成中文；无需本地翻译模型。日语草稿先显示，中文需等待网络返回。原音不上传。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 VTuberGlossaryEditor()
@@ -217,5 +220,15 @@ private struct ServiceProfileCard: View {
                     Button("移除配置", role: .destructive) { model.removeProfile(profileID) }
                 }
         }
+    }
+}
+
+/// The floating subtitle window opens this focused settings surface directly.
+struct SubtitleQuickSettings: View {
+    @Environment(\.colorScheme) private var colorScheme
+    var body: some View {
+        SubtitleSettingsContent().padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(white: colorScheme == .dark ? 0.16 : 0.95).ignoresSafeArea())
     }
 }

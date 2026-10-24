@@ -130,8 +130,10 @@ final class LocalModelStore: @unchecked Sendable {
 final class ReazonSpeechRecognizer: SpeechRecognizing, @unchecked Sendable {
     private let recognizer: SherpaOnnxOfflineRecognizer
     private let decodeLock = NSLock()
+    let hotwordPlan: ASRHotwordPlan
+    private var hotwordFile: URL?
 
-    init(store: LocalModelStore, threads: Int = 4, decoding: String = "greedy_search") throws {
+    init(store: LocalModelStore, threads: Int = 4, decoding: String = "greedy_search", hotwords: [String] = [], hotwordScore: Float = 1.0) throws {
         let encoder = store.path("asr-ja/encoder.int8.onnx")
         let decoder = store.path("asr-ja/decoder.onnx")
         let joiner = store.path("asr-ja/joiner.int8.onnx")
@@ -139,12 +141,24 @@ final class ReazonSpeechRecognizer: SpeechRecognizing, @unchecked Sendable {
         guard [encoder, decoder, joiner, tokens].allSatisfy({ FileManager.default.fileExists(atPath: $0) }) else {
             throw ServiceError.modelFilesMissing
         }
+        hotwordPlan = ASRHotwordPlan(words: hotwords, tokenTable: try String(contentsOfFile: tokens, encoding: .utf8))
+        guard ["greedy_search", "modified_beam_search"].contains(decoding), hotwordScore.isFinite, (0...3).contains(hotwordScore) else {
+            throw ClipError.message("识别解码配置无效。")
+        }
+        if !hotwordPlan.accepted.isEmpty {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("simusub-hotwords-\(UUID().uuidString).txt")
+            try hotwordPlan.accepted.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            hotwordFile = url
+        }
         let transducer = sherpaOnnxOfflineTransducerModelConfig(encoder: encoder, decoder: decoder, joiner: joiner)
         let model = sherpaOnnxOfflineModelConfig(tokens: tokens, transducer: transducer, numThreads: threads, provider: "cpu", modelType: "transducer")
         let feature = sherpaOnnxFeatureConfig(sampleRate: 16_000, featureDim: 80)
-        var config = sherpaOnnxOfflineRecognizerConfig(featConfig: feature, modelConfig: model, decodingMethod: decoding)
+        var config = sherpaOnnxOfflineRecognizerConfig(featConfig: feature, modelConfig: model, decodingMethod: hotwordPlan.accepted.isEmpty ? decoding : "modified_beam_search", hotwordsFile: hotwordFile?.path ?? "", hotwordsScore: hotwordScore)
         recognizer = withUnsafePointer(to: &config) { SherpaOnnxOfflineRecognizer(config: $0) }
     }
+
+    deinit { if let hotwordFile { try? FileManager.default.removeItem(at: hotwordFile) } }
 
     func recognize(samples: [Float]) async throws -> String {
         guard !samples.isEmpty else { return "" }

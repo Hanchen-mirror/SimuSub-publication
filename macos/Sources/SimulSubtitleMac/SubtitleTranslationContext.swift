@@ -9,6 +9,7 @@ struct SubtitleTranslationContext: Sendable {
     var isFinal = true
     var following: [String] = []
     var terms: [VTuberTerm] = []
+    var isStablePrefix = false
 
     func localContext(for text: String) -> Self {
         var copy = self

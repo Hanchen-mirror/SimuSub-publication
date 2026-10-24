@@ -38,6 +38,13 @@ final class AppModel: ObservableObject {
     @Published var translationInstalled = false
     @Published var savedCredentialIDs: Set<UUID> = []
     @Published var captions: [Caption] = []
+    @Published var stablePrefixesEnabled = true {
+        didSet { defaults.set(stablePrefixesEnabled, forKey: "speech.stablePrefixes.v123") }
+    }
+    @Published var asrHotwordsEnabled = true {
+        didSet { defaults.set(asrHotwordsEnabled, forKey: "speech.hotwords.v123"); cachedRecognizer = nil }
+    }
+    @Published private(set) var asrHotwordStatus = "术语库将在本地识别启动时校验"
     @Published var suppressBackgroundMusic = true {
         didSet { defaults.set(suppressBackgroundMusic, forKey: "speech.musicSuppression.v104") }
     }
@@ -81,6 +88,8 @@ final class AppModel: ObservableObject {
     private var speechQueue: CaptionRevisionQueue<CapturedAudioSegment>?
     private var captionGeneration = UUID()
     private var captionRevisions: [UUID: Int] = [:]
+    private var prefixConfirmations: [UUID: StablePrefixConfirmation] = [:]
+    private var prefixTranslations: [UUID: (source: String, chinese: String)] = [:]
     private var sessionFirstCaptionIndex = 0
     private var sessionProfile: ServiceProfile?
     private var sessionASRProfile: ServiceProfile?
@@ -108,6 +117,8 @@ final class AppModel: ObservableObject {
         self.modelStore = modelStore
         speechRecognizer = recognizer
         textTranslator = translator
+        stablePrefixesEnabled = defaults.object(forKey: "speech.stablePrefixes.v123") as? Bool ?? true
+        asrHotwordsEnabled = defaults.object(forKey: "speech.hotwords.v123") as? Bool ?? true
         suppressBackgroundMusic = defaults.object(forKey: "speech.musicSuppression.v104") as? Bool ?? true
         subtitleDisplayMode = defaults.string(forKey: "subtitleDisplayMode.v101")
             .flatMap(SubtitleDisplayMode.init(rawValue:)) ?? .bilingual
@@ -215,7 +226,7 @@ final class AppModel: ObservableObject {
                 captionGeneration = generation
                 let stream = CaptionRevisionQueue<CapturedAudioSegment>()
                 speechQueue = stream
-                capture.processingOptions = SubtitleProcessingOptions(suppressMusic: suppressBackgroundMusic)
+                capture.processingOptions = SubtitleProcessingOptions(suppressMusic: suppressBackgroundMusic, stableCadence: stablePrefixesEnabled)
                 capture.onSegment = { [weak self] segment in
                     let peak = segment.audio.samples.reduce(Float.zero) { max($0, abs($1)) }
                     let outcome = stream.offer(segment)
@@ -237,7 +248,7 @@ final class AppModel: ObservableObject {
                 sessionStart = Date()
                 sessionBase = captions.last?.end ?? 0
                 sessionFirstCaptionIndex = captions.count
-                captionRevisions.removeAll()
+                captionRevisions.removeAll(); prefixConfirmations.removeAll(); prefixTranslations.removeAll()
                 try await capture.start(selectedBundleID: selectedAppBundleID, generation: generation)
                 try Task.checkCancellation()
                 captureEngine = capture
@@ -310,7 +321,7 @@ final class AppModel: ObservableObject {
         speechQueue?.discardPending()
         translationQueue?.discardPending()
         captions.removeAll()
-        captionRevisions.removeAll()
+        captionRevisions.removeAll(); prefixConfirmations.removeAll(); prefixTranslations.removeAll()
         sessionFirstCaptionIndex = 0
         status = "字幕已清空"
         if let captureEngine, isCapturing {
@@ -551,6 +562,7 @@ final class AppModel: ObservableObject {
 
     @Published var glossary: [VTuberTerm] = VTuberGlossary.defaults
     private var cachedRecognizer: ReazonSpeechRecognizer?
+    private var cachedRecognizerWords: [String] = []
     private var cachedTranslator: LocalLlamaTranslator?
 
     func saveGlossary(_ text: String) throws {
@@ -558,6 +570,7 @@ final class AppModel: ObservableObject {
         let data = try JSONEncoder().encode(parsed)
         defaults.set(data, forKey: "vtuber.glossary.v122")
         glossary = parsed
+        cachedRecognizer = nil
     }
     func addDeepSeekProfile() {
         guard !profiles.contains(where: { $0.isDeepSeek && $0.purpose == .translation }) else { return }
@@ -565,12 +578,15 @@ final class AppModel: ObservableObject {
         persistProfiles()
     }
     private func localRecognizer() async throws -> ReazonSpeechRecognizer {
-        if let cachedRecognizer { return cachedRecognizer }
+        let words = asrHotwordsEnabled ? glossary.map(\.japanese) : []
+        if let cachedRecognizer, cachedRecognizerWords == words { return cachedRecognizer }
         guard modelStore.isASRInstalled else { throw ServiceError.modelNotInstalled("日语识别") }
         let store = modelStore
-        let engine = try await Task.detached(priority: .utility) { try ReazonSpeechRecognizer(store: store) }.value
+        let engine = try await Task.detached(priority: .utility) { try ReazonSpeechRecognizer(store: store, hotwords: words) }.value
+        asrHotwordStatus = "识别热词已载入 \(engine.hotwordPlan.accepted.count) 条" + (engine.hotwordPlan.rejected.isEmpty ? "" : "；不支持：" + engine.hotwordPlan.rejected.joined(separator: "、"))
         try Task.checkCancellation()
         cachedRecognizer = engine
+        cachedRecognizerWords = words
         return engine
     }
     private func translator(for profile: ServiceProfile) async throws -> any TextTranslating {
@@ -656,7 +672,7 @@ final class AppModel: ObservableObject {
             guard generation == captionGeneration else { return }
             guard revision > (captionRevisions[id] ?? 0) else { return }
             if original.isEmpty {
-                if isFinal { captions.removeAll { $0.id == id && $0.isDraft }; captionRevisions[id] = revision }
+                if isFinal { captions.removeAll { $0.id == id && $0.isDraft }; captionRevisions[id] = revision; prefixConfirmations[id] = nil; prefixTranslations[id] = nil }
                 status = "正在监听，等待说话…"
                 return
             }
@@ -667,6 +683,7 @@ final class AppModel: ObservableObject {
                 captions[index].start = start
                 captions[index].end = end
                 captions[index].isDraft = true
+                if isFinal || !original.hasPrefix(captions[index].confirmedPrefix) { captions[index].confirmedPrefix = "" }
             } else {
                 captions.append(Caption(id: id, start: start, end: end, original: original, translated: "", isDraft: true))
             }
@@ -674,10 +691,30 @@ final class AppModel: ObservableObject {
             // A changing Japanese draft is useful, but translating each revision
             // repeats work and makes finalized Chinese wait behind obsolete drafts.
             guard isFinal else {
-                status = "日语草稿 · 停顿定稿后翻译一次"
+                if stablePrefixesEnabled {
+                    var confirmation = prefixConfirmations[id] ?? StablePrefixConfirmation()
+                    let prefix = confirmation.observe(original, samples: samples.count)
+                    prefixConfirmations[id] = confirmation
+                    if let prefix, let i = captions.firstIndex(where: { $0.id == id }) { captions[i].confirmedPrefix = prefix }
+                    if let prefix, textTranslator?.requiresFullUtterance == false {
+                        let item = TranslationSegment(id: id, revision: revision, isFinal: false,
+                            original: prefix, source: "Japanese", target: "中文", live: queueTranslation, generation: generation)
+                        if queueTranslation {
+                            if case .some(.overflow) = translationQueue?.offer(item) { handleProcessingOverload() }
+                        } else { await translateCaption(item) }
+                    }
+                    if let saved = prefixTranslations[id], !original.hasPrefix(saved.source) {
+                        prefixTranslations[id] = nil
+                        if let i = captions.firstIndex(where: { $0.id == id }) { captions[i].translated = "" }
+                    }
+                }
+                status = textTranslator?.requiresFullUtterance == true ? "日语前段确认中 · 本地中文等待整句以保留语义" : "日语草稿 · 稳定分句可提前翻译，后文继续确认"
                 return
             }
-            if let index = captions.firstIndex(where: { $0.id == id }) { captions[index].translated = "正在翻译…" }
+            if let index = captions.firstIndex(where: { $0.id == id }) {
+                if let saved = prefixTranslations[id], original.hasPrefix(saved.source) { captions[index].translated = saved.chinese + " …" }
+                else { captions[index].translated = "正在翻译…" }
+            }
             let item = TranslationSegment(id: id, revision: revision, isFinal: isFinal,
                 original: original, source: "Japanese", target: "中文", live: queueTranslation, generation: generation)
             if queueTranslation {
@@ -690,6 +727,7 @@ final class AppModel: ObservableObject {
             guard generation == captionGeneration else { return }
             if isFinal {
                 captionRevisions[id] = revision
+                prefixConfirmations[id] = nil; prefixTranslations[id] = nil
                 if let index = captions.firstIndex(where: { $0.id == id }) {
                     captions[index].translated = "译文未完成：整句识别失败"
                 }
@@ -702,26 +740,40 @@ final class AppModel: ObservableObject {
         guard let textTranslator else { return }
         // A pending newer source revision makes this work obsolete. Final revisions
         // are queued separately and cannot be overwritten by a stale draft result.
-        guard item.generation == captionGeneration, captionRevisions[item.id] == item.revision else { return }
+        guard item.generation == captionGeneration else { return }
+        if item.isFinal { guard captionRevisions[item.id] == item.revision else { return } }
+        else { guard captions.contains(where: { $0.id == item.id && $0.isDraft && $0.original.hasPrefix(item.original) }) else { return } }
         do {
             let currentStart = captions.first { $0.id == item.id }?.start ?? 0
             let previous = captions.dropFirst(sessionFirstCaptionIndex).filter {
                 $0.id != item.id && !$0.isDraft && $0.end <= currentStart + 0.001
             }.sorted { $0.start < $1.start }
-            let context = SubtitleTranslationContext(previous: previous.suffix(2).map {
+            var context = SubtitleTranslationContext(previous: previous.suffix(2).map {
                 .init(original: $0.original, translated: SubtitleDocument.completedTranslation($0) ?? "")
-            }, isFinal: item.isFinal)
-            let translated = try await textTranslator.translate(item.original, from: item.source, to: item.target, context: context)
-            guard item.generation == captionGeneration, captionRevisions[item.id] == item.revision else { return }
+            }, isFinal: true)
+            context.isStablePrefix = !item.isFinal
+            let reusable = item.isFinal ? prefixTranslations[item.id].flatMap { item.original.hasPrefix($0.source) ? $0 : nil } : nil
+            let source = reusable.map { String(item.original.dropFirst($0.source.count)).trimmingCharacters(in: .whitespacesAndNewlines) } ?? item.original
+            if let reusable { context.previous.append(.init(original: reusable.source, translated: reusable.chinese)) }
+            let tail = source.isEmpty ? "" : try await textTranslator.translate(source, from: item.source, to: item.target, context: context)
+            if !source.isEmpty && tail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { throw ServiceError.emptyResponse }
+            let translated = [reusable?.chinese ?? "", tail].filter { !$0.isEmpty }.joined(separator: "\n")
+            guard item.generation == captionGeneration else { return }
+            if item.isFinal { guard captionRevisions[item.id] == item.revision else { return } }
+            else { guard captions.contains(where: { $0.id == item.id && $0.isDraft && $0.original.hasPrefix(item.original) }) else { return } }
             guard !translated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ServiceError.emptyResponse }
             if let index = captions.firstIndex(where: { $0.id == item.id }) {
-                captions[index].translated = translated
+                captions[index].translated = translated + (item.isFinal ? "" : " …")
                 captions[index].isDraft = !item.isFinal
+                if !item.isFinal { prefixTranslations[item.id] = (item.original, translated) }
+                else { prefixTranslations[item.id] = nil; prefixConfirmations[item.id] = nil }
             }
             if item.live, firstTranslationLatency == nil { firstTranslationLatency = Date().timeIntervalSince(sessionStart) }
             status = item.isFinal ? "整句字幕已校订 · \(captions.count) 条" : "字幕草稿 · 说话结束后会自动校订"
         } catch {
             guard item.generation == captionGeneration, captionRevisions[item.id] == item.revision else { return }
+            if !item.isFinal { status = "提前翻译未完成，将在定稿后重试"; return }
+            prefixConfirmations[item.id] = nil; prefixTranslations[item.id] = nil
             if let index = captions.firstIndex(where: { $0.id == item.id }) { captions[index].translated = "翻译失败：\(error.localizedDescription)" }
             status = "已保留原文，翻译失败：\(error.localizedDescription)"
         }

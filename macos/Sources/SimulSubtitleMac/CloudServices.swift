@@ -45,7 +45,7 @@ struct OpenAICompatibleTranslator: TextTranslating {
     func translate(_ text: String, from source: String, to target: String, context: SubtitleTranslationContext) async throws -> String {
         let base = try profile.validatedBaseURL()
         let url = base.appending(path: "chat/completions")
-        var request = URLRequest(url: url, timeoutInterval: TimeInterval(profile.timeoutSeconds))
+        var request = URLRequest(url: url, timeoutInterval: TimeInterval(context.isStablePrefix ? min(4, profile.timeoutSeconds) : profile.timeoutSeconds))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")

@@ -9,6 +9,7 @@ final class SubtitleFloatingPanel: NSPanel {
 @MainActor
 final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegate {
     private(set) var panel: SubtitleFloatingPanel?
+    private(set) var settingsWindow: NSWindow?
     private(set) weak var homeWindow: NSWindow?
     private weak var model: AppModel?
     private weak var appearance: HomeAppearance?
@@ -174,6 +175,28 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
         scheduleReassertion()
     }
 
+    func openSubtitleSettings() {
+        guard let model, let appearance else { return }
+        if settingsWindow == nil {
+            let height = min(700, ((panel?.screen ?? NSScreen.main)?.visibleFrame.height ?? 780) - 80)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: height),
+                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            window.title = "字幕设置 · 术语库与翻译模型"
+            window.identifier = NSUserInterfaceItemIdentifier("subtitle.settings.window")
+            window.isReleasedWhenClosed = false
+            window.contentMinSize = NSSize(width: 560, height: 440)
+            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            window.contentView = NSHostingView(rootView: SubtitleQuickSettings()
+                .environmentObject(model).environmentObject(model.permissions).environmentObject(appearance)
+                .preferredColorScheme(appearance.colorScheme))
+            window.center()
+            settingsWindow = window
+        }
+        settingsWindow?.level = NSWindow.Level(rawValue: (panel?.level.rawValue ?? NSWindow.Level.normal.rawValue) + 1)
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     func prepareForPicker() { if pickerFrame == nil { pickerFrame = panel?.frame } }
     func finishPicker() {
         if let pickerFrame { panel?.setFrame(pickerFrame, display: true) }
@@ -215,6 +238,7 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
 
     private func hide(showHome: Bool) {
         reassertTask?.cancel()
+        settingsWindow?.orderOut(nil)
         if let panel, panel.isVisible { saveFrame(); panel.orderOut(nil) }
         if showHome, let homeWindow {
             homeWindow.makeKeyAndOrderFront(nil)
@@ -302,7 +326,8 @@ private struct SubtitlePanelRoot: View {
                                   idleText: model.subtitleStatus, isCapturing: model.isCapturing,
                                   isBusy: model.isStarting || model.isStopping || model.isLoadingApplications || model.isClearingCaptions,
                                   canStartStop: !(model.isDownloadingModels && !model.readinessIssues.isEmpty),
-                                  onStartStop: { if model.subtitlePlaybackIntent == .chooseApplication { controller.prepareForPicker() }; model.toggleSubtitlePlayback() })
+                                  onStartStop: { if model.subtitlePlaybackIntent == .chooseApplication { controller.prepareForPicker() }; model.toggleSubtitlePlayback() },
+                                  onSettings: controller.openSubtitleSettings)
                         .contextMenu { SubtitleWindowMenu(model: model); Button("收起为悬浮图标") { controller.collapseToBubble() } }
                 }
             }

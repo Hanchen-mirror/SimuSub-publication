@@ -7,6 +7,7 @@ struct SubtitleProcessingOptions: Equatable, Sendable {
     var suppressMusic = true
     var showDrafts = true
     var preserveOriginal = true
+    var stableCadence = false
 }
 
 protocol CaptionRevision: Identifiable, Sendable where ID == UUID {
@@ -169,7 +170,7 @@ final class SpeechAudioFrontend: @unchecked Sendable {
                     // Safety limit only; ordinary sentence boundaries come from VAD.
                     SherpaOnnxVoiceActivityDetectorFlush(vad)
                     drainCompleted()
-                } else if options.showDrafts && processed - lastDraftSample >= Self.draftInterval(for: duration) {
+                } else if options.showDrafts && processed - lastDraftSample >= (options.stableCadence ? min(32_000, max(16_000, duration / 4)) : Self.draftInterval(for: duration)) {
                     let start = max(0, activeStart - historyStart)
                     emit(Array(history.dropFirst(start)), start: activeStart, final: false)
                     lastDraftSample = processed
