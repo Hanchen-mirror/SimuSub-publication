@@ -17,7 +17,7 @@ struct ClipWorkspace: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 HStack(spacing: 9) {
-                    SimuSubPixelMark().frame(width: 27, height: 26)
+                    SimuSubBrandMark().frame(width: 27, height: 26)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("SimuSub").font(.system(size: 22, weight: .semibold, design: .rounded))
                         Text("v" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.20")).font(.system(size: 9)).foregroundStyle(.secondary)

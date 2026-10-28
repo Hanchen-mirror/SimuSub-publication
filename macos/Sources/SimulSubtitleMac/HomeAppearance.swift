@@ -17,7 +17,7 @@ final class HomeAppearance: ObservableObject {
 
     init(defaults: UserDefaults = .standard, backgroundFile: URL? = nil) {
         self.defaults = defaults
-        isDark = defaults.bool(forKey: "home.dark.v099")
+        isDark = defaults.object(forKey: "home.dark.v099") == nil ? true : defaults.bool(forKey: "home.dark.v099")
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         backgroundURL = backgroundFile ?? support.appendingPathComponent("SimuSub/Appearance/background.png")
         if let data = try? Data(contentsOf: backgroundURL) {

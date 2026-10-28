@@ -49,6 +49,18 @@ enum HomeCanvasChecks {
         creator.lastError = "Fixture request failed"
         try require(CreatorBadge(creator) == .error, "request_failure_shows_error_not_offline")
 
+        try require(DashboardGroup.group(creator) == .pending, "dashboard_error_never_misclassified_as_offline")
+        creator.lastError = nil
+        try require(DashboardGroup.group(creator) == .pending, "dashboard_confirmation_kept_separate")
+        creator.offlineConfirmations = 0; creator.snapshot = .init(state: .live, title: "Japanese Gaming")
+        try require(DashboardGroup.live.matches(creator, platform: "bilibili", keyword: "gaming"), "dashboard_filters_match_title_case_insensitively")
+        try require(!DashboardGroup.live.matches(creator, platform: "youtube", keyword: ""), "dashboard_platform_filter_excludes_other_platforms")
+        try require(!DashboardGroup.offline.matches(creator, platform: "", keyword: ""), "dashboard_live_not_duplicated_in_offline")
+        creator.snapshot = .init(state: .unknown)
+        try require(DashboardGroup.group(creator) == .pending, "dashboard_unknown_never_claimed_offline")
+        creator.snapshot = .init(state: .upcoming)
+        try require(DashboardGroup.group(creator) == .offline, "dashboard_upcoming_under_not_live")
+
         let profile = try JSONDecoder().decode(ExtractedLiveMedia.self, from: Data(#"{"thumbnail":"https://example.invalid/cover.jpg","thumbnails":[{"id":"avatar_uncropped","url":"https://example.invalid/avatar.jpg"}]}"#.utf8))
         let cover = try JSONDecoder().decode(ExtractedLiveMedia.self, from: Data(#"{"thumbnail":"https://example.invalid/cover.jpg","thumbnails":[{"width":1920,"height":1080,"url":"https://example.invalid/cover.jpg"}]}"#.utf8))
         try require(profile.profileAvatar == "https://example.invalid/avatar.jpg" && cover.profileAvatar == nil, "youtube_avatar_excludes_video_cover")
