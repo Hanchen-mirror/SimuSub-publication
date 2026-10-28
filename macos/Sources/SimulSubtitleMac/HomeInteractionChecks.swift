@@ -27,6 +27,14 @@ enum HomeInteractionChecks {
             guard condition else { throw LiveMonitorError.unavailable("CHECK FAILED: " + name) }
             checks.append(name); print("CHECK: " + name); fflush(stdout)
         }
+        let legacySnapshot = Data(#"{"state":"live","title":"旧主播","checkedAt":0}"#.utf8)
+        let migrated = try JSONDecoder().decode(LiveSnapshot.self, from: legacySnapshot)
+        try require(migrated.coverURL == nil && migrated.category == nil && migrated.title == "旧主播",
+                    "dashboard_legacy_snapshot_decodes_without_cover_or_category")
+        var enriched = migrated
+        enriched.coverURL = "https://example.com/cover.jpg"; enriched.category = "杂谈"
+        let restored = try JSONDecoder().decode(LiveSnapshot.self, from: JSONEncoder().encode(enriched))
+        try require(restored == enriched, "dashboard_cover_and_category_survive_storage_roundtrip")
         let state = HomeLivePresentation()
         state.query = "unchanged"
         state.showAccounts(.youtube)

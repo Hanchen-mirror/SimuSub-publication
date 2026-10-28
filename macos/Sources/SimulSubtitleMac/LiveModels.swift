@@ -41,6 +41,8 @@ struct LiveSnapshot: Codable, Equatable {
     var startedAt: Date?
     var checkedAt = Date()
     var liveURL: String?
+    var coverURL: String?
+    var category: String?
 }
 
 struct CreatorCandidate: Identifiable, Equatable {

@@ -268,7 +268,12 @@ struct HomeWindowBridge: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let window { controller.attachHomeWindow(window) }
+            if let window {
+                window.titlebarAppearsTransparent = true
+                window.titleVisibility = .hidden
+                window.styleMask.insert(.fullSizeContentView)
+                controller.attachHomeWindow(window)
+            }
         }
     }
 }

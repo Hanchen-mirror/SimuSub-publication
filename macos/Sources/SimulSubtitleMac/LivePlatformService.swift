@@ -19,6 +19,7 @@ struct ExtractedLiveMedia: Decodable, Sendable {
     var http_headers: [String: String]?
     var entries: [ExtractedLiveMedia]?
     var requested_formats: [ExtractedLiveMedia]?
+    var categories: [String]?
     var thumbnail: String?
     struct Thumbnail: Decodable, Sendable {
         var url: String
@@ -231,7 +232,8 @@ actor LivePlatformService: LivePlatformServing {
             guard let data = json["data"] as? [String: Any], let live = data["live_status"] as? Int else { throw LiveMonitorError.invalidResponse }
             let start = string(data["live_time"])
             return LiveSnapshot(state: live == 1 ? .live : .offline, title: plain(string(data["title"])),
-                                sessionID: live == 1 ? creator.address + ":" + start : nil, liveURL: creator.address)
+                                sessionID: live == 1 ? creator.address + ":" + start : nil, liveURL: creator.address,
+                                coverURL: imageURL(string(data["user_cover"])) ?? imageURL(string(data["keyframe"])), category: data["area_name"] as? String)
         }
         if creator.platform == .twitch, let token = access.accessToken, let clientID = access.clientID {
             try await validateTwitch(token: token, clientID: clientID)
@@ -241,7 +243,8 @@ actor LivePlatformService: LivePlatformServing {
             guard let rows = json["data"] as? [[String: Any]] else { throw LiveMonitorError.invalidResponse }
             guard let row = rows.first else { return LiveSnapshot(state: .offline) }
             return LiveSnapshot(state: .live, title: plain(string(row["title"])), sessionID: string(row["id"]),
-                startedAt: ISO8601DateFormatter().date(from: string(row["started_at"])), liveURL: creator.address)
+                startedAt: ISO8601DateFormatter().date(from: string(row["started_at"])), liveURL: creator.address,
+                coverURL: imageURL(string(row["thumbnail_url"]).replacingOccurrences(of: "{width}", with: "640").replacingOccurrences(of: "{height}", with: "360")), category: row["game_name"] as? String)
         }
         do {
             let media = try await extractor.metadata(LiveAddress.liveURL(creator.address, platform: creator.platform), cookies: access.cookies, flat: false)
@@ -252,7 +255,7 @@ actor LivePlatformService: LivePlatformServing {
             else { throw LiveMonitorError.unavailable("平台没有返回明确直播状态，稍后再确认。") }
             return LiveSnapshot(state: state, title: media.title ?? "", sessionID: media.id,
                 startedAt: (media.release_timestamp ?? media.timestamp).map(Date.init(timeIntervalSince1970:)),
-                liveURL: media.webpage_url ?? creator.address)
+                liveURL: media.webpage_url ?? creator.address, coverURL: imageURL(media.thumbnail ?? ""), category: media.categories?.first)
         } catch LiveExtractionError.offline { return LiveSnapshot(state: .offline) }
     }
 
