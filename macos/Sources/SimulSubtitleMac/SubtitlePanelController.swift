@@ -182,13 +182,15 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: height),
                 styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.title = "字幕设置 · 术语库与翻译模型"
+            window.titlebarAppearsTransparent = true
+            window.backgroundColor = ThemePalette.color(appearance.theme, dark: appearance.isDark, role: .background)
             window.identifier = NSUserInterfaceItemIdentifier("subtitle.settings.window")
             window.isReleasedWhenClosed = false
             window.contentMinSize = NSSize(width: 560, height: 440)
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             window.contentView = NSHostingView(rootView: SubtitleQuickSettings()
                 .environmentObject(model).environmentObject(model.permissions).environmentObject(appearance)
-                .preferredColorScheme(appearance.colorScheme))
+                .appTheme().environmentObject(appearance))
             window.center()
             settingsWindow = window
         }
@@ -313,7 +315,9 @@ private struct SubtitlePanelRoot: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var appearance: HomeAppearance
 
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         GeometryReader { geometry in
             Group {
                 if controller.isBubble || SubtitleDensity.forSize(geometry.size) == .bubble {
@@ -332,17 +336,18 @@ private struct SubtitlePanelRoot: View {
                                   isBusy: model.isStarting || model.isStopping || model.isLoadingApplications || model.isClearingCaptions,
                                   canStartStop: !(model.isDownloadingModels && !model.readinessIssues.isEmpty),
                                   onStartStop: { if model.subtitlePlaybackIntent == .chooseApplication { controller.prepareForPicker() }; model.toggleSubtitlePlayback() },
-                                  onSettings: controller.openSubtitleSettings)
+                                  onSettings: controller.openSubtitleSettings,
+                                  japaneseFont: appearance.japaneseFont, chineseFont: appearance.chineseFont)
                         .contextMenu { SubtitleWindowMenu(model: model); Button("收起为悬浮图标") { controller.collapseToBubble() } }
                 }
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor.opacity(controller.isResizeHover ? 0.65 : 0), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12).strokeBorder(ThemeColor.primary.opacity(controller.isResizeHover ? 0.65 : 0), lineWidth: 1)
                     .allowsHitTesting(false)
             }
             .overlay { if !controller.isBubble { SubtitleResizeSurface(controller: controller) } }
         }
-        .preferredColorScheme(appearance.colorScheme)
+        .appTheme(clearBackground: true)
         .onChange(of: model.isSubtitlePinned) { _ in controller.updatePin() }
         .onChange(of: model.isLoadingApplications) { loading in if loading { controller.prepareForPicker() } }
         .sheet(isPresented: $model.isChoosingApplication, onDismiss: controller.finishPicker) {
@@ -361,7 +366,9 @@ private struct SubtitlePanelRoot: View {
 
 struct CaptureApplicationPicker: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         ApplicationDockPicker(applications: model.availableApps, selectedBundleID: model.selectedAppBundleID,
                               isRefreshing: model.isLoadingApplications,
                               onRefresh: model.selectApplication,
@@ -374,12 +381,14 @@ private struct SubtitleBubble: View {
     @ObservedObject var controller: SubtitlePanelController
     var active: Bool
     var busy: Bool
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         ZStack(alignment: .bottomTrailing) {
             Image(systemName: "captions.bubble.fill").font(.system(size: 23, weight: .regular))
-                .foregroundStyle(Color.accentColor).frame(maxWidth: .infinity, maxHeight: .infinity)
+                .foregroundStyle(ThemeColor.primary).frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityHidden(true)
-            Circle().fill(busy ? Color.orange : (active ? Color.green : Color.secondary))
+            Circle().fill(busy ? Color.orange : (active ? Color.green : ThemeColor.muted))
                 .frame(width: 6, height: 6).padding(7)
                 .accessibilityHidden(true)
         }

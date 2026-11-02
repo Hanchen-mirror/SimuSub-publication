@@ -96,7 +96,9 @@ enum CreatorBadge: Equatable {
 /// gamepad/TV symbol. Reference paths and CC0 notice ship in BrandIcons/.
 struct PlatformLogo: View {
     let platform: LivePlatform
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         GeometryReader { geometry in
             let side = min(geometry.size.width, geometry.size.height)
             Group {

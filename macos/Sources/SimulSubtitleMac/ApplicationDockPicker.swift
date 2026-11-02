@@ -11,15 +11,19 @@ struct ApplicationDockPicker: View {
     var onCancel: () -> Void
     @StateObject private var previews = ApplicationPreviewStore()
     @State private var hoveredID: String?
+    @State private var search = ""
+    private var filteredApps: [CaptureApplication] { applications.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.bundleIdentifier.localizedCaseInsensitiveContains(search) } }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var focusedApp: CaptureApplication? {
-        applications.first { $0.id == hoveredID }
-            ?? applications.first { $0.id == selectedBundleID }
-            ?? applications.first
+        filteredApps.first { $0.id == hoveredID }
+            ?? filteredApps.first { $0.id == selectedBundleID }
+            ?? filteredApps.first
     }
 
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         VStack(spacing: 14) {
             HStack {
                 Text("选择应用音频").font(.headline)
@@ -32,16 +36,18 @@ struct ApplicationDockPicker: View {
                     .help("取消选择").accessibilityLabel("取消选择")
             }
 
+            TextField("搜索应用名称或标识…", text: $search).textFieldStyle(ClipFieldStyle()).accessibilityIdentifier("application.search")
+
             if let app = focusedApp {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.035))
+                    RoundedRectangle(cornerRadius: 14).fill(ThemeColor.ink.opacity(0.035))
                     if let preview = previews.images[app.id] {
                         Image(nsImage: preview).resizable().scaledToFit().padding(4)
                     } else {
                         VStack(spacing: 10) {
                             Image(nsImage: previews.icon(for: app)).resizable().scaledToFit()
                                 .frame(width: 72, height: 72)
-                            Text(app.name).font(.callout).foregroundStyle(.secondary)
+                            Text(app.name).font(.callout).foregroundStyle(ThemeColor.muted)
                         }
                     }
                 }
@@ -52,27 +58,27 @@ struct ApplicationDockPicker: View {
             } else {
                 VStack(spacing: 12) {
                     Image(systemName: "app.dashed").font(.system(size: 36, weight: .light))
-                    Text(isRefreshing ? "正在读取应用…" : "请先打开 Safari 等应用，再刷新")
-                        .font(.callout).foregroundStyle(.secondary)
+                    Text(isRefreshing ? "正在读取应用…" : (search.isEmpty ? "请先打开 Safari 等应用，再刷新" : "没有匹配的应用"))
+                        .font(.callout).foregroundStyle(ThemeColor.muted)
                 }.frame(maxWidth: .infinity).frame(height: 207)
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .bottom, spacing: 10) {
-                    ForEach(Array(applications.enumerated()), id: \.element.id) { index, app in
+                    ForEach(Array(filteredApps.enumerated()), id: \.element.id) { index, app in
                         dockIcon(app, index: index)
                     }
                 }
                 .padding(.horizontal, 18).padding(.top, 18).padding(.bottom, 10)
             }
             .frame(height: 116)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
-            Text("点击图标开始监听 · 左右滑动查看更多应用")
-                .font(.caption).foregroundStyle(.secondary)
+            .background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 22))
+            Text("点击图标选择声音来源 · 左右滑动查看更多应用")
+                .font(.caption).foregroundStyle(ThemeColor.muted)
         }
         .padding(22)
-        .frame(width: 640, height: 420)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(width: 680, height: 470)
+        .background(ThemeColor.background)
         .task(id: focusedApp?.id) {
             if let app = focusedApp { await previews.loadPreview(for: app) }
         }
@@ -80,7 +86,7 @@ struct ApplicationDockPicker: View {
 
     private func dockIcon(_ app: CaptureApplication, index: Int) -> some View {
         let active = hoveredID == app.id
-        let hoveredIndex = applications.firstIndex { $0.id == hoveredID }
+        let hoveredIndex = filteredApps.firstIndex { $0.id == hoveredID }
         let neighbor = hoveredIndex.map { abs($0 - index) == 1 } ?? false
         return Button { onSelect(app) } label: {
             VStack(spacing: 8) {
@@ -91,7 +97,7 @@ struct ApplicationDockPicker: View {
                     .offset(y: reduceMotion ? 0 : (active ? -8 : (neighbor ? -3 : 0)))
                 Text(app.name).font(.system(size: 10, weight: active ? .medium : .regular))
                     .lineLimit(1).truncationMode(.tail).frame(width: 74)
-                Circle().fill(app.id == selectedBundleID ? Color.accentColor : Color.clear)
+                Circle().fill(app.id == selectedBundleID ? ThemeColor.primary : Color.clear)
                     .frame(width: 4, height: 4)
             }
             .frame(width: 76, height: 86)

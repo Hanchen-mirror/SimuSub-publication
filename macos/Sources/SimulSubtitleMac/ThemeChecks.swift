@@ -1,0 +1,123 @@
+import AppKit
+import SwiftUI
+
+@MainActor
+enum ThemeChecks {
+    private static var started = false
+    static func runIfRequested(model: AppModel, appearance: HomeAppearance, monitor: LiveMonitorStore, clips: ClipStore, subtitles: SubtitlePanelController) async -> Bool {
+        if let index = CommandLine.arguments.firstIndex(of: "--theme-reload-check"), CommandLine.arguments.count > index + 2 {
+            let restored = HomeAppearance(defaults: UserDefaults(suiteName: CommandLine.arguments[index + 1])!, backgroundFile: FileManager.default.temporaryDirectory.appendingPathComponent("theme-no-wallpaper.png"))
+            let passed = restored.theme == .green && restored.mode == .light && restored.japaneseFont == "Hiragino Sans" && restored.chineseFont == "PingFang SC"
+            try? JSONSerialization.data(withJSONObject: ["passed": passed, "check": "theme_mode_and_fonts_restored_in_new_process", "processID": ProcessInfo.processInfo.processIdentifier], options: [.prettyPrinted]).write(to: URL(fileURLWithPath: CommandLine.arguments[index + 2]))
+            NSApp.terminate(nil); return true
+        }
+        guard let index = CommandLine.arguments.firstIndex(of: "--theme-check"), CommandLine.arguments.count > index + 1 else { return false }
+        guard !started else { return true }; started = true
+        let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+        var checks: [String] = []
+        var windows: [(String, NSWindow)] = []
+        func require(_ value: Bool, _ name: String) throws {
+            if !value { throw NSError(domain: "ThemeChecks", code: 1, userInfo: [NSLocalizedDescriptionKey: name]) }
+            checks.append(name); print("CHECK: " + name); fflush(stdout)
+        }
+        func host<V: View>(_ name: String, _ root: V) {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 840), styleMask: [.titled], backing: .buffered, defer: false)
+            w.isReleasedWhenClosed = false
+            w.contentView = NSHostingView(rootView: root.environmentObject(model).environmentObject(model.permissions).environmentObject(appearance).environmentObject(monitor).environmentObject(clips).environmentObject(subtitles).appTheme().environmentObject(appearance))
+            w.orderFront(nil); windows.append((name, w))
+        }
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let suite = "SimuSub.ThemePersistence." + UUID().uuidString
+            let defaults = UserDefaults(suiteName: suite)!
+            try suite.write(to: directory.appendingPathComponent("persistence-suite.txt"), atomically: true, encoding: .utf8)
+            let wallpaper = directory.appendingPathComponent("no-wallpaper.png")
+            do {
+                let saved = HomeAppearance(defaults: defaults, backgroundFile: wallpaper)
+                saved.theme = .green; saved.mode = .light; saved.japaneseFont = "Hiragino Sans"; saved.chineseFont = "PingFang SC"
+                let restored = HomeAppearance(defaults: defaults, backgroundFile: wallpaper)
+                try require(restored.theme == .green && restored.mode == .light && restored.japaneseFont == saved.japaneseFont && restored.chineseFont == saved.chineseFont, "theme_mode_fonts_restore_from_saved_defaults")
+            }
+            appearance.apply()
+            host("settings", HStack(spacing: 0) { WorkspaceSidebar(selected: .settings, onSelect: { _ in }).frame(width: 200); AppearanceSettings() })
+            host("home", HStack(spacing: 0) { WorkspaceSidebar(selected: .home, onSelect: { _ in }).frame(width: 200); WorkspaceHome(onSelect: { _ in }, onClips: {}) })
+            host("subtitle", HStack(spacing: 0) { WorkspaceSidebar(selected: .subtitle, onSelect: { _ in }).frame(width: 200); SubtitleConfiguration(onServices: {}) })
+            host("recording", HStack(spacing: 0) { WorkspaceSidebar(selected: .recording, onSelect: { _ in }).frame(width: 200); ModuleHome(showSidebar: false, onSelect: { _ in }) })
+            host("services", AdvancedServiceSettings())
+            host("controls", TextField("主题输入框", text: .constant("保留编辑内容")).textFieldStyle(ClipFieldStyle()).frame(width: 400))
+            let emptyClips = ClipStore(root: directory.appendingPathComponent("empty-import-store"))
+            host("import", ClipWorkspace(onBack: {}).environmentObject(emptyClips))
+            if let fixtureIndex = CommandLine.arguments.firstIndex(of: "--theme-fixture"), CommandLine.arguments.count > fixtureIndex + 1 {
+                let projectID = try await clips.importVideo(URL(fileURLWithPath: CommandLine.arguments[fixtureIndex + 1]))
+                clips.update(projectID) { project in
+                    project.captions = [Caption(start: 1, end: 4, original: "今日は日本語の字幕をテストしています。", translated: "今天正在测试日语字幕。")]
+                    project.ranges = [ClipRange(title: "选段 1", start: 0, end: 5), ClipRange(title: "选段 2", start: 5, end: 10)]
+                }
+                host("editor", ClipWorkspace(onBack: {}))
+            }
+            host("source-picker", ApplicationDockPicker(applications: [], selectedBundleID: nil, isRefreshing: false, onRefresh: {}, onSelect: { _ in }, onCancel: {}))
+            model.captions = (0..<8).map { Caption(start: Double($0 * 4), end: Double($0 * 4 + 3), original: "今日は日本語の字幕をテストしています。", translated: "今天正在测试日语字幕。") }
+            model.isSubtitleOnly = true; subtitles.show(); subtitles.openSubtitleSettings()
+            guard let panel = subtitles.panel, let settings = subtitles.settingsWindow else { throw LiveMonitorError.invalidResponse }
+            panel.setFrame(NSRect(x: 50, y: 100, width: 860, height: 440), display: true)
+            let originalCount = model.captions.count
+            var pixels: [String: String] = [:]
+            for theme in AppTheme.allCases {
+                for mode in [AppearanceMode.light, .dark] {
+                    appearance.theme = theme; appearance.mode = mode
+                    try await Task.sleep(nanoseconds: 400_000_000)
+                    let key = theme.rawValue + "-" + mode.rawValue
+                    for (name, window) in windows { try snapshot(window, to: directory.appendingPathComponent(key + "-" + name + ".png")) }
+                    try snapshot(panel, to: directory.appendingPathComponent(key + "-floating.png"))
+                    try snapshot(settings, to: directory.appendingPathComponent(key + "-quick-settings.png"))
+                    try require(subtitles.panel === panel && subtitles.settingsWindow === settings && model.captions.count == originalCount, key + "_existing_windows_and_caption_state_preserved")
+                    let bitmap = try bitmap(windows[0].1)
+                    // cacheDisplay emits device RGB bytes; do not reinterpret them as calibrated
+                    // RGB and apply a second display-profile conversion.
+                    let pixel = bitmap.colorAt(x: bitmap.pixelsWide - 12, y: 12)!
+                    let expected = ThemePalette.color(theme, dark: mode == .dark, role: .background).usingColorSpace(.sRGB)!
+                    let error = abs(pixel.redComponent - expected.redComponent) + abs(pixel.greenComponent - expected.greenComponent) + abs(pixel.blueComponent - expected.blueComponent)
+                    try require(error < 0.04, key + "_rendered_background_matches_design")
+                    pixels[key] = String(format: "%.3f,%.3f,%.3f", pixel.redComponent, pixel.greenComponent, pixel.blueComponent)
+                    let controls = try Self.bitmap(windows.first { $0.0 == "controls" }!.1)
+                    let input = controls.colorAt(x: controls.pixelsWide / 2 + 350, y: controls.pixelsHigh / 2)!
+                    let controlColor = ThemePalette.color(theme, dark: mode == .dark, role: .control)
+                    let controlError = abs(input.redComponent - controlColor.redComponent) + abs(input.greenComponent - controlColor.greenComponent) + abs(input.blueComponent - controlColor.blueComponent)
+                    try require(controlError < 0.04, key + "_input_control_updates_live")
+                }
+            }
+            try require(Set(pixels.values).count == 8, "all_eight_rendered_backgrounds_distinct")
+            appearance.mode = .system
+            try await Task.sleep(nanoseconds: 200_000_000)
+            try require(NSApp.appearance == nil && appearance.isDark == (NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua), "follow_system_releases_forced_appearance")
+            NSApp.appearance = NSAppearance(named: appearance.isDark ? .aqua : .darkAqua)
+            try await Task.sleep(nanoseconds: 200_000_000)
+            try require(appearance.isDark == (NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua), "effective_appearance_change_propagates_without_reopening")
+            appearance.apply()
+            for rows in [2, 4, 6, 8] {
+                panel.setFrame(NSRect(x: 50, y: 100, width: 860, height: CGFloat(rows * 42 + 34)), display: true)
+                try await Task.sleep(nanoseconds: 100_000_000)
+                try snapshot(panel, to: directory.appendingPathComponent("floating-\(rows)-rows.png"))
+                try require(model.captions.count == originalCount, "resizing_\(rows)_rows_keeps_history")
+            }
+            try JSONSerialization.data(withJSONObject: ["passed": true, "checks": checks, "pixels": pixels], options: [.prettyPrinted, .sortedKeys]).write(to: directory.appendingPathComponent("theme-checks.json"))
+        } catch {
+            try? JSONSerialization.data(withJSONObject: ["passed": false, "checks": checks, "error": error.localizedDescription], options: [.prettyPrinted]).write(to: directory.appendingPathComponent("theme-checks.json"))
+            print("FAIL: " + error.localizedDescription)
+        }
+        for (_, window) in windows { window.close() }
+        NSApp.terminate(nil)
+        return true
+    }
+    private static func bitmap(_ window: NSWindow) throws -> NSBitmapImageRep {
+        guard let view = window.contentView else { throw LiveMonitorError.invalidResponse }
+        view.layoutSubtreeIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw LiveMonitorError.invalidResponse }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        return bitmap
+    }
+    private static func snapshot(_ window: NSWindow, to url: URL) throws {
+        guard let data = try bitmap(window).representation(using: .png, properties: [:]) else { throw LiveMonitorError.invalidResponse }
+        try data.write(to: url)
+    }
+}

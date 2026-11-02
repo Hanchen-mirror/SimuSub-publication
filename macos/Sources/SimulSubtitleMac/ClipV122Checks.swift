@@ -174,7 +174,7 @@ enum ClipV122Checks {
         try require(reopened.glossary == [.init(japanese: "歌枠", chinese: "歌回")], "v122_glossary_persists_across_model_restart")
         model.selectedTranslationProfileID = model.profiles.first { $0.isDeepSeek }?.id
         try require(!model.readinessIssues.contains { $0.contains("本地翻译") }, "v122_cloud_selection_does_not_require_local_translation_model")
-        try await ClipV120Checks.snapshot(SettingsWindow().environmentObject(model).environmentObject(model.permissions).preferredColorScheme(.dark), size: CGSize(width: 780, height: 900), output: directory.appendingPathComponent("v122-subtitle-settings.png"))
+        try await ClipV120Checks.snapshot(SettingsWindow().environmentObject(model).environmentObject(model.permissions).environmentObject(HomeAppearance(defaults: UserDefaults(suiteName: "SimuSub.ClipThemeChecks." + UUID().uuidString)!, backgroundFile: directory.appendingPathComponent("no-wallpaper.png"))).preferredColorScheme(.dark), size: CGSize(width: 780, height: 900), output: directory.appendingPathComponent("v122-subtitle-settings.png"))
         try require(true, "v122_native_glossary_and_translation_settings_rendered")
         return checks
     }

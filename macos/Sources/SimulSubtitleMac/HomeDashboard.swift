@@ -23,9 +23,16 @@ enum DashboardGroup: String, CaseIterable, Identifiable {
 @MainActor
 struct HomeDashboard: View {
     var onClips: (UUID?) -> Void
+    var embedded = false
     @EnvironmentObject private var monitor: LiveMonitorStore
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
-        ScrollView {
+        let _ = appThemeID
+        Group {
+            if embedded { sections } else { ScrollView { sections } }
+        }.accessibilityIdentifier("home.dashboard")
+    }
+    private var sections: some View {
             VStack(alignment: .leading, spacing: 28) {
                 ForEach(DashboardGroup.allCases) { group in
                     if group != .pending || monitor.creators.contains(where: { DashboardGroup.group($0) == .pending }) {
@@ -33,7 +40,6 @@ struct HomeDashboard: View {
                     }
                 }
             }.padding(.vertical, 6)
-        }.accessibilityIdentifier("home.dashboard")
     }
 }
 
@@ -52,7 +58,9 @@ private struct DashboardSection: View {
     private var categories: [String] {
         Array(Set(monitor.creators.filter { DashboardGroup.group($0) == group }.map { $0.snapshot.category ?? "未分类" })).sorted()
     }
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 Circle().fill(group.color).frame(width: 9, height: 9)
@@ -84,7 +92,7 @@ private struct DashboardSection: View {
                         Button("刷新直播状态") { monitor.refreshNow() }.buttonStyle(.borderless)
                     }
                 }.frame(maxWidth: .infinity).frame(height: 130)
-                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+                    .background(ThemeColor.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: group == .live ? 235 : 175), spacing: 14)], alignment: .leading, spacing: 14) {
                     ForEach(creators) { creator in
@@ -123,7 +131,9 @@ private struct DashboardCreatorCard: View {
         case .confirming: return "正在确认"
         }
     }
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         VStack(alignment: .leading, spacing: 0) {
             GeometryReader { geometry in
                 PlatformAvatar(url: creator.snapshot.coverURL ?? creator.avatarURL, platform: creator.platform)
@@ -151,7 +161,7 @@ private struct DashboardCreatorCard: View {
                         if badge == .live || active != nil { recordButton }
                     }
                     Text(creator.lastError ?? (creator.snapshot.title.isEmpty ? creator.snapshot.state.title : creator.snapshot.title))
-                        .font(.system(size: 12)).foregroundStyle(badge == .error ? Color.orange : scheme == .dark ? Color(red: 0.70, green: 0.77, blue: 0.88) : .secondary)
+                        .font(.system(size: 12)).foregroundStyle(badge == .error ? Color.orange : ThemeColor.muted)
                         .lineLimit(2).frame(height: 34, alignment: .topLeading)
                 }
             }.padding(10).frame(height: groupIsLive ? 94 : 80, alignment: .top)
@@ -161,7 +171,7 @@ private struct DashboardCreatorCard: View {
         .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(HomePalette.border(scheme).opacity(0.65)))
         .overlay(alignment: .bottomTrailing) {
             Button { controls.toggle() } label: { Image(systemName: "ellipsis").font(.system(size: 12)).padding(7) }
-                .buttonStyle(.plain).foregroundStyle(.secondary).help("录制操作与文件")
+                .buttonStyle(.plain).foregroundStyle(ThemeColor.muted).help("录制操作与文件")
                 .popover(isPresented: $controls) {
                     VStack(alignment: .leading, spacing: 14) {
                         Text(creator.name).font(.headline)
@@ -176,6 +186,8 @@ private struct DashboardCreatorCard: View {
             Button("剪辑这位主播的录像", action: onClips)
             Button("打开录制文件夹", action: monitor.showFolder)
             Toggle("自动录制", isOn: Binding(get: { creator.autoRecord }, set: { monitor.updateCreator(creator.id, autoRecord: $0); if $0 { monitor.startMonitoring() } }))
+            Toggle("开播提醒", isOn: Binding(get: { creator.notify }, set: { monitor.updateCreator(creator.id, notify: $0) }))
+            Button("允许系统开播提醒…") { Task { await monitor.requestNotifications() } }
             Toggle("监控这位主播", isOn: Binding(get: { creator.monitoring }, set: { monitor.updateCreator(creator.id, monitoring: $0); if $0 { monitor.startMonitoring() } }))
             Divider()
             Button("向前移动") { monitor.shiftCreator(creator.id, by: -1) }
@@ -197,7 +209,7 @@ private struct DashboardCreatorCard: View {
         } label: {
             Label(active == nil ? "开始录制" : active?.state == .preparing ? "取消连接" : active?.state == .stopping ? "保存中" : "停止保存", systemImage: active == nil ? "record.circle" : "stop.circle")
                 .font(.system(size: 11, weight: .semibold)).padding(.horizontal, 9).frame(height: 33)
-                .foregroundStyle(Color.black).background(active == nil ? HomePalette.accent : .orange, in: RoundedRectangle(cornerRadius: 8))
+                .foregroundStyle(ThemeColor.ink).background(active == nil ? ThemeColor.selection : .orange, in: RoundedRectangle(cornerRadius: 8))
         }.buttonStyle(.plain).disabled(active?.state == .stopping).fixedSize()
             .accessibilityIdentifier("home.record.\(creator.id)")
     }

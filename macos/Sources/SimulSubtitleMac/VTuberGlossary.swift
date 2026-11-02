@@ -56,11 +56,13 @@ struct VTuberGlossaryEditor: View {
     @EnvironmentObject private var model: AppModel
     @State private var text = ""
     @State private var status = ""
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         VStack(alignment: .leading, spacing: 10) {
             Text("本地 VTuber 术语库").font(.headline)
             Text("每行「日语 = 中文」。可添加主播名、游戏名和常用梗。用于本地识别热词、翻译与核对。热词是识别提示，不强行替换原文；模型不支持的字会提示跳过。")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(ThemeColor.muted)
             TextEditor(text: $text).font(.system(.body, design: .monospaced)).frame(height: 145)
                 .accessibilityIdentifier("settings.glossary.editor")
             HStack {
@@ -71,7 +73,7 @@ struct VTuberGlossaryEditor: View {
                 Button("载入默认词条") { text = VTuberGlossary.render(VTuberGlossary.defaults); status = "默认词条已填入，点击保存后生效。" }.disabled(model.isBusy)
             }
             if !status.isEmpty { Text(status).font(.caption).textSelection(.enabled) }
-        }.padding(18).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+        }.padding(18).background(ThemeColor.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
             .onAppear { text = VTuberGlossary.render(model.glossary) }
     }
 }

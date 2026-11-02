@@ -8,7 +8,9 @@ struct SubtitlePermissionTools: View {
 
     private var busy: Bool { permissions.isRequesting || permissions.isRepairing }
 
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         VStack(alignment: .leading, spacing: 13) {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
@@ -27,25 +29,25 @@ struct SubtitlePermissionTools: View {
                 }.disabled(busy)
             }
             Text("点击扳手检查；点击门图标打开系统设置，允许「\(CapturePermissionCenter.applicationName)」。授权开关需要你亲自开启。")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(ThemeColor.muted)
             if !permissions.notice.isEmpty {
                 Text(permissions.notice).font(.callout).textSelection(.enabled)
             }
             DisclosureGroup("仍然无法采集？") {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("系统要求重新打开时，请先导出字幕。只有旧记录失效时才需要重置本应用授权，其他应用不受影响。")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(ThemeColor.muted)
                     HStack {
                         Button("重新打开应用") { confirmRestart = true }
                         Button("重置本应用旧授权…") { permissions.needsResetConfirmation = true }
                     }.disabled(model.isBusy || busy)
                     if !permissions.screenAccessError.isEmpty {
-                        Text(permissions.screenAccessError).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        Text(permissions.screenAccessError).font(.caption).foregroundStyle(ThemeColor.muted).textSelection(.enabled)
                     }
                 }.padding(.top, 9)
             }.font(.caption)
         }
-        .padding(18).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+        .padding(18).background(ThemeColor.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
         .onAppear { permissions.refresh() }
         .confirmationDialog("重置本应用的音频授权并重新打开？", isPresented: $permissions.needsResetConfirmation) {
             Button("重置本应用授权并重新打开", role: .destructive) { permissions.resetScreenFromUI() }
@@ -63,7 +65,7 @@ struct SubtitlePermissionTools: View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 17))
                 .frame(width: 38, height: 38)
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+                .background(ThemeColor.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
         }.buttonStyle(.plain).help(title).accessibilityLabel(title).accessibilityIdentifier(identifier)
     }
 }

@@ -60,13 +60,15 @@ struct ClipRangeTimeline: View {
     var duration: Double
     var energy: [ClipEnergy]
     var onCommit: () -> Void
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         GeometryReader { geometry in
             let width = max(1, geometry.size.width), a = width * start / max(duration, 0.2), b = width * end / max(duration, 0.2)
             VStack(spacing: 7) {
-                HStack { Text("00:00"); Spacer(); Text(ClipTime.label(duration)) }.font(.system(size: 9)).monospacedDigit().foregroundStyle(.secondary)
+                HStack { Text("00:00"); Spacer(); Text(ClipTime.label(duration)) }.font(.system(size: 9)).monospacedDigit().foregroundStyle(ThemeColor.muted)
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(0.05))
+                    RoundedRectangle(cornerRadius: 7).fill(ThemeColor.ink.opacity(0.05))
                     Path { p in
                         let maxRMS = energy.map(\.rms).max() ?? 1
                         for i in 0..<80 {
@@ -76,7 +78,7 @@ struct ClipRangeTimeline: View {
                             let h = energy.isEmpty ? 2.0 : max(2, e / max(0.001, maxRMS) * 16)
                             p.move(to: CGPoint(x: x, y: 21 - h)); p.addLine(to: CGPoint(x: x, y: 21 + h))
                         }
-                    }.stroke(Color.primary.opacity(0.28), lineWidth: 1)
+                    }.stroke(ThemeColor.ink.opacity(0.28), lineWidth: 1)
                     Rectangle().fill(ClipTheme.cyan.opacity(0.2)).frame(width: max(0, b - a)).offset(x: a)
                     handle(x: a, width: width, isStart: true)
                     handle(x: b, width: width, isStart: false)
@@ -107,7 +109,9 @@ struct ClipRangeTimeline: View {
 struct ClipStylePreview: View {
     var cue: Caption
     var style: ClipSubtitleStyle
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         GeometryReader { geometry in
             ZStack {
                 RoundedRectangle(cornerRadius: 10).fill(.black)
@@ -133,7 +137,9 @@ struct ClipStyleDrawer: View {
         _style = style; self.cue = cue; self.onClose = onClose; self.onApply = onApply
         _library = StateObject(wrappedValue: ClipStyleLibrary(root: root))
     }
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         VStack(alignment: .leading, spacing: 12) {
             HStack { Text("自定义字幕样式").font(.title2.bold()); Spacer(); Button(action: onClose) { Image(systemName: "xmark") }.buttonStyle(.plain).help("关闭样式设置") }
             Picker("样式", selection: $tab) { Text("预设").tag(0); Text("自定义").tag(1); Text("我的样式").tag(2) }.pickerStyle(.segmented)
@@ -143,7 +149,7 @@ struct ClipStyleDrawer: View {
                     if tab == 0 {
                         preset("白色经典", .classic); preset("粉色双语", .pink); preset("暖金双语", .gold)
                     } else if tab == 2 {
-                        if library.presets.isEmpty { Text("还没有保存的样式，可在自定义后保存为预设。").font(.callout).foregroundStyle(.secondary) }
+                        if library.presets.isEmpty { Text("还没有保存的样式，可在自定义后保存为预设。").font(.callout).foregroundStyle(ThemeColor.muted) }
                         ForEach(library.presets) { item in preset(item.name, item.style) }
                     } else {
                         HStack(alignment: .top, spacing: 12) {
@@ -160,9 +166,9 @@ struct ClipStyleDrawer: View {
                                 Toggle("文字阴影", isOn: $style.shadow).toggleStyle(.checkbox)
                                 HStack { Text("背景透明度").font(.caption); Slider(value: $style.background, in: 0...1); Text("\(Int(style.background * 100))%").font(.caption).frame(width: 40) }
                             }.font(.caption)
-                        }.padding(12).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+                        }.padding(12).background(ThemeColor.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
                     }
-                    if let notice { Text(notice).font(.caption).foregroundStyle(.secondary) }
+                    if let notice { Text(notice).font(.caption).foregroundStyle(ThemeColor.muted) }
                 }.padding(.vertical, 2)
             }
             Divider()
@@ -172,7 +178,7 @@ struct ClipStyleDrawer: View {
                 Button("保存为预设") { do { try library.save(name: presetName.isEmpty ? "自定义样式" : presetName, style: style); notice = "已保存，可在“我的样式”中选择。" } catch { notice = error.localizedDescription } }
             }.font(.caption)
             HStack { Button("恢复默认") { style = .classic }; Spacer(); Button("应用样式") { onApply(scopeAll) }.buttonStyle(ClipActionButtonStyle(accent: ClipTheme.violet, prominent: true)) }
-            Text("样式即时预览，应用后用于内嵌字幕导出。").font(.system(size: 10)).foregroundStyle(.secondary)
+            Text("样式即时预览，应用后用于内嵌字幕导出。").font(.system(size: 10)).foregroundStyle(ThemeColor.muted)
         }.buttonStyle(ClipActionButtonStyle()).padding(20)
     }
     private func language(_ name: String, text: Binding<ClipTextStyle>) -> some View {
@@ -186,7 +192,7 @@ struct ClipStyleDrawer: View {
             Toggle("加粗", isOn: text.bold).font(.caption).toggleStyle(.switch).controlSize(.mini)
             color("描边颜色", value: text.outlineColor)
             Stepper(value: text.outline, in: 0...10, step: 0.5) { Text(String(format: "描边  %.1f px", text.wrappedValue.outline)).font(.caption) }
-        }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+        }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(ThemeColor.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
     }
     private func color(_ title: String, value: Binding<String>) -> some View {
         ColorPicker(title, selection: Binding(get: { Color(nsColor: .clipHex(value.wrappedValue)) }, set: { value.wrappedValue = NSColor($0).clipHex }), supportsOpacity: false).font(.caption)
@@ -196,6 +202,6 @@ struct ClipStyleDrawer: View {
     }
     private func fonts(including name: String) -> [String] { Array(Set(NSFontManager.shared.availableFontFamilies + [name])).sorted() }
     private func preset(_ name: String, _ item: ClipSubtitleStyle) -> some View {
-        Button { style = item } label: { HStack { Text(name); Spacer(); Image(systemName: "arrow.down.circle") }.padding(12).frame(maxWidth: .infinity).background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 9)) }.buttonStyle(.plain)
+        Button { style = item } label: { HStack { Text(name); Spacer(); Image(systemName: "arrow.down.circle") }.padding(12).frame(maxWidth: .infinity).background(ThemeColor.ink.opacity(0.04), in: RoundedRectangle(cornerRadius: 9)) }.buttonStyle(.plain)
     }
 }

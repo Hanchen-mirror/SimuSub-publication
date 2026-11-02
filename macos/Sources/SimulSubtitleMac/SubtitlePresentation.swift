@@ -37,6 +37,8 @@ struct SubtitleStrip: View {
     var canStartStop = true
     var onStartStop: (() -> Void)? = nil
     var onSettings: () -> Void = {}
+    var japaneseFont = ""
+    var chineseFont = ""
     @State private var pointerInside = false
     @State private var showingExport = false
     @State private var showingClearConfirmation = false
@@ -48,10 +50,12 @@ struct SubtitleStrip: View {
     private var compact: Bool { SubtitleDensity.forSize(size) == .compact }
     private var paperInset: CGFloat { size.height < 120 ? 4 : 10 }
 
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         ZStack {
             if captions.isEmpty {
-                Text(idleText).font(.system(size: 15, weight: .medium)).foregroundStyle(.secondary)
+                Text(idleText).font(.system(size: 15, weight: .medium)).foregroundStyle(ThemeColor.muted)
                     .multilineTextAlignment(.center).lineLimit(compact ? 1 : nil)
                     .truncationMode(.tail).help(idleText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -59,12 +63,12 @@ struct SubtitleStrip: View {
             } else if compact, let latest = captions.last {
                 HStack(spacing: 6) {
                     if displayMode == .bilingual {
-                        Text(compactLine(latest.original, original: true)).font(.system(size: 14)).foregroundStyle(.secondary)
+                        Text(compactLine(latest.original, original: true)).font(Font(SubtitleFont.native(japaneseFont, size: 14))).foregroundStyle(ThemeColor.muted)
                             .lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .trailing)
                         Text("｜").foregroundStyle(.tertiary)
                     }
                     Text(compactLine(SubtitleDocument.completedTranslation(latest) ?? (latest.translated.hasPrefix("翻译失败") || latest.translated.hasPrefix("译文未完成") ? "翻译未完成" : "正在翻译…"), original: false))
-                        .font(.system(size: 16, weight: .medium)).lineLimit(1).truncationMode(.tail)
+                        .font(Font(SubtitleFont.native(chineseFont, size: 16, weight: .medium))).lineLimit(1).truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: displayMode == .bilingual ? .leading : .center)
                 }
                 .help(compactText(latest))
@@ -75,7 +79,7 @@ struct SubtitleStrip: View {
                     ScrollView(.vertical, showsIndicators: true) {
                         LazyVStack(alignment: .center, spacing: 18) {
                             ForEach(captions) { caption in
-                                PaperCaption(caption: caption, mode: displayMode, textWidth: max(24, size.width - 224), shortWindow: size.height < 120).id(caption.id)
+                                PaperCaption(caption: caption, mode: displayMode, textWidth: max(24, size.width - 224), shortWindow: size.height < 120, japaneseFont: japaneseFont, chineseFont: chineseFont).id(caption.id)
                             }
                             Color.clear.frame(height: 1).id(bottomID)
                         }
@@ -91,12 +95,11 @@ struct SubtitleStrip: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            SubtitleGlassBackground()
-                .overlay(Color(white: colorScheme == .dark ? 0.12 : 0.98).opacity(colorScheme == .dark ? 0.12 : 0.08))
+            ThemeColor.caption
         }
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay {
-            RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 12).strokeBorder(ThemeColor.ink.opacity(0.10), lineWidth: 0.5)
                 .allowsHitTesting(false)
         }
         .overlay(alignment: compact ? .leading : .topLeading) {
@@ -129,7 +132,7 @@ struct SubtitleStrip: View {
         // A one-row strip follows the current tail; the full text remains in
         // history, in the hover description, and in exports.
         return SubtitleLineLayout.format(text, language: original ? .japanese : .chinese, width: width,
-            font: .systemFont(ofSize: original ? 14 : 16, weight: original ? .regular : .medium))
+            font: SubtitleFont.native(original ? japaneseFont : chineseFont, size: original ? 14 : 16, weight: original ? .regular : .medium))
             .components(separatedBy: "\n").last ?? text
     }
 
@@ -211,7 +214,7 @@ struct SubtitleStrip: View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 12, weight: .medium))
                 .frame(width: 26, height: 26)
-                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
+                .background(ThemeColor.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
                 .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain).foregroundStyle(tint).help(title).accessibilityLabel(title)
@@ -223,18 +226,22 @@ private struct PaperCaption: View {
     let mode: SubtitleDisplayMode
     let textWidth: CGFloat
     let shortWindow: Bool
+    var japaneseFont = ""
+    var chineseFont = ""
     private var typeLevel: Int {
         guard shortWindow else { return 0 }
         let originalRows = mode == .bilingual ? SubtitleLineLayout.format(caption.original, language: .japanese,
-            width: textWidth, font: .systemFont(ofSize: 16)).components(separatedBy: "\n").count : 0
+            width: textWidth, font: SubtitleFont.native(japaneseFont, size: 16)).components(separatedBy: "\n").count : 0
         let translatedRows = SubtitleLineLayout.format(SubtitleDocument.completedTranslation(caption) ?? "正在翻译…",
-            language: .chinese, width: textWidth, font: .systemFont(ofSize: 20, weight: .medium)).components(separatedBy: "\n").count
+            language: .chinese, width: textWidth, font: SubtitleFont.native(chineseFont, size: 20, weight: .medium)).components(separatedBy: "\n").count
         return min(2, max(0, originalRows + translatedRows - 2))
     }
     private var originalSize: CGFloat { 16 - CGFloat(typeLevel) * 2 }
     private var translatedSize: CGFloat { 20 - CGFloat(typeLevel) * 2 }
 
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         VStack(alignment: .center, spacing: shortWindow ? 2 : 5) {
             if let candidate = caption.pendingOriginal {
                 Text("待核对候选：" + candidate).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(2)
@@ -244,23 +251,23 @@ private struct PaperCaption: View {
                     .help(caption.recognitionNotice)
             }
             if caption.isDraft && !caption.confirmedPrefix.isEmpty {
-                Text("前段已确认 · 后文识别中").font(.system(size: 10)).foregroundStyle(.secondary)
+                Text("前段已确认 · 后文识别中").font(.system(size: 10)).foregroundStyle(ThemeColor.muted)
                     .help(caption.confirmedPrefix)
             }
             if mode == .bilingual {
-                Text(SubtitleLineLayout.format(caption.original, language: .japanese, width: textWidth, font: .systemFont(ofSize: originalSize)))
-                    .font(.system(size: originalSize, weight: .regular))
-                    .foregroundStyle(.secondary)
+                Text(SubtitleLineLayout.format(caption.original, language: .japanese, width: textWidth, font: SubtitleFont.native(japaneseFont, size: originalSize)))
+                    .font(Font(SubtitleFont.native(japaneseFont, size: originalSize)))
+                    .foregroundStyle(ThemeColor.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let chinese = SubtitleDocument.completedTranslation(caption) {
-                Text(SubtitleLineLayout.format(chinese, language: .chinese, width: textWidth, font: .systemFont(ofSize: translatedSize, weight: .medium))).font(.system(size: translatedSize, weight: .medium))
+                Text(SubtitleLineLayout.format(chinese, language: .chinese, width: textWidth, font: SubtitleFont.native(chineseFont, size: translatedSize, weight: .medium))).font(Font(SubtitleFont.native(chineseFont, size: translatedSize, weight: .medium)))
                     .foregroundStyle(caption.isDraft ? .secondary : .primary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text(caption.translated.hasPrefix("翻译失败") || caption.translated.hasPrefix("译文未完成")
                      ? "翻译未完成" : "正在翻译…")
-                    .font(.system(size: 14)).foregroundStyle(.secondary)
+                    .font(.system(size: 14)).foregroundStyle(ThemeColor.muted)
                     .help(caption.translated)
             }
         }
@@ -276,9 +283,11 @@ private struct SubtitleExportPicker: View {
     @State private var appeared = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         VStack(alignment: .leading, spacing: 12) {
-            Text("导出字幕").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+            Text("导出字幕").font(.system(size: 12, weight: .medium)).foregroundStyle(ThemeColor.muted)
             HStack(spacing: 8) {
                 ForEach(SubtitleExportFormat.allCases) { format in
                     ExportFormatButton(format: format) { onSelect(format) }
@@ -298,7 +307,9 @@ private struct ExportFormatButton: View {
     var action: () -> Void
     @State private var hovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: format == .txt ? "doc.plaintext" : "captions.bubble")
@@ -306,7 +317,7 @@ private struct ExportFormatButton: View {
                 Text(format.title).font(.system(size: 12, weight: .medium))
             }
             .frame(width: 64, height: 66)
-            .background(Color.accentColor.opacity(hovered ? 0.13 : 0.04), in: RoundedRectangle(cornerRadius: 12))
+            .background(ThemeColor.primary.opacity(hovered ? 0.13 : 0.04), in: RoundedRectangle(cornerRadius: 12))
             .scaleEffect(hovered && !reduceMotion ? 1.04 : 1)
         }
         .buttonStyle(.plain).onHover { hovered = $0 }
@@ -336,7 +347,9 @@ private struct SubtitleGlassBackground: NSViewRepresentable {
 struct SubtitleWindowMenu: View {
     @ObservedObject var model: AppModel
 
+    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
+        let _ = appThemeID
         Button(model.isSubtitleOnly ? "退出纯字幕" : "进入纯字幕") {
             model.isSubtitleOnly.toggle()
         }.keyboardShortcut("b", modifiers: [.command, .shift])

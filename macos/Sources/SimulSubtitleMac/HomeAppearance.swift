@@ -9,27 +9,60 @@ final class HomeAppearance: ObservableObject {
     @Published private(set) var backgroundImage: NSImage?
     @Published var importError: String?
     @Published private(set) var isDark: Bool
+    @Published var theme: AppTheme { didSet { defaults.set(theme.rawValue, forKey: "appearance.theme.v128"); apply() } }
+    @Published var mode: AppearanceMode { didSet { defaults.set(mode.rawValue, forKey: "appearance.mode.v128"); apply() } }
+    @Published var japaneseFont: String { didSet { defaults.set(japaneseFont, forKey: "subtitle.japaneseFont.v128") } }
+    @Published var chineseFont: String { didSet { defaults.set(chineseFont, forKey: "subtitle.chineseFont.v128") } }
+    private var systemObserver: NSObjectProtocol?
+    private var effectiveAppearanceObserver: NSKeyValueObservation?
     private let defaults: UserDefaults
     private let backgroundURL: URL
 
     var hasBackground: Bool { backgroundImage != nil }
-    var colorScheme: ColorScheme { hasBackground ? .light : (isDark ? .dark : .light) }
+    var colorScheme: ColorScheme { isDark ? .dark : .light }
 
     init(defaults: UserDefaults = .standard, backgroundFile: URL? = nil) {
         self.defaults = defaults
-        isDark = defaults.object(forKey: "home.dark.v099") == nil ? true : defaults.bool(forKey: "home.dark.v099")
+        theme = AppTheme(rawValue: defaults.string(forKey: "appearance.theme.v128") ?? "") ?? .purple
+        mode = AppearanceMode(rawValue: defaults.string(forKey: "appearance.mode.v128") ?? "")
+            ?? (defaults.object(forKey: "home.dark.v099") == nil ? .system : (defaults.bool(forKey: "home.dark.v099") ? .dark : .light))
+        japaneseFont = defaults.string(forKey: "subtitle.japaneseFont.v128") ?? ""
+        chineseFont = defaults.string(forKey: "subtitle.chineseFont.v128") ?? ""
+        isDark = false
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         backgroundURL = backgroundFile ?? support.appendingPathComponent("SimuSub/Appearance/background.png")
         if let data = try? Data(contentsOf: backgroundURL) {
             backgroundImage = Self.decodePNG(data)
         }
+        apply()
+        systemObserver = DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.apply() }
+        }
+        effectiveAppearanceObserver = NSApplication.shared.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in
+                guard let self, self.mode == .system else { return }
+                let dark = NSApplication.shared.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                if self.isDark != dark { self.isDark = dark }
+            }
+        }
     }
 
-    func toggleTheme() {
-        guard !hasBackground else { return }
-        isDark.toggle()
-        defaults.set(isDark, forKey: "home.dark.v099")
+    deinit { if let systemObserver { DistributedNotificationCenter.default().removeObserver(systemObserver) } }
+
+    func apply() {
+        ThemeColor.selected = theme
+        NSApplication.shared.appearance = mode == .system ? nil : NSAppearance(named: mode == .dark ? .darkAqua : .aqua)
+        isDark = NSApplication.shared.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        for window in NSApplication.shared.windows {
+            window.appearance = NSApplication.shared.appearance
+            if window.identifier?.rawValue != "subtitle.panel" {
+                window.backgroundColor = ThemePalette.color(theme, dark: isDark, role: .background)
+            }
+            window.contentView?.needsDisplay = true
+        }
     }
+
+    func toggleTheme() { mode = isDark ? .light : .dark }
 
     func choosePNG() {
         let panel = NSOpenPanel()
