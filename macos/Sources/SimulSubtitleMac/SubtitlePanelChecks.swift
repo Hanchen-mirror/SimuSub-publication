@@ -31,7 +31,7 @@ enum SubtitlePanelChecks {
             if let settings = controller.settingsWindow { try snapshot(settings, to: directory.appendingPathComponent("第六按钮-字幕设置.png")); settings.close() }
             try require(panel.isVisible && panel.frame == originalFrame, "v123_closing_settings_keeps_subtitles", &checks)
             try snapshot(panel, to: directory.appendingPathComponent("字幕-六按钮.png"))
-            try require(panel.frame.height == 96 && panel.frame.width <= 800, "initial_two_line_size", &checks)
+            try require(panel.frame.height == 280 && panel.frame.width <= 800, "initial_adaptive_window_size", &checks)
             try require(panel.styleMask.contains(.nonactivatingPanel) && !panel.hidesOnDeactivate,
                         "nonactivating_panel_survives_deactivation", &checks)
             try require(panel.collectionBehavior.contains(.canJoinAllSpaces)
@@ -51,7 +51,7 @@ enum SubtitlePanelChecks {
             try require(panel.frame.height > 96, "native_green_zoom", &checks)
             native.buttons[2].performClick(nil)
             try await Task.sleep(nanoseconds: 550_000_000)
-            try require(panel.frame.height == 96, "native_green_restore", &checks)
+            try require(panel.frame.height == 280, "native_green_restore", &checks)
             panel.setContentSize(NSSize(width: 500, height: 48))
             try await Task.sleep(nanoseconds: 180_000_000)
             try require(SubtitleDensity.forSize(panel.frame.size) == .compact, "compact_single_row_density", &checks)

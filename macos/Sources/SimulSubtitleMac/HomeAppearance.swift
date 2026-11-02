@@ -17,7 +17,7 @@ final class HomeAppearance: ObservableObject {
     @Published var chineseSize: Double { didSet { defaults.set(chineseSize, forKey: "subtitle.chineseSize.v129") } }
     @Published var reduceMotion: Bool { didSet { defaults.set(reduceMotion, forKey: "appearance.reduceMotion.v129") } }
     @Published var restorePage: Bool { didSet { defaults.set(restorePage, forKey: "appearance.restorePage.v129") } }
-    var lastPage: String { get { defaults.string(forKey: "appearance.lastPage.v129") ?? "home" } set { defaults.set(newValue, forKey: "appearance.lastPage.v129") } }
+    var lastPage: String { get { defaults.string(forKey: "appearance.lastPage.v129") ?? "subtitle" } set { defaults.set(newValue, forKey: "appearance.lastPage.v129") } }
     private var systemObserver: NSObjectProtocol?
     private var effectiveAppearanceObserver: NSKeyValueObservation?
     private let defaults: UserDefaults
@@ -28,7 +28,7 @@ final class HomeAppearance: ObservableObject {
 
     init(defaults: UserDefaults = .standard, backgroundFile: URL? = nil) {
         self.defaults = defaults
-        theme = AppTheme(rawValue: defaults.string(forKey: "appearance.theme.v128") ?? "") ?? .purple
+        theme = AppTheme(rawValue: defaults.string(forKey: "appearance.theme.v128") ?? "") ?? .blue
         mode = AppearanceMode(rawValue: defaults.string(forKey: "appearance.mode.v128") ?? "")
             ?? (defaults.object(forKey: "home.dark.v099") == nil ? .system : (defaults.bool(forKey: "home.dark.v099") ? .dark : .light))
         japaneseFont = defaults.string(forKey: "subtitle.japaneseFont.v128") ?? ""

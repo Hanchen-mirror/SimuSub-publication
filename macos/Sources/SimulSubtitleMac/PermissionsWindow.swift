@@ -14,8 +14,8 @@ struct SubtitlePermissionTools: View {
         VStack(alignment: .leading, spacing: 13) {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("应用音频权限").font(.headline)
-                    Label(permissions.screenGranted ? "已允许" : "需要允许录制应用音频",
+                    Text("应用音频").font(.headline)
+                    Label(permissions.screenGranted ? "已允许" : "未允许",
                           systemImage: permissions.screenGranted ? "checkmark.circle.fill" : "exclamationmark.circle")
                         .font(.caption).foregroundStyle(permissions.screenGranted ? Color.green : Color.orange)
                 }
@@ -28,8 +28,6 @@ struct SubtitlePermissionTools: View {
                     permissions.openSettings()
                 }.disabled(busy)
             }
-            Text("点击扳手检查；点击门图标打开系统设置，允许「\(CapturePermissionCenter.applicationName)」。授权开关需要你亲自开启。")
-                .font(.caption).foregroundStyle(ThemeColor.muted)
             if !permissions.notice.isEmpty {
                 Text(permissions.notice).font(.callout).textSelection(.enabled)
             }
@@ -47,7 +45,7 @@ struct SubtitlePermissionTools: View {
                 }.padding(.top, 9)
             }.font(.caption)
         }
-        .padding(18).background(ThemeColor.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+        .designPanel()
         .onAppear { permissions.refresh() }
         .confirmationDialog("重置本应用的音频授权并重新打开？", isPresented: $permissions.needsResetConfirmation) {
             Button("重置本应用授权并重新打开", role: .destructive) { permissions.resetScreenFromUI() }

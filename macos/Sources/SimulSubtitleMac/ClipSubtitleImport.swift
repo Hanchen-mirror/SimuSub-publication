@@ -1,6 +1,7 @@
 import Foundation
 
 enum ClipImportLayout: String, CaseIterable, Identifiable {
+    case automatic = "自动识别"
     case chineseFirst = "双语：中文在上", japaneseFirst = "双语：日语在上", chinese = "纯中文", japanese = "纯日语"
     var id: String { rawValue }
 }
@@ -38,6 +39,11 @@ enum ClipSubtitleImport {
             guard b > a, a + offset < duration, b + offset > 0, !lines.isEmpty else { return nil }
             let original: String, translated: String
             switch layout {
+            case .automatic:
+                let japanese = lines.filter { $0.range(of: "[\\u3040-\\u30ff]", options: .regularExpression) != nil }
+                if japanese.isEmpty && lines.count > 1 { original = lines[0]; translated = lines.dropFirst().joined(separator: "\n") }
+                else { original = japanese.joined(separator: "\n"); translated = lines.filter { !japanese.contains($0) }.joined(separator: "\n") }
+
             case .chinese: original = ""; translated = lines.joined(separator: "\n")
             case .japanese: original = lines.joined(separator: "\n"); translated = ""
             case .chineseFirst: translated = lines[0]; original = lines.dropFirst().joined(separator: "\n")

@@ -13,34 +13,27 @@ extension LivePlatform {
 
 struct LiveRecordingSettings: View {
     @EnvironmentObject private var monitor: LiveMonitorStore
-    @Environment(\.appThemeID) private var appThemeID
+    @Environment(\.appThemeID) private var themeID
     var body: some View {
-        let _ = appThemeID
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                Text("录制设置").font(.title2.bold())
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("保存目录").font(.headline)
-                    Text(monitor.settings.outputFolder).font(.caption).foregroundStyle(ThemeColor.muted).textSelection(.enabled)
-                    HStack {
-                        Button("选择文件夹", action: monitor.chooseFolder)
-                        Button("在 Finder 中打开", action: monitor.showFolder)
-                    }
-                    Divider()
-                    Picker("视频格式", selection: Binding(get: { monitor.settings.container }, set: { value in monitor.updateSettings { $0.container = value } })) {
-                        ForEach(RecordingContainer.allCases) { Text($0.title).tag($0) }
-                    }.frame(maxWidth: 300)
-                    Text("默认 MKV，适合长时间录制；MP4 使用分段封装。原画质保存，不重复编码，已录内容在断开时尽量保留。")
-                        .font(.caption).foregroundStyle(ThemeColor.muted)
-                    Stepper("同时录制：\(monitor.settings.maximumRecordings) 位主播", value: Binding(get: { monitor.settings.maximumRecordings }, set: { value in monitor.updateSettings { $0.maximumRecordings = value } }), in: 1...3)
-                    Stepper("检查间隔：\(monitor.settings.intervalSeconds / 60) 分钟", value: Binding(get: { monitor.settings.intervalSeconds / 60 }, set: { value in monitor.updateSettings { $0.intervalSeconds = value * 60 } }), in: 1...15)
-                }.padding(18).background(ThemeColor.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
-                Text("设置对下一次录制生效。自动录制按主播单独开启；达到并发上限时等待后续检查。单次录制上限 12 小时，失败后等待 10 分钟再尝试。")
-                    .font(.caption).foregroundStyle(ThemeColor.muted)
-                Text("主播监控仅在 SimuSub 运行且 Mac 保持唤醒时工作；平台访问限制会影响检查与录制。")
-                    .font(.caption).foregroundStyle(ThemeColor.muted)
-            }.padding(.trailing, 5)
-        }
+        let _ = themeID
+        VStack(alignment: .leading, spacing: 24) {
+            Text("录制").font(.system(size: 16, weight: .semibold))
+            HStack { Text("保存位置"); Spacer(); Button(action: monitor.chooseFolder) { Label("选择文件夹", systemImage: "folder") }.buttonStyle(ThemeActionButtonStyle()) }.help(monitor.settings.outputFolder)
+            HStack(spacing: 17) {
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("格式").font(.caption).foregroundStyle(ThemeColor.muted)
+                    DesignMenuField(title: monitor.settings.container.title) { ForEach(RecordingContainer.allCases) { value in Button(value.title) { monitor.updateSettings { $0.container = value } } } }
+                }
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("同时录制").font(.caption).foregroundStyle(ThemeColor.muted)
+                    DesignMenuField(title: "\(monitor.settings.maximumRecordings)") { ForEach(1...3, id: \.self) { value in Button("\(value)") { monitor.updateSettings { $0.maximumRecordings = value } } } }
+                }
+            }
+            VStack(alignment: .leading, spacing: 9) {
+                Text("检查间隔").font(.caption).foregroundStyle(ThemeColor.muted)
+                DesignMenuField(title: "\(monitor.settings.intervalSeconds / 60) 分钟") { ForEach(1...15, id: \.self) { value in Button("\(value) 分钟") { monitor.updateSettings { $0.intervalSeconds = value * 60 } } } }
+            }
+        }.designPanel()
     }
 }
 
@@ -143,24 +136,39 @@ struct SimuSubGuide: View {
 struct PlatformAdvancedSettings: View {
     @EnvironmentObject private var monitor: LiveMonitorStore
     @State private var selected: LivePlatform?
-    @Environment(\.appThemeID) private var appThemeID
+    @Environment(\.appThemeID) private var themeID
     var body: some View {
-        let _ = appThemeID
+        let _ = themeID
         VStack(alignment: .leading, spacing: 20) {
-            Text("平台设置").font(.title2.bold())
-            Text("账号入口在直播录制页的平台图标旁。这里可管理已保存的会话和可选接口凭证。")
-                .font(.callout).foregroundStyle(ThemeColor.muted)
-            ForEach(LivePlatform.allCases) { platform in
-                Button { selected = platform } label: {
-                    HStack(spacing: 12) {
-                        PlatformLogo(platform: platform).frame(width: 24, height: 24)
-                        Text(platform.title)
-                        Spacer()
-                        Image(systemName: "chevron.right").foregroundStyle(ThemeColor.muted)
-                    }.padding(14).background(ThemeColor.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-                }.buttonStyle(.plain)
+            HStack(spacing: 8) {
+                Button { selected = nil } label: { Image(systemName: "display").frame(width: 32, height: 32).background(selected == nil ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 8)) }.help("全部平台")
+                ForEach(LivePlatform.allCases) { platform in Button { selected = platform } label: { PlatformLogo(platform: platform).frame(width: 18, height: 18).frame(width: 32, height: 32).background(selected == platform ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 8)) }.help(platform.title) }
+            }.buttonStyle(.plain)
+            ForEach(LivePlatform.allCases.filter { selected == nil || $0 == selected }) { platform in
+                PlatformConnectionCard(platform: platform, credentials: monitor.credentials)
             }
-            Spacer()
-        }.sheet(item: $selected) { LiveConnectionSheet(platform: $0, credentials: monitor.credentials) }
+        }
+    }
+}
+struct PlatformConnectionCard: View {
+    let platform: LivePlatform
+    @ObservedObject var credentials: LiveCredentials
+    @State private var message: String?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(spacing: 11) { PlatformLogo(platform: platform).frame(width: 22, height: 22); Text(platform.title).font(.system(size: 16, weight: .semibold)) }
+            HStack(spacing: 10) {
+                Button { credentials.useGuest(platform) } label: { Text("访客").frame(maxWidth: .infinity) }.buttonStyle(ThemeActionButtonStyle()).overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(credentials.usesAccount(platform) ? ThemeColor.line : ThemeColor.primary))
+                Button { NSWorkspace.shared.open(platform.loginURL) } label: { Label("官网登录", systemImage: "arrow.up.right.square").frame(maxWidth: .infinity) }.buttonStyle(ThemeActionButtonStyle())
+                Button { importCookies() } label: { Text("导入 Cookies").frame(maxWidth: .infinity) }.buttonStyle(ThemeActionButtonStyle())
+            }
+            if let message { Text(message).font(.caption).foregroundStyle(ThemeColor.muted) }
+        }.designPanel()
+    }
+    private func importCookies() {
+        let panel = NSOpenPanel(); panel.allowedContentTypes = [.plainText]; panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { try credentials.importCookies(url, platform: platform); message = "已导入" }
+        catch { message = LiveMonitorStore.message(error) }
     }
 }

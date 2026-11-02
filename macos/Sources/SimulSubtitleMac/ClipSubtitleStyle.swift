@@ -25,8 +25,8 @@ struct ClipSubtitleStyle: Codable, Equatable {
     var background: Double = 0
     var shadow = true
     static var classic: Self { Self() }
-    static var pink: Self { var s = Self(); s.chinese.color = "#FF8FCB"; return s }
-    static var gold: Self { var s = Self(); s.chinese.color = "#FFD889"; s.chinese.size = 46; return s }
+    static var pink: Self { var s = Self(); s.chinese.color = "#F2CDD8"; return s }
+    static var gold: Self { var s = Self(); s.chinese.color = "#E9D6A2"; s.chinese.size = 46; return s }
     var valid: Bool {
         [chinese, japanese].allSatisfy { t in
             t.size.isFinite && (12...120).contains(t.size) && t.outline.isFinite && (0...10).contains(t.outline)

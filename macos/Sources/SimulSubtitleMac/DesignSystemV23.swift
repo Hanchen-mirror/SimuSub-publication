@@ -3,10 +3,10 @@ import SwiftUI
 // Layout values from the approved SimuSub v2.3 HTML; colors come exclusively
 // from the complete theme palette. Native window chrome is outside this canvas.
 enum DesignV23 {
-    static let sidebar: CGFloat = 192
-    static let pageInset: CGFloat = 32
+    static let sidebar: CGFloat = 190
+    static let pageInset: CGFloat = 46
     static let panelInset: CGFloat = 26
-    static let panelRadius: CGFloat = 22
+    static let panelRadius: CGFloat = 18
 }
 extension View {
     func designPanel() -> some View {
@@ -24,7 +24,7 @@ struct DesignPageHeading<Trailing: View>: View {
     @ViewBuilder var trailing: () -> Trailing
     var body: some View {
         HStack { Text(title).font(.system(size: 26, weight: .semibold)); Spacer(); trailing() }
-            .frame(minHeight: 58).padding(.bottom, 8)
+            .frame(minHeight: 32).padding(.bottom, 12)
     }
 }
 struct DesignToggleStyle: ToggleStyle {

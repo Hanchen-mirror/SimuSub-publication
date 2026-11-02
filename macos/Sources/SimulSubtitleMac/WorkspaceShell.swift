@@ -17,19 +17,17 @@ struct WorkspaceSidebar: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
                 Image(systemName: "captions.bubble").font(.system(size: 19)).foregroundStyle(ThemeColor.surface)
-                    .frame(width: 34, height: 34).background(ThemeColor.primary, in: RoundedRectangle(cornerRadius: 11))
+                    .frame(width: 30, height: 30).background(ThemeColor.primary, in: RoundedRectangle(cornerRadius: 9))
                 Text("SimuSub").font(.system(size: 20, weight: .bold))
             }.padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 30)
-            ForEach(WorkspaceDestination.allCases.filter { $0 != .settings }) { item in
+            ForEach(WorkspaceDestination.allCases.filter { $0 != .settings && $0 != .home }) { item in
                 entry(item.title, symbol: item.symbol, selected: selected == item) { onSelect(item) }
                     .accessibilityIdentifier("nav." + item.rawValue)
             }
             Spacer()
-            entry(appearance.isDark ? "浅色模式" : "深色模式", symbol: appearance.isDark ? "sun.max" : "moon", action: appearance.toggleTheme)
-            entry("使用帮助", symbol: "questionmark.circle") { guide = true }
             entry("设置", symbol: "gearshape", selected: selected == .settings) { onSelect(.settings) }.accessibilityIdentifier("nav.settings")
         }.padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 20).background(ThemeColor.sidebar.ignoresSafeArea(.container, edges: .top))
-            .overlay(alignment: .trailing) { ThemeColor.line.frame(width: 1) }
+
             .sheet(isPresented: $guide) { SimuSubGuide().appTheme() }
     }
     private func entry(_ title: String, symbol: String, selected: Bool = false, action: @escaping () -> Void) -> some View {

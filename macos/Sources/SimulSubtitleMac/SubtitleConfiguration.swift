@@ -13,78 +13,51 @@ struct SubtitleConfiguration: View {
             VStack(alignment: .leading, spacing: 20) {
                 DesignPageHeading(title: "日中同传") { EmptyView() }
                 HStack(alignment: .top, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("声音与翻译").font(.system(size: 15, weight: .semibold)).padding(.bottom, 28)
-                        Text("声音来源").font(.system(size: 12)).padding(.bottom, 12)
-                        SubtitleSourceDock().padding(.bottom, 26).zIndex(2)
-                        Text("语言").font(.system(size: 12)).padding(.bottom, 12)
-                        HStack(spacing: 14) {
-                            Text("日语"); Image(systemName: "arrow.right").foregroundStyle(ThemeColor.muted)
-                            Text("简体中文").foregroundStyle(ThemeColor.primaryInk).frame(maxWidth: .infinity).frame(height: 38)
-                                .background(ThemeColor.dockSelected, in: RoundedRectangle(cornerRadius: 8))
-                                .padding(4).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 12))
-                        }.font(.system(size: 13)).padding(.bottom, 20)
-                        Divider().overlay(ThemeColor.line)
-                        Button(action: onServices) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "cpu").font(.system(size: 19)).foregroundStyle(ThemeColor.primary)
-                                VStack(alignment: .leading, spacing: 7) {
-                                    Text("模型与服务").font(.system(size: 12, weight: .semibold))
-                                    Text("语音识别 · " + serviceName(model.selectedASRProfileID) + "   /   翻译 · " + serviceName(model.selectedTranslationProfileID)).font(.system(size: 10)).foregroundStyle(ThemeColor.muted).lineLimit(2)
-                                }
-                                Spacer(); Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(ThemeColor.primary)
-                            }.padding(.vertical, 18)
-                        }.buttonStyle(.plain).accessibilityIdentifier("subtitle.services")
-                        Divider().overlay(ThemeColor.line).padding(.bottom, 24)
-                        Toggle("弱化背景音乐", isOn: $model.suppressBackgroundMusic).toggleStyle(DesignToggleStyle()).padding(14)
-                            .background(ThemeColor.control, in: RoundedRectangle(cornerRadius: 12)).disabled(model.isBusy)
-                        if model.isDownloadingModels {
-                            ProgressView(value: model.downloadProgress).padding(.top, 14)
-                            Text(model.downloadStatus).font(.system(size: 10)).foregroundStyle(ThemeColor.muted).padding(.top, 6)
-                        } else if !model.readinessIssues.isEmpty {
-                            Button("准备本地引擎", action: model.ensureLocalModels).font(.system(size: 11)).padding(.top, 14)
+                    VStack(alignment: .leading, spacing: 26) {
+                        Text("声音来源").font(.system(size: 16, weight: .semibold))
+                        SubtitleSourceDock().zIndex(2)
+                        HStack(alignment: .bottom, spacing: 14) {
+                            VStack(alignment: .leading, spacing: 9) {
+                                Text("源语言").font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
+                                DesignMenuField(title: "日语") { Button("日语") {} }.accessibilityIdentifier("subtitle.sourceLanguage")
+                            }
+                            Image(systemName: "arrow.right").foregroundStyle(ThemeColor.muted).frame(height: 44)
+                            VStack(alignment: .leading, spacing: 9) {
+                                Text("翻译为").font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
+                                DesignMenuField(title: "简体中文") { Button("简体中文") {} }.accessibilityIdentifier("subtitle.targetLanguage")
+                            }
                         }
-                        Spacer(minLength: 20)
                         Button {
                             model.isSubtitleOnly = true
                             if model.isCapturing { subtitles.show() } else { model.toggleSubtitlePlayback() }
-                        } label: { Label(model.isCapturing ? "打开字幕浮窗" : "开始同传", systemImage: "play.fill").frame(maxWidth: .infinity).frame(height: 32) }
+                        } label: { Label(model.isCapturing ? "打开字幕浮窗" : "开始同传", systemImage: "play").frame(maxWidth: .infinity).frame(height: 28) }
                             .buttonStyle(ThemeActionButtonStyle(prominent: true)).disabled(model.isStarting || model.isStopping || model.isLoadingApplications)
                             .accessibilityIdentifier("subtitle.start")
-                    }.frame(height: 568).designPanel().zIndex(1).accessibilityIdentifier("subtitle.sourcePanel")
-                    VStack(alignment: .leading, spacing: 0) {
-                        HStack { Text("字幕外观").font(.system(size: 15, weight: .semibold)); Spacer(); Text("实时预览").font(.system(size: 10)).foregroundStyle(ThemeColor.muted).padding(8).background(ThemeColor.soft, in: Capsule()) }.frame(height: 22).padding(.bottom, 28)
+                    }.designPanel().zIndex(1).accessibilityIdentifier("subtitle.sourcePanel")
+                    VStack(alignment: .leading, spacing: 24) {
+                        Text("字幕外观").font(.system(size: 16, weight: .semibold))
                         VStack(spacing: 7) {
                             if model.subtitleDisplayMode == .bilingual { Text("今日も一緒に、ゆっくりいこう。").font(Font(SubtitleFont.native(appearance.japaneseFont, size: appearance.japaneseSize))).foregroundStyle(ThemeColor.muted) }
-                            Text("今天也一起，慢慢来吧。").font(Font(SubtitleFont.native(appearance.chineseFont, size: appearance.chineseSize, weight: .medium)))
-                        }.frame(maxWidth: .infinity).frame(height: 116)
-                            .background(ThemeColor.caption, in: RoundedRectangle(cornerRadius: 13))
-                            .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(ThemeColor.line)).padding(.horizontal, 14).padding(.vertical, 18)
-                            .background(ThemeColor.preview, in: RoundedRectangle(cornerRadius: 16)).padding(.bottom, 24)
-                        SubtitleFontSettings().padding(.bottom, 22)
-                        HStack(spacing: 14) {
-                            sizePicker("原文字号", selection: $appearance.japaneseSize)
-                            sizePicker("译文字号", selection: $appearance.chineseSize)
+                            Text("今天也一起，慢慢来吧。").font(Font(SubtitleFont.native(appearance.chineseFont, size: appearance.chineseSize, weight: .semibold)))
+                        }.frame(maxWidth: .infinity).frame(height: 116).background(ThemeColor.preview, in: RoundedRectangle(cornerRadius: 12))
+                        SubtitleFontSettings()
+                        HStack(spacing: 17) {
+                            sizePicker("日语字号", selection: $appearance.japaneseSize)
+                            sizePicker("中文字号", selection: $appearance.chineseSize)
                         }
-                        Spacer(minLength: 20)
                         Toggle("显示日语原文", isOn: Binding(get: { model.subtitleDisplayMode == .bilingual }, set: { model.subtitleDisplayMode = $0 ? .bilingual : .chinese }))
-                            .toggleStyle(DesignToggleStyle()).padding(14).frame(height: 48).background(ThemeColor.control, in: RoundedRectangle(cornerRadius: 12))
-                    }.frame(height: 568).designPanel().accessibilityIdentifier("subtitle.appearancePanel")
+                            .toggleStyle(DesignToggleStyle()).frame(height: 36)
+                    }.designPanel().accessibilityIdentifier("subtitle.appearancePanel")
                 }
-            }.padding(.horizontal, 32).padding(.vertical, 28)
+            }.padding(DesignV23.pageInset)
         }.background(ThemeColor.background)
     }
-    private func serviceName(_ id: UUID?) -> String {
-        guard let profile = model.profiles.first(where: { $0.id == id }) else { return "未选择" }
-        return profile.kind == .local ? "本地" : profile.name
-    }
     private func sizePicker(_ title: String, selection: Binding<Double>) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.system(size: 12))
+        VStack(alignment: .leading, spacing: 9) {
+            Text(title).font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
             DesignMenuField(title: "\(Int(selection.wrappedValue)) px") {
                 ForEach([12.0,14,16,18,20,22,24,28,32], id: \.self) { size in Button("\(Int(size)) px") { selection.wrappedValue = size } }
             }
-
         }.frame(maxWidth: .infinity)
     }
 }
@@ -111,20 +84,17 @@ struct SubtitleSourceDock: View {
                             Image(nsImage: app.icon ?? NSImage()).resizable().scaledToFit().frame(width: 36, height: 36)
                             Text(shortName(app)).font(.system(size: 10)).lineLimit(1)
                             Circle().fill(model.selectedAppBundleID == app.bundleIdentifier ? ThemeColor.primary : .clear).frame(width: 4, height: 4)
-                        }.frame(width: 54, height: 76).background(model.selectedAppBundleID == app.bundleIdentifier ? ThemeColor.dockSelected : .clear, in: RoundedRectangle(cornerRadius: 13))
+                        }.frame(maxWidth: .infinity).frame(height: 86).background(model.selectedAppBundleID == app.bundleIdentifier ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 12))
                     }.buttonStyle(.plain).help("选择 " + (app.localizedName ?? "应用")).accessibilityIdentifier("source." + (app.bundleIdentifier ?? ""))
                 }
-                Divider().frame(height: 64)
                 Button { reload(); more.toggle(); searchFocused = more } label: {
-                    VStack(spacing: 7) { Image(systemName: "plus").font(.system(size: 23, weight: .light)).frame(height: 36); Text("更多").font(.system(size: 10)) }.frame(width: 44, height: 76)
+                    VStack(spacing: 7) { Image(systemName: "plus").font(.system(size: 23, weight: .light)).frame(height: 36); Text("其他").font(.system(size: 10)) }.frame(maxWidth: .infinity).frame(height: 86)
                 }.buttonStyle(.plain).foregroundStyle(ThemeColor.muted).accessibilityIdentifier("source.more")
                 Spacer(minLength: 0)
-            }.padding(.horizontal, 8).padding(.vertical, 8).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 18))
-                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(ThemeColor.line)).disabled(model.isBusy)
+            }.padding(.vertical, 8).disabled(model.isBusy)
                 .overlay(alignment: .topLeading) {
-                    if more { moreApplications.offset(y: 124).zIndex(3) }
+                    if more { moreApplications.offset(y: 94).zIndex(3) }
                 }
-            Text(model.selectedAppName.map { $0 + " · 已选择" } ?? "选择正在播放日语的应用").font(.system(size: 10)).foregroundStyle(ThemeColor.muted).padding(.horizontal, 4)
         }.onAppear(perform: reload)
             .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)) { _ in reload() }
             .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didTerminateApplicationNotification)) { _ in reload() }

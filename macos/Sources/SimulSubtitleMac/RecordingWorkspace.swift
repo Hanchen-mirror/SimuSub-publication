@@ -26,22 +26,7 @@ struct RecordingWorkspace: View {
                     }
                     CreatorListV23(onClips: onClips, platform: platform)
                 }.designPanel()
-                VStack(alignment: .leading, spacing: 22) {
-                    HStack { Text("录制偏好").font(.system(size: 15, weight: .semibold)); Spacer(); Button(action: onSettings) { Image(systemName: "slider.horizontal.3") }.buttonStyle(.plain).help("录制与平台设置") }
-                    Button(action: monitor.chooseFolder) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "folder").foregroundStyle(ThemeColor.primary).frame(width: 38, height: 38).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 11))
-                            Text("保存位置"); Spacer(); Text(monitor.settings.outputFolder).font(.system(size: 12)).foregroundStyle(ThemeColor.muted).lineLimit(1).truncationMode(.middle); Image(systemName: "chevron.right").font(.caption)
-                        }.frame(height: 48)
-                    }.buttonStyle(.plain).accessibilityIdentifier("recording.folder")
-                    Divider().overlay(ThemeColor.line)
-                    HStack { Text("视频格式"); Spacer(); DesignMenuField(title: monitor.settings.container.title) { ForEach(RecordingContainer.allCases) { value in Button(value.title) { monitor.updateSettings { $0.container = value } } } }.frame(width: 180) }
-
-                    Divider().overlay(ThemeColor.line)
-                    HStack { Label("直播结束后自动保存", systemImage: "checkmark.circle"); Spacer(); Button("打开录制文件夹", action: monitor.showFolder) }.font(.system(size: 13))
-                }.designPanel()
-                if let notice = monitor.notice { HStack { Text(notice).font(.caption); Spacer(); Button { monitor.notice = nil } label: { Image(systemName: "xmark") } }.foregroundStyle(ThemeColor.muted) }
-            }.padding(.horizontal, 32).padding(.vertical, 28)
+            }.padding(DesignV23.pageInset)
         }.background(ThemeColor.background)
             .sheet(isPresented: $adding) {
                 VStack(alignment: .leading, spacing: 20) {
@@ -87,37 +72,46 @@ private struct CreatorRowV23: View {
     var onClips: () -> Void
     @EnvironmentObject private var monitor: LiveMonitorStore
     @State private var removing = false
-    @State private var controls = false
     private var active: LiveRecording? { monitor.activeRecording(creator.id) }
-    private var badge: CreatorBadge { CreatorBadge(creator) }
     @Environment(\.appThemeID) private var appThemeID
     var body: some View {
         let _ = appThemeID
         HStack(spacing: 14) {
-            PlatformAvatar(url: creator.avatarURL, platform: creator.platform).frame(width: 40, height: 40).clipShape(Circle())
-            VStack(alignment: .leading, spacing: 6) {
-                Text(creator.name).font(.system(size: 13, weight: .semibold))
-                HStack(spacing: 6) { PlatformLogo(platform: creator.platform).frame(width: 12, height: 12); Text(creator.lastError ?? (creator.snapshot.title.isEmpty ? creator.snapshot.state.title : creator.snapshot.title)).lineLimit(1) }.font(.system(size: 11)).foregroundStyle(ThemeColor.muted)
+            PlatformAvatar(url: creator.avatarURL, platform: creator.platform).frame(width: 54, height: 54).clipShape(Circle())
+                .contentShape(Circle()).onTapGesture(count: 2, perform: openLive)
+                .help("双击打开直播间").accessibilityLabel(creator.name + " 直播间").accessibilityAction(named: "打开直播间", openLive)
+            VStack(alignment: .leading, spacing: 7) {
+                Text(creator.name).font(.system(size: 15, weight: .semibold))
+                HStack(spacing: 6) { PlatformLogo(platform: creator.platform).frame(width: 14, height: 14); Text(creator.snapshot.state.title).lineLimit(1) }.font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
+                if let error = creator.lastError { Text(error).font(.caption).foregroundStyle(.orange).lineLimit(2) }
             }
             Spacer()
-            if let active {
-                Text(active.state.title).font(.system(size: 11)).foregroundStyle(ThemeColor.primary)
-                Button { monitor.stopRecording(active.id) } label: { Label(active.state == .stopping ? "保存中" : "停止保存", systemImage: "stop.circle") }.disabled(active.state == .stopping)
-            } else if badge == .live {
-                Label("直播中", systemImage: "circle.fill").font(.system(size: 10)).foregroundStyle(.green).padding(8).background(Color.green.opacity(0.06), in: Capsule())
-                Button { monitor.startRecording(creator.id) } label: { Label("开始录制", systemImage: "record.circle") }
-            } else {
-                Button { monitor.updateCreator(creator.id, notify: !creator.notify); if !creator.notify { Task { await monitor.requestNotifications() } } } label: { Label(creator.notify ? "已开启提醒" : "开播提醒", systemImage: creator.notify ? "bell.badge" : "bell") }
-            }
-            Button { controls = true } label: { Image(systemName: "ellipsis") }.buttonStyle(.plain).help("主播与录制操作")
-                .popover(isPresented: $controls) { VStack(alignment: .leading, spacing: 14) { Text(creator.name).font(.headline); HomeRecordingBar(creator: creator, onClips: onClips); Button("剪辑录像", action: onClips) }.padding(20) }
-        }.frame(minHeight: 85)
-            .contextMenu {
-                Button("打开直播") { if let address = try? LiveAddress.normalize(creator.address, platform: creator.platform), let url = URL(string: address) { NSWorkspace.shared.open(url) } }
-                Button("剪辑录像", action: onClips)
+            if let active { Text(active.state.title).font(.system(size: 11)).foregroundStyle(ThemeColor.muted) }
+            Button {
+                if let active { monitor.stopRecording(active.id) } else { monitor.startRecording(creator.id) }
+            } label: {
+                Image(systemName: active == nil ? "record.circle" : "stop.circle.fill").font(.system(size: 23)).foregroundStyle(Color(red: 0.67, green: 0.37, blue: 0.38)).frame(width: 38, height: 38)
+            }.buttonStyle(.plain).help(active == nil ? "开始录制" : "停止录制")
+                .accessibilityLabel(active == nil ? "开始录制" : "停止录制").accessibilityIdentifier("home.record." + creator.id.uuidString)
+                .disabled(active?.state == .preparing || active?.state == .stopping || (active == nil && CreatorBadge(creator) != .live))
+            Menu {
+                if let active, [LiveRecordingState.recording, .paused].contains(active.state) {
+                    Button(active.state == .paused ? "继续录制" : "暂停录制") {
+                        if active.state == .paused { monitor.resumeRecording(active.id) } else { monitor.pauseRecording(active.id) }
+                    }
+                }
                 Toggle("自动录制", isOn: Binding(get: { creator.autoRecord }, set: { monitor.updateCreator(creator.id, autoRecord: $0); if $0 { monitor.startMonitoring() } }))
-                Toggle("监控主播", isOn: Binding(get: { creator.monitoring }, set: { monitor.updateCreator(creator.id, monitoring: $0); if $0 { monitor.startMonitoring() } }))
-                Button("移除主播…", role: .destructive) { removing = true }
-            }.sheet(isPresented: $removing) { CreatorRemovalConfirmation(name: creator.name, onCancel: { removing = false }) { Task { await monitor.removeCreator(creator.id) }; removing = false } }
+                Toggle("监控直播", isOn: Binding(get: { creator.monitoring }, set: { monitor.updateCreator(creator.id, monitoring: $0); if $0 { monitor.startMonitoring() } }))
+                Toggle("开播提醒", isOn: Binding(get: { creator.notify }, set: { value in monitor.updateCreator(creator.id, notify: value); if value { Task { await monitor.requestNotifications() } } }))
+                Button("打开录制文件夹", action: monitor.showFolder)
+                Divider()
+                Button("删除主播", role: .destructive) { removing = true }
+            } label: { Image(systemName: "ellipsis").frame(width: 30, height: 34) }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 30).help("主播操作").accessibilityIdentifier("creator.more." + creator.id.uuidString)
+        }.padding(.vertical, 14).frame(minHeight: 85)
+            .sheet(isPresented: $removing) { CreatorRemovalConfirmation(name: creator.name, onCancel: { removing = false }) { Task { await monitor.removeCreator(creator.id) }; removing = false } }
+    }
+    private func openLive() {
+        if let address = try? LiveAddress.normalize(creator.address, platform: creator.platform), let url = URL(string: address) { NSWorkspace.shared.open(url) }
     }
 }

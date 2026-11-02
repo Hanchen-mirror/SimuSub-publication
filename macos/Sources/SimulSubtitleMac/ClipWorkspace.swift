@@ -22,7 +22,7 @@ struct ClipWorkspace: View {
             } else {
                 importPage
             }
-            jobBar
+            if clips.currentJob != nil { jobBar }
         }.buttonStyle(ClipActionButtonStyle()).background(ClipTheme.background)
             .onAppear {
                 guard !entered else { return }; entered = true
@@ -49,9 +49,9 @@ struct ClipWorkspace: View {
                 VStack(spacing: 18) {
                     Image(systemName: "scissors").font(.system(size: 27, weight: .light)).foregroundStyle(ThemeColor.primary).frame(width: 66, height: 66).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 22))
                     Text(importing ? "正在导入…" : "把视频放到这里").font(.system(size: 23, weight: .semibold))
-                    Text("拖入视频，或从本地选择").font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
-                    Button(action: importVideo) { Label("选择视频", systemImage: "folder") }.buttonStyle(ThemeActionButtonStyle(prominent: true)).disabled(importing || clips.isBusy).accessibilityIdentifier("clips.import")
-                    Text("MP4 · MOV · MKV · WebM · 字幕可稍后导入").font(.system(size: 10)).foregroundStyle(ThemeColor.muted)
+
+                    Button(action: importVideo) { Label("打开视频", systemImage: "plus") }.buttonStyle(ThemeActionButtonStyle(prominent: true)).disabled(importing || clips.isBusy).accessibilityIdentifier("clips.import")
+
                 }.frame(maxWidth: .infinity).frame(height: 368)
                     .background(ThemeColor.surface, in: RoundedRectangle(cornerRadius: 22))
                     .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(ThemeColor.primary, style: StrokeStyle(lineWidth: 1, dash: [3,2])))
@@ -65,7 +65,7 @@ struct ClipWorkspace: View {
                     }
                 VStack(alignment: .leading, spacing: 22) {
                     HStack { Text("最近项目").font(.system(size: 15, weight: .semibold)); Spacer(); Button("录制历史") { showingLibrary = true }.accessibilityIdentifier("clips.library") }
-                    if clips.projects.isEmpty { Text("导入的视频与录制项目会显示在这里").font(.system(size: 12)).foregroundStyle(ThemeColor.muted) }
+                    if clips.projects.isEmpty { Text("暂无项目").font(.system(size: 12)).foregroundStyle(ThemeColor.muted) }
                     ForEach(clips.projects.prefix(4)) { project in
                         Divider().overlay(ThemeColor.line)
                         HStack(spacing: 14) { Image(systemName: "film").foregroundStyle(ThemeColor.primary).frame(width: 40, height: 40).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 12))
@@ -142,7 +142,7 @@ struct ClipEditor: View {
     @State private var working: ClipRange
     @State private var startText = ""
     @State private var endText = ""
-    @State private var configured = false
+    @State private var configured = true
     @State private var burn = true
     @State private var batch = false
     @State private var editing: Caption?
@@ -176,21 +176,27 @@ struct ClipEditor: View {
                     editorToolbar
                     HStack(alignment: .top, spacing: 24) {
                         VStack(alignment: .leading, spacing: 12) {
-                            ClipStyledPlayer(player: playback.player, captions: cues, style: showingStyle ? draftStyle : active.style, mediaSize: CGSize(width: project.media.width, height: project.media.height))
+                            ClipStyledPlayer(player: playback.player, captions: cues, style: active.style, mediaSize: CGSize(width: project.media.width, height: project.media.height))
                                 .frame(height: max(300, min(465, geometry.size.height - 320)))
                                 .clipShape(RoundedRectangle(cornerRadius: 16))
-                            HStack { Text("\(project.media.width) × \(project.media.height) · " + ClipTime.label(project.media.duration)).font(.system(size: 11)).foregroundStyle(ThemeColor.muted); Spacer()
+                            HStack { Spacer()
                                 Picker("倍速", selection: $playback.speed) { ForEach([0.5,1,1.5,2], id: \.self) { Text(String(format: "%.1f×", $0)).tag($0) } }.labelsHidden().frame(width: 72)
                                 Button("原文件") { clips.reveal(project.media.path) }
                             }
                         }.frame(maxWidth: .infinity).accessibilityIdentifier("clips.videoPanel")
-                        VStack(spacing: 0) {
-                            HStack(spacing: 4) {
-                                ForEach(0..<2) { index in Button { rightTab = index } label: { Text(index == 0 ? "字幕" : "样式").font(.system(size: 13)).frame(maxWidth: .infinity).frame(height: 38).background(rightTab == index ? ThemeColor.surface : .clear, in: RoundedRectangle(cornerRadius: 13)) }.buttonStyle(.plain) }
-                            }.padding(4).background(ThemeColor.soft)
-                            ScrollView { Group { if rightTab == 0 { subtitleColumn } else { styleColumn } }.padding(20) }
-                        }.frame(width: max(380, min(460, (geometry.size.width - 88) * 0.38)), height: max(350, min(515, geometry.size.height - 270)))
-                            .background(ThemeColor.surface, in: RoundedRectangle(cornerRadius: 22)).clipShape(RoundedRectangle(cornerRadius: 22)).accessibilityIdentifier("clips.inspector")
+                        VStack(alignment: .leading, spacing: 20) {
+                            HStack {
+                                Text("字幕").font(.system(size: 16, weight: .semibold)); Spacer()
+                                Button(action: importSubtitles) { Image(systemName: "square.and.arrow.up") }.help("导入字幕").accessibilityIdentifier("clips.importSubtitles")
+                                Button { showingStyle = true } label: { Image(systemName: "textformat") }.help("字幕样式").accessibilityIdentifier("clips.customStyle")
+                                Menu {
+                                    Button("生成字幕", action: transcribe)
+                                    Button("核对译文") { showingProofread = true }
+                                } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).frame(width: 22)
+                            }.buttonStyle(.plain)
+                            subtitleColumn
+                        }.padding(22).frame(width: max(360, min(420, (geometry.size.width - 88) * 0.36)), height: max(350, min(515, geometry.size.height - 270)))
+                            .background(ThemeColor.surface, in: RoundedRectangle(cornerRadius: 18)).accessibilityIdentifier("clips.inspector")
                     }
                     rangePanel
                 }.padding(.horizontal, 28).padding(.vertical, 24)
@@ -208,7 +214,7 @@ struct ClipEditor: View {
                 if !ids.contains(working.id) { working = project.ranges.first ?? ClipRange(title: "选段 1", start: 0, end: min(60, project.media.duration)); syncTimes() }
             }
             .sheet(item: $editing) { cue in ClipCaptionEditor(projectID: project.id, range: active, cue: cue).appTheme() }
-            .sheet(isPresented: $showingImport) { ClipImportSheet(project: project, range: active).appTheme() }
+            .sheet(isPresented: $showingStyle) { VStack(alignment: .leading, spacing: 24) { HStack { Text("字幕样式").font(.headline); Spacer(); Button("完成") { showingStyle = false } }; styleColumn }.padding(28).frame(width: 530).background(ThemeColor.surface).appTheme() }
             .sheet(isPresented: $showingProofread) { proofreadSheet }
             .sheet(isPresented: $showingHighlights) {
                 VStack {
@@ -223,26 +229,16 @@ struct ClipEditor: View {
             .confirmationDialog("移除这个选段？原视频和已导出文件会保留。", isPresented: Binding(get: { removeID != nil }, set: { if !$0 { removeID = nil } }), titleVisibility: .visible) {
                 Button("移除选段") { if let id = removeID { clips.update(project.id) { $0.ranges.removeAll { $0.id == id } } }; removeID = nil }
             }
-            .overlay(alignment: .trailing) {
-                if showingStyle {
-                    ZStack(alignment: .trailing) {
-                        Color.black.opacity(0.25).onTapGesture { showingStyle = false }
-                        ClipStyleDrawer(style: $draftStyle, cue: sample, root: clips.root, onClose: { showingStyle = false }) { all in
-                            guard saveWorking() else { return }; clips.setStyle(project.id, rangeID: working.id, style: draftStyle, all: all); showingStyle = false
-                        }.frame(width: 520).background(ClipTheme.background).clipShape(RoundedRectangle(cornerRadius: 16)).shadow(radius: 20)
-                    }.accessibilityIdentifier("clips.styleDrawer")
-                }
-            }
     }
     private var editorToolbar: some View {
         HStack(spacing: 14) {
             Button { if saveWorking() { onBack() } } label: { Image(systemName: "arrow.left") }.buttonStyle(.plain).help("返回工作空间").accessibilityIdentifier("clips.back")
-            Image(systemName: "film").foregroundStyle(ThemeColor.primary).frame(width: 36, height: 36).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 12))
-            VStack(alignment: .leading, spacing: 5) { Text(project.name).font(.system(size: 13, weight: .semibold)).lineLimit(1); Text(active.title + " · 自动保存字幕").font(.system(size: 10)).foregroundStyle(ThemeColor.muted) }
+            Text(project.name).font(.system(size: 18, weight: .semibold)).lineLimit(1)
             Spacer()
-            Button { transcribe() } label: { Label("自动生成字幕", systemImage: "cpu") }.accessibilityIdentifier("clips.transcribe")
-            Button { if saveWorking() { showingImport = true } } label: { Label("导入字幕", systemImage: "square.and.arrow.up") }
+            Button { showingHighlights = true } label: { Label("高光候选", systemImage: "sparkles") }.accessibilityIdentifier("clips.highlights")
             Menu {
+                ForEach(SubtitleExportFormat.allCases) { format in Button("导出 " + format.title) { exportSubtitles(format) } }
+                Divider()
                 Toggle("内嵌字幕", isOn: $burn)
                 Toggle("批量导出已选选段", isOn: $batch)
                 Button("导出 MP4") { export(.mp4, subtitles: burn) }
@@ -255,7 +251,6 @@ struct ClipEditor: View {
     private var rangePanel: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack { Text("选段").font(.system(size: 15, weight: .semibold)); Text("\(project.ranges.count)").font(.caption).foregroundStyle(ThemeColor.muted); Spacer()
-                Button { showingHighlights = true } label: { Label("智能选段", systemImage: "cpu") }
                 Button { addRange() } label: { Label("添加选段", systemImage: "plus") }.accessibilityIdentifier("clips.addRange")
             }
             ScrollView(.horizontal, showsIndicators: false) {
@@ -269,6 +264,7 @@ struct ClipEditor: View {
                     }
                 }.padding(4)
             }.background(ThemeColor.control, in: RoundedRectangle(cornerRadius: 11))
+            ClipRangeTimeline(start: $working.start, end: $working.end, duration: project.media.duration, energy: project.energy) { syncTimes(); _ = saveWorking() }.frame(height: 66)
             HStack(spacing: 16) {
                 Text("名称").font(.system(size: 11)).foregroundStyle(ThemeColor.muted)
                 TextField("选段名称", text: $working.title).textFieldStyle(ClipFieldStyle()).frame(width: 190).onSubmit { _ = saveWorking() }.accessibilityIdentifier("clips.rangeTitle")
@@ -278,7 +274,6 @@ struct ClipEditor: View {
                 Button { _ = saveWorking() } label: { Image(systemName: "checkmark") }.help("保存选段")
                 Button { removeID = working.id } label: { Label("删除选段", systemImage: "xmark") }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(ThemeColor.muted)
             }
-            ClipRangeTimeline(start: $working.start, end: $working.end, duration: project.media.duration, energy: project.energy) { syncTimes(); _ = saveWorking() }.frame(height: 66)
         }.designPanel().disabled(clips.isBusy).accessibilityIdentifier("clips.rangePanel")
     }
     private func timeField(_ title: String, text: Binding<String>) -> some View {
@@ -289,38 +284,35 @@ struct ClipEditor: View {
     }
     private var subtitleColumn: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text(configured ? "使用所选服务" : "本地识别 · 本地翻译").font(.system(size: 11)).foregroundStyle(ThemeColor.muted)
-                Spacer(); Toggle("服务设置", isOn: $configured).toggleStyle(.checkbox).font(.system(size: 11))
-                Button { showingProofread = true } label: { Image(systemName: "sparkles") }.help("模型核对译文")
-            }
-            if configured {
-                Picker("识别", selection: $model.selectedASRProfileID) { ForEach(model.profiles.filter { $0.purpose == .speechRecognition && $0.isEnabled }) { Text($0.name).tag(Optional($0.id)) } }
-                Picker("翻译", selection: $model.selectedTranslationProfileID) { ForEach(model.profiles.filter { $0.purpose == .translation && $0.isEnabled }) { Text($0.name).tag(Optional($0.id)) } }
-            }
             ScrollView {
-                VStack(spacing: 4) {
+                VStack(spacing: 10) {
                     ForEach(cues) { cue in
-                        Button { selectedCueID = cue.id; playback.seek(cue.start) } label: {
-                            HStack(alignment: .top, spacing: 12) {
-                                Text(ClipTime.label(cue.start)).font(.system(size: 9)).monospacedDigit().foregroundStyle(ThemeColor.muted)
-                                VStack(alignment: .leading, spacing: 4) { Text(cue.original.isEmpty ? "日语待补全" : cue.original).font(.system(size: 10)).foregroundStyle(ThemeColor.muted).lineLimit(1); Text(cue.translated.isEmpty ? "中文待补全" : cue.translated).font(.system(size: 12)).lineLimit(2) }
-                                Spacer(minLength: 0)
-                            }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(selectedCaption?.id == cue.id ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 10))
-                        }.buttonStyle(.plain).accessibilityIdentifier("clips.cue." + cue.id.uuidString)
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text(ClipTime.label(cue.start) + " — " + ClipTime.label(cue.end)).font(.system(size: 10)).monospacedDigit().foregroundStyle(ThemeColor.muted)
+                                Spacer()
+                                Button { editing = cue } label: { Image(systemName: "clock") }.buttonStyle(.plain).help("编辑时间")
+                                Button { clips.deleteSegmentCaption(project.id, rangeID: active.id, cueID: cue.id) } label: { Image(systemName: "trash") }.buttonStyle(.plain).help("删除字幕")
+                            }
+                            if selectedCaption?.id == cue.id {
+                                TextField("日语", text: cueText(cue, original: true), axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).font(.system(size: 12)).foregroundStyle(ThemeColor.muted).accessibilityIdentifier("clips.original")
+                                TextField("中文", text: cueText(cue, original: false), axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).font(.system(size: 13)).accessibilityIdentifier("clips.translation")
+                            } else {
+                                Text(cue.original).font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
+                                Text(cue.translated).font(.system(size: 13))
+                            }
+                        }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(selectedCaption?.id == cue.id ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 11))
+                            .contentShape(Rectangle()).onTapGesture { if selectedCaption?.id != cue.id { selectedCueID = cue.id; playback.seek(cue.start) } }
+                            .accessibilityIdentifier("clips.cue." + cue.id.uuidString)
                     }
+                    if cues.isEmpty { Text("暂无字幕").foregroundStyle(ThemeColor.muted).padding(40) }
                 }
-            }.frame(height: 124)
-            if let cue = selectedCaption {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("日语原文 · 可编辑").font(.system(size: 11)).foregroundStyle(ThemeColor.muted)
-                    TextField("日语原文", text: cueText(cue, original: true), axis: .vertical).lineLimit(1...3).textFieldStyle(ClipFieldStyle()).accessibilityIdentifier("clips.original")
-                    Text("中文译文 · 可编辑").font(.system(size: 11)).foregroundStyle(ThemeColor.muted).padding(.top, 7)
-                    TextField("中文译文", text: cueText(cue, original: false), axis: .vertical).lineLimit(1...3).textFieldStyle(ClipFieldStyle()).accessibilityIdentifier("clips.translation")
-                    HStack { Button { var clipped = cue; clipped.start = max(active.start, cue.start); clipped.end = min(active.end, cue.end); editing = clipped } label: { Label("时间与删除", systemImage: "clock") }; Spacer(); Label("已保存", systemImage: "checkmark.circle").font(.system(size: 10)).foregroundStyle(ThemeColor.primary) }.padding(.top, 6)
-                }
-            } else { Text("识别或导入字幕，也可手动添加。").font(.system(size: 12)).foregroundStyle(ThemeColor.muted).frame(maxWidth: .infinity, minHeight: 100) }
-            Button { editing = Caption(start: working.start, end: min(working.end, working.start + 3), original: "", translated: "") } label: { Label("添加字幕", systemImage: "plus") }.font(.system(size: 11))
+            }
+            Button {
+                let cue = Caption(start: max(working.start, min(playback.time, working.end - 0.2)), end: min(working.end, max(working.start, playback.time) + 3), original: "", translated: "")
+                _ = clips.saveSegmentCaption(project.id, rangeID: active.id, cue: cue); selectedCueID = cue.id
+            } label: { Label("添加字幕", systemImage: "plus").frame(maxWidth: .infinity) }.buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(ThemeColor.primary)
         }.disabled(clips.isBusy)
     }
     private var selectedCaption: Caption? { cues.first { $0.id == selectedCueID } ?? cues.first }
@@ -336,44 +328,39 @@ struct ClipEditor: View {
         })
     }
     private var styleColumn: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("内嵌字幕样式").font(.system(size: 14, weight: .semibold))
+        VStack(alignment: .leading, spacing: 24) {
             HStack(spacing: 6) {
                 ForEach(ClipLanguageMode.allCases) { mode in
                     Button { var s = active.style; s.mode = mode; applyStyle(s) } label: { Text(mode.rawValue).frame(maxWidth: .infinity) }
                         .buttonStyle(ClipActionButtonStyle(accent: active.style.mode == mode ? ClipTheme.violet : nil, prominent: active.style.mode == mode))
                 }
             }
-            Text("样式预设").font(.subheadline.bold())
-            HStack(spacing: 5) {
-                preset("白色经典", style: .classic); preset("粉色双语", style: .pink); preset("暖金双语", style: .gold)
-            }
-            ClipStylePreview(cue: sample, style: active.style).frame(height: 80)
-            HStack(spacing: 8) {
-                Text("中文"); Circle().fill(Color(nsColor: .clipHex(active.style.chinese.color))).frame(width: 9, height: 9); Text("\(Int(active.style.chinese.size)) px")
-                Spacer(); Text("日语"); Circle().fill(Color(nsColor: .clipHex(active.style.japanese.color))).frame(width: 9, height: 9); Text("\(Int(active.style.japanese.size)) px")
-            }.font(.system(size: 10))
-            Text(active.style.chineseFirst ? "中文在上 / 日语在下" : "日语在上 / 中文在下").font(.caption).foregroundStyle(ThemeColor.muted)
-            Button { draftStyle = active.style; showingStyle = true } label: { Label("自定义样式…", systemImage: "slider.horizontal.3").frame(maxWidth: .infinity) }.buttonStyle(ClipActionButtonStyle(accent: ClipTheme.cyan)).accessibilityIdentifier("clips.customStyle")
-            HStack { Text("应用到：当前选段").font(.system(size: 10)).foregroundStyle(ThemeColor.muted); Spacer(); Button("应用到全部") { clips.setStyle(project.id, rangeID: active.id, style: active.style, all: true) }.buttonStyle(.plain).foregroundStyle(ClipTheme.cyan).font(.system(size: 10)) }
-            Divider()
-            Toggle("内嵌字幕", isOn: $burn).font(.caption).toggleStyle(.checkbox)
-            Button { generatePreview() } label: { Label("生成当前选段视频", systemImage: "sparkles").frame(maxWidth: .infinity) }.buttonStyle(ClipActionButtonStyle(accent: ClipTheme.violet, prominent: true)).accessibilityIdentifier("clips.preview")
-            Button {
-                playback.player.pause()
-                if let path = project.previewPath { previewing = URL(fileURLWithPath: path) }
-            } label: { Label("播放生成视频", systemImage: "play").frame(maxWidth: .infinity) }.buttonStyle(ClipActionButtonStyle())
-                .disabled(project.previewPath == nil || (project.previewRangeID != nil && project.previewRangeID != active.id))
-            Divider()
-            Text("导出文件").font(.system(size: 14, weight: .semibold))
-            HStack {
-                Button { export(.mp4, subtitles: burn) } label: { Label("导出 MP4", systemImage: "video").frame(maxWidth: .infinity) }.buttonStyle(ClipActionButtonStyle(accent: ClipTheme.cyan)).accessibilityIdentifier("clips.export")
-                Button { export(.mp3, subtitles: false) } label: { Label("导出 MP3", systemImage: "music.note").frame(maxWidth: .infinity) }.buttonStyle(ClipActionButtonStyle(accent: ClipTheme.violet)).disabled(!project.media.hasAudio)
-            }
-            Toggle("批量导出已选 \(project.ranges.filter(\.selected).count) 段", isOn: $batch).font(.caption).toggleStyle(.checkbox)
-            Text(batch ? "分别生成文件，不自动拼接" : "仅导出正在编辑的选段").font(.system(size: 10)).foregroundStyle(ThemeColor.muted)
-            if let path = project.exports.first { Button { clips.reveal(path) } label: { Label("打开输出文件夹", systemImage: "folder") }.font(.caption) }
+            HStack(spacing: 12) { preset("白色", style: .classic); preset("浅粉", style: .pink); preset("浅金", style: .gold) }
         }.disabled(clips.isBusy)
+    }
+    private func importSubtitles() {
+        guard saveWorking() else { return }
+        let panel = NSOpenPanel(); panel.allowedContentTypes = ["srt", "vtt", "ass", "ssa"].compactMap { UTType(filenameExtension: $0) }; panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            guard data.count <= 5_000_000, let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16) else { throw ClipError.message("请选择 5 MB 以内的 UTF-8 或 UTF-16 字幕文件。") }
+            let captions = try ClipSubtitleImport.parse(text, extension: url.pathExtension, layout: .automatic, offset: 0, duration: project.media.duration)
+            guard captions.contains(where: { $0.end > active.start && $0.start < active.end }) else { throw ClipError.message("字幕时间与当前选段没有交集。") }
+            clips.update(project.id) { p in if let i = p.ranges.firstIndex(where: { $0.id == working.id }) {
+                p.ranges[i].importedCaptions = captions; p.ranges[i].captionEdits = nil; p.ranges[i].deletedCaptionIDs = nil; p.ranges[i].proofreadCandidates = nil
+            } }
+            selectedCueID = captions.first { $0.end > active.start && $0.start < active.end }?.id
+        } catch { clips.notice = error.localizedDescription }
+    }
+    private func exportSubtitles(_ format: SubtitleExportFormat) {
+        guard saveWorking() else { return }
+        let panel = NSSavePanel(); panel.nameFieldStringValue = project.name + "." + format.rawValue
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let content = format == .txt ? cues.map { active.style.lines($0).map(\.0).joined(separator: "\n") }.joined(separator: "\n\n") : ClipSubtitleImport.render(cues, format: format, style: active.style)
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        } catch { clips.notice = error.localizedDescription }
     }
     private func preset(_ name: String, style: ClipSubtitleStyle) -> some View {
         Button { var s = style; s.mode = active.style.mode; applyStyle(s) } label: {
@@ -384,9 +371,8 @@ struct ClipEditor: View {
     private var proofreadSheet: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack { Text("模型核对").font(.title3.bold()); Spacer(); Button("完成") { showingProofread = false } }
-            Text("根据现有日语生成中文译文建议，比较后再应用。不会自动改写原字幕。").font(.callout).foregroundStyle(ThemeColor.muted)
             Toggle("使用服务设置中选定的翻译模型", isOn: $configured).disabled(clips.isBusy)
-            Text(configured ? "云端核对将发送当前日语、前两句日中字幕、后一句日语和邻近上下文匹配的术语；不发送音视频。请先在字幕设置中配置并选用 DeepSeek。" : "使用本机翻译模型，结合前后文和本地术语库，不上传字幕。").font(.caption).foregroundStyle(ThemeColor.muted)
+            Text(configured ? "云端核对将发送当前日语、前两句日中字幕、后一句日语和邻近上下文匹配的术语；不发送音视频。在模型与服务中选择翻译服务。" : "使用本机翻译模型，结合前后文和本地术语库，不上传字幕。").font(.caption).foregroundStyle(ThemeColor.muted)
             Button("开始核对当前选段") {
                 if saveWorking() { if confirmCloudUse(translationOnly: true) { clips.start(ClipJob(projectID: project.id, kind: .proofread, range: active, configuredServices: configured), model: model) } }
             }.disabled(clips.isBusy || cues.allSatisfy { $0.original.isEmpty })
@@ -463,11 +449,8 @@ private struct ClipCaptionEditor: View {
     var body: some View {
         let _ = appThemeID
         VStack(alignment: .leading, spacing: 12) {
-            Text("编辑字幕 · " + range.title).font(.title3.bold())
-            Text("只修改当前选段，时间为原视频时间。").font(.caption).foregroundStyle(ThemeColor.muted)
+            Text("字幕时间").font(.title3.bold())
             HStack { TextField("起点", text: $start); Text("→"); TextField("终点", text: $end) }.textFieldStyle(ClipFieldStyle())
-            Text("中文"); TextEditor(text: $cue.translated).scrollContentBackground(.hidden).background(ThemeColor.control).frame(height: 80)
-            Text("日语"); TextEditor(text: $cue.original).scrollContentBackground(.hidden).background(ThemeColor.control).frame(height: 80)
             HStack {
                 Button("删除这条字幕", role: .destructive) { clips.deleteSegmentCaption(projectID, rangeID: range.id, cueID: cue.id); dismiss() }
                 Spacer(); Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -480,42 +463,6 @@ private struct ClipCaptionEditor: View {
         }.padding(24).frame(width: 520).onAppear { start = ClipTime.label(cue.start); end = ClipTime.label(cue.end) }
     }
 }
-private struct ClipImportSheet: View {
-    let project: ClipProject
-    let range: ClipRange
-    @State private var layout: ClipImportLayout = .japaneseFirst
-    @State private var relative = false
-    @State private var error: String?
-    @EnvironmentObject private var clips: ClipStore
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.appThemeID) private var appThemeID
-    var body: some View {
-        let _ = appThemeID
-        VStack(alignment: .leading, spacing: 18) {
-            Text("导入字幕 · " + range.title).font(.title3.bold())
-            Picker("文件中的语言排列", selection: $layout) { ForEach(ClipImportLayout.allCases) { Text($0.rawValue).tag($0) } }
-            Toggle("文件时间从当前选段的 0 秒开始", isOn: $relative).toggleStyle(.checkbox)
-            Text("支持 SRT / VTT / ASS。替换当前选段的字幕草稿，其他选段和源文件保留。ASS 导入文字与时间；外观使用工作台样式。").font(.caption).foregroundStyle(ThemeColor.muted)
-            if let error { Text(error).foregroundStyle(.orange).font(.caption) }
-            HStack { Button("取消") { dismiss() }; Spacer(); Button("选择字幕文件…") { choose() } }
-        }.padding(24).frame(width: 520)
-    }
-    private func choose() {
-        let panel = NSOpenPanel(); panel.allowedContentTypes = ["srt", "vtt", "ass", "ssa"].compactMap { UTType(filenameExtension: $0) }; panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let data = try Data(contentsOf: url)
-            guard data.count <= 5_000_000, let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16) else { throw ClipError.message("请使用 UTF-8 或 UTF-16 编码的字幕文件（5 MB 以内）。") }
-            let captions = try ClipSubtitleImport.parse(text, extension: url.pathExtension, layout: layout, offset: relative ? range.start : 0, duration: project.media.duration)
-            guard captions.contains(where: { $0.end > range.start && $0.start < range.end }) else { throw ClipError.message("字幕时间与当前选段没有交集，请检查时间基准。") }
-            clips.update(project.id) { p in if let i = p.ranges.firstIndex(where: { $0.id == range.id }) {
-                p.ranges[i].importedCaptions = captions; p.ranges[i].captionEdits = nil; p.ranges[i].deletedCaptionIDs = nil; p.ranges[i].proofreadCandidates = nil
-                var style = p.ranges[i].style; style.mode = layout == .chinese ? .chinese : layout == .japanese ? .japanese : .bilingual; p.ranges[i].subtitleStyle = style
-            } }; dismiss()
-        } catch { self.error = error.localizedDescription }
-    }
-}
-
 struct ClipVideoPreview: View {
     let url: URL
     var offset: Double
@@ -599,8 +546,6 @@ private struct ClipHighlightsPanel: View {
                 Button(project.captions.isEmpty ? "分析并推荐" : "推荐高光") { onRecommend(maximum) }
                     .disabled(clips.isBusy || (project.captions.isEmpty && !project.media.hasAudio)).accessibilityIdentifier("clips.recommend")
             }
-            Text(project.highlightsNote ?? (project.captions.isEmpty ? "在本机分析当前选段，再推荐高光候选。" : "从语句、反应词和音量变化中推荐候选。"))
-                .font(.caption).foregroundStyle(ThemeColor.muted)
             ForEach(project.candidates ?? []) { range in
                 HStack(alignment: .top, spacing: 10) {
                     Toggle("选择高光", isOn: Binding(get: { range.selected }, set: { selected in
@@ -609,22 +554,20 @@ private struct ClipHighlightsPanel: View {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(range.title).font(.system(size: 12, weight: .medium)).lineLimit(2)
                         Text(ClipTime.label(range.start) + " – " + ClipTime.label(range.end)).font(.system(size: 10)).monospacedDigit().foregroundStyle(ThemeColor.muted)
-                        Text(range.reason ?? "").font(.system(size: 10)).foregroundStyle(ThemeColor.muted).lineLimit(3)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     Button("预览") { onPreview(range) }
                     Button("调整") { onEdit(range) }
-                }.padding(10).background(Color.orange.opacity(0.045), in: RoundedRectangle(cornerRadius: 9)).disabled(clips.isBusy)
+                }.padding(10).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 9)).disabled(clips.isBusy)
             }
             if !(project.candidates ?? []).isEmpty {
                 HStack {
-                    Text("勾选后加入导出选段").font(.system(size: 10)).foregroundStyle(ThemeColor.muted)
                     Spacer()
-                    Button("将勾选候选加入选段") { clips.addCandidates(project.id) }
+                    Button("添加选中片段") { clips.addCandidates(project.id) }
                         .disabled(clips.isBusy || !(project.candidates ?? []).contains(where: \.selected))
                 }
             }
-        }.padding(14).background(Color.orange.opacity(0.025), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.orange.opacity(0.12)))
+        }.padding(14).background(ThemeColor.surface, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(ThemeColor.line))
     }
 }
 
