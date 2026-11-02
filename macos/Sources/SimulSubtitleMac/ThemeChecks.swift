@@ -7,7 +7,7 @@ enum ThemeChecks {
     static func runIfRequested(model: AppModel, appearance: HomeAppearance, monitor: LiveMonitorStore, clips: ClipStore, subtitles: SubtitlePanelController) async -> Bool {
         if let index = CommandLine.arguments.firstIndex(of: "--theme-reload-check"), CommandLine.arguments.count > index + 2 {
             let restored = HomeAppearance(defaults: UserDefaults(suiteName: CommandLine.arguments[index + 1])!, backgroundFile: FileManager.default.temporaryDirectory.appendingPathComponent("theme-no-wallpaper.png"))
-            let passed = restored.theme == .green && restored.mode == .light && restored.japaneseFont == "Hiragino Sans" && restored.chineseFont == "PingFang SC"
+            let passed = restored.theme == .green && restored.mode == .light && restored.japaneseFont == "Hiragino Sans" && restored.chineseFont == "PingFang SC" && restored.japaneseSize == 18 && restored.chineseSize == 24 && restored.reduceMotion && restored.restorePage && restored.lastPage == "subtitle"
             try? JSONSerialization.data(withJSONObject: ["passed": passed, "check": "theme_mode_and_fonts_restored_in_new_process", "processID": ProcessInfo.processInfo.processIdentifier], options: [.prettyPrinted]).write(to: URL(fileURLWithPath: CommandLine.arguments[index + 2]))
             NSApp.terminate(nil); return true
         }
@@ -35,15 +35,17 @@ enum ThemeChecks {
             do {
                 let saved = HomeAppearance(defaults: defaults, backgroundFile: wallpaper)
                 saved.theme = .green; saved.mode = .light; saved.japaneseFont = "Hiragino Sans"; saved.chineseFont = "PingFang SC"
+                saved.japaneseSize = 18; saved.chineseSize = 24; saved.reduceMotion = true; saved.restorePage = true; saved.lastPage = "subtitle"
                 let restored = HomeAppearance(defaults: defaults, backgroundFile: wallpaper)
                 try require(restored.theme == .green && restored.mode == .light && restored.japaneseFont == saved.japaneseFont && restored.chineseFont == saved.chineseFont, "theme_mode_fonts_restore_from_saved_defaults")
+                try require(restored.japaneseSize == 18 && restored.chineseSize == 24 && restored.reduceMotion && restored.restorePage && restored.lastPage == "subtitle", "font_sizes_and_workspace_preferences_persist")
             }
             appearance.apply()
-            host("settings", HStack(spacing: 0) { WorkspaceSidebar(selected: .settings, onSelect: { _ in }).frame(width: 200); AppearanceSettings() })
-            host("home", HStack(spacing: 0) { WorkspaceSidebar(selected: .home, onSelect: { _ in }).frame(width: 200); WorkspaceHome(onSelect: { _ in }, onClips: {}) })
-            host("subtitle", HStack(spacing: 0) { WorkspaceSidebar(selected: .subtitle, onSelect: { _ in }).frame(width: 200); SubtitleConfiguration(onServices: {}) })
-            host("recording", HStack(spacing: 0) { WorkspaceSidebar(selected: .recording, onSelect: { _ in }).frame(width: 200); ModuleHome(showSidebar: false, onSelect: { _ in }) })
-            host("services", AdvancedServiceSettings())
+            host("settings", HStack(spacing: 0) { WorkspaceSidebar(selected: .settings, onSelect: { _ in }).frame(width: DesignV23.sidebar); AppearanceSettings() })
+            host("home", HStack(spacing: 0) { WorkspaceSidebar(selected: .home, onSelect: { _ in }).frame(width: DesignV23.sidebar); WorkspaceHome(onSelect: { _ in }, onClips: {}) })
+            host("subtitle", HStack(spacing: 0) { WorkspaceSidebar(selected: .subtitle, onSelect: { _ in }).frame(width: DesignV23.sidebar); SubtitleConfiguration(onServices: {}) })
+            host("recording", HStack(spacing: 0) { WorkspaceSidebar(selected: .recording, onSelect: { _ in }).frame(width: DesignV23.sidebar); RecordingWorkspace(onSettings: {}, onClips: { _ in }) })
+            host("services", HStack(spacing: 0) { WorkspaceSidebar(selected: .services, onSelect: { _ in }).frame(width: DesignV23.sidebar); AdvancedServiceSettings() })
             host("controls", TextField("主题输入框", text: .constant("保留编辑内容")).textFieldStyle(ClipFieldStyle()).frame(width: 400))
             let emptyClips = ClipStore(root: directory.appendingPathComponent("empty-import-store"))
             host("import", ClipWorkspace(onBack: {}).environmentObject(emptyClips))
@@ -72,16 +74,16 @@ enum ThemeChecks {
                     try snapshot(settings, to: directory.appendingPathComponent(key + "-quick-settings.png"))
                     try require(subtitles.panel === panel && subtitles.settingsWindow === settings && model.captions.count == originalCount, key + "_existing_windows_and_caption_state_preserved")
                     let bitmap = try bitmap(windows[0].1)
-                    // cacheDisplay emits device RGB bytes; do not reinterpret them as calibrated
-                    // RGB and apply a second display-profile conversion.
+                    // Compare encoded screenshot bytes against the token converted to the
+                    // bitmap ICC profile; colorAt mislabels these bytes as calibrated RGB.
                     let pixel = bitmap.colorAt(x: bitmap.pixelsWide - 12, y: 12)!
-                    let expected = ThemePalette.color(theme, dark: mode == .dark, role: .background).usingColorSpace(.sRGB)!
+                    let expected = ThemePalette.color(theme, dark: mode == .dark, role: .background).usingColorSpace(bitmap.colorSpace)!
                     let error = abs(pixel.redComponent - expected.redComponent) + abs(pixel.greenComponent - expected.greenComponent) + abs(pixel.blueComponent - expected.blueComponent)
                     try require(error < 0.04, key + "_rendered_background_matches_design")
                     pixels[key] = String(format: "%.3f,%.3f,%.3f", pixel.redComponent, pixel.greenComponent, pixel.blueComponent)
                     let controls = try Self.bitmap(windows.first { $0.0 == "controls" }!.1)
                     let input = controls.colorAt(x: controls.pixelsWide / 2 + 350, y: controls.pixelsHigh / 2)!
-                    let controlColor = ThemePalette.color(theme, dark: mode == .dark, role: .control)
+                    let controlColor = ThemePalette.color(theme, dark: mode == .dark, role: .control).usingColorSpace(controls.colorSpace)!
                     let controlError = abs(input.redComponent - controlColor.redComponent) + abs(input.greenComponent - controlColor.greenComponent) + abs(input.blueComponent - controlColor.blueComponent)
                     try require(controlError < 0.04, key + "_input_control_updates_live")
                 }

@@ -39,6 +39,8 @@ struct SubtitleStrip: View {
     var onSettings: () -> Void = {}
     var japaneseFont = ""
     var chineseFont = ""
+    var japaneseSize: Double = 16
+    var chineseSize: Double = 20
     @State private var pointerInside = false
     @State private var showingExport = false
     @State private var showingClearConfirmation = false
@@ -63,12 +65,12 @@ struct SubtitleStrip: View {
             } else if compact, let latest = captions.last {
                 HStack(spacing: 6) {
                     if displayMode == .bilingual {
-                        Text(compactLine(latest.original, original: true)).font(Font(SubtitleFont.native(japaneseFont, size: 14))).foregroundStyle(ThemeColor.muted)
+                        Text(compactLine(latest.original, original: true)).font(Font(SubtitleFont.native(japaneseFont, size: max(12, japaneseSize - 2)))).foregroundStyle(ThemeColor.muted)
                             .lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .trailing)
                         Text("｜").foregroundStyle(.tertiary)
                     }
                     Text(compactLine(SubtitleDocument.completedTranslation(latest) ?? (latest.translated.hasPrefix("翻译失败") || latest.translated.hasPrefix("译文未完成") ? "翻译未完成" : "正在翻译…"), original: false))
-                        .font(Font(SubtitleFont.native(chineseFont, size: 16, weight: .medium))).lineLimit(1).truncationMode(.tail)
+                        .font(Font(SubtitleFont.native(chineseFont, size: max(14, chineseSize - 4), weight: .medium))).lineLimit(1).truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: displayMode == .bilingual ? .leading : .center)
                 }
                 .help(compactText(latest))
@@ -79,7 +81,7 @@ struct SubtitleStrip: View {
                     ScrollView(.vertical, showsIndicators: true) {
                         LazyVStack(alignment: .center, spacing: 18) {
                             ForEach(captions) { caption in
-                                PaperCaption(caption: caption, mode: displayMode, textWidth: max(24, size.width - 224), shortWindow: size.height < 120, japaneseFont: japaneseFont, chineseFont: chineseFont).id(caption.id)
+                                PaperCaption(caption: caption, mode: displayMode, textWidth: max(24, size.width - 224), shortWindow: size.height < 120, japaneseFont: japaneseFont, chineseFont: chineseFont, japaneseSize: japaneseSize, chineseSize: chineseSize).id(caption.id)
                             }
                             Color.clear.frame(height: 1).id(bottomID)
                         }
@@ -132,7 +134,7 @@ struct SubtitleStrip: View {
         // A one-row strip follows the current tail; the full text remains in
         // history, in the hover description, and in exports.
         return SubtitleLineLayout.format(text, language: original ? .japanese : .chinese, width: width,
-            font: SubtitleFont.native(original ? japaneseFont : chineseFont, size: original ? 14 : 16, weight: original ? .regular : .medium))
+            font: SubtitleFont.native(original ? japaneseFont : chineseFont, size: original ? max(12, japaneseSize - 2) : max(14, chineseSize - 4), weight: original ? .regular : .medium))
             .components(separatedBy: "\n").last ?? text
     }
 
@@ -228,16 +230,18 @@ private struct PaperCaption: View {
     let shortWindow: Bool
     var japaneseFont = ""
     var chineseFont = ""
+    var japaneseSize: Double = 16
+    var chineseSize: Double = 20
     private var typeLevel: Int {
         guard shortWindow else { return 0 }
         let originalRows = mode == .bilingual ? SubtitleLineLayout.format(caption.original, language: .japanese,
-            width: textWidth, font: SubtitleFont.native(japaneseFont, size: 16)).components(separatedBy: "\n").count : 0
+            width: textWidth, font: SubtitleFont.native(japaneseFont, size: japaneseSize)).components(separatedBy: "\n").count : 0
         let translatedRows = SubtitleLineLayout.format(SubtitleDocument.completedTranslation(caption) ?? "正在翻译…",
-            language: .chinese, width: textWidth, font: SubtitleFont.native(chineseFont, size: 20, weight: .medium)).components(separatedBy: "\n").count
+            language: .chinese, width: textWidth, font: SubtitleFont.native(chineseFont, size: chineseSize, weight: .medium)).components(separatedBy: "\n").count
         return min(2, max(0, originalRows + translatedRows - 2))
     }
-    private var originalSize: CGFloat { 16 - CGFloat(typeLevel) * 2 }
-    private var translatedSize: CGFloat { 20 - CGFloat(typeLevel) * 2 }
+    private var originalSize: CGFloat { max(12, japaneseSize - CGFloat(typeLevel) * 2) }
+    private var translatedSize: CGFloat { max(14, chineseSize - CGFloat(typeLevel) * 2) }
 
     @Environment(\.appThemeID) private var appThemeID
     var body: some View {

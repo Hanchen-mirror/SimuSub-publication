@@ -13,6 +13,11 @@ final class HomeAppearance: ObservableObject {
     @Published var mode: AppearanceMode { didSet { defaults.set(mode.rawValue, forKey: "appearance.mode.v128"); apply() } }
     @Published var japaneseFont: String { didSet { defaults.set(japaneseFont, forKey: "subtitle.japaneseFont.v128") } }
     @Published var chineseFont: String { didSet { defaults.set(chineseFont, forKey: "subtitle.chineseFont.v128") } }
+    @Published var japaneseSize: Double { didSet { defaults.set(japaneseSize, forKey: "subtitle.japaneseSize.v129") } }
+    @Published var chineseSize: Double { didSet { defaults.set(chineseSize, forKey: "subtitle.chineseSize.v129") } }
+    @Published var reduceMotion: Bool { didSet { defaults.set(reduceMotion, forKey: "appearance.reduceMotion.v129") } }
+    @Published var restorePage: Bool { didSet { defaults.set(restorePage, forKey: "appearance.restorePage.v129") } }
+    var lastPage: String { get { defaults.string(forKey: "appearance.lastPage.v129") ?? "home" } set { defaults.set(newValue, forKey: "appearance.lastPage.v129") } }
     private var systemObserver: NSObjectProtocol?
     private var effectiveAppearanceObserver: NSKeyValueObservation?
     private let defaults: UserDefaults
@@ -28,6 +33,10 @@ final class HomeAppearance: ObservableObject {
             ?? (defaults.object(forKey: "home.dark.v099") == nil ? .system : (defaults.bool(forKey: "home.dark.v099") ? .dark : .light))
         japaneseFont = defaults.string(forKey: "subtitle.japaneseFont.v128") ?? ""
         chineseFont = defaults.string(forKey: "subtitle.chineseFont.v128") ?? ""
+        japaneseSize = (defaults.object(forKey: "subtitle.japaneseSize.v129") as? Double).map { min(32, max(12, $0)) } ?? 16
+        chineseSize = (defaults.object(forKey: "subtitle.chineseSize.v129") as? Double).map { min(32, max(12, $0)) } ?? 20
+        reduceMotion = defaults.bool(forKey: "appearance.reduceMotion.v129")
+        restorePage = defaults.object(forKey: "appearance.restorePage.v129") as? Bool ?? true
         isDark = false
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         backgroundURL = backgroundFile ?? support.appendingPathComponent("SimuSub/Appearance/background.png")

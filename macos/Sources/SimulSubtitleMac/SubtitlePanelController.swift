@@ -337,7 +337,8 @@ private struct SubtitlePanelRoot: View {
                                   canStartStop: !(model.isDownloadingModels && !model.readinessIssues.isEmpty),
                                   onStartStop: { if model.subtitlePlaybackIntent == .chooseApplication { controller.prepareForPicker() }; model.toggleSubtitlePlayback() },
                                   onSettings: controller.openSubtitleSettings,
-                                  japaneseFont: appearance.japaneseFont, chineseFont: appearance.chineseFont)
+                                  japaneseFont: appearance.japaneseFont, chineseFont: appearance.chineseFont,
+                                  japaneseSize: appearance.japaneseSize, chineseSize: appearance.chineseSize)
                         .contextMenu { SubtitleWindowMenu(model: model); Button("收起为悬浮图标") { controller.collapseToBubble() } }
                 }
             }

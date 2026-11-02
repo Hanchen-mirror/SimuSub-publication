@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// Generated from revision-v21/theme-palettes.json, the approved v1.28 theme source.
+// Generated from the approved SimuSub 完整主题基调/theme-palettes.json.
 // Each role has a complete light/dark value, including surfaces and typography.
 enum AppTheme: String, CaseIterable, Identifiable {
     case blue, green, purple, yellow
@@ -86,6 +86,9 @@ struct AppThemeModifier: ViewModifier {
             .buttonStyle(ThemeActionButtonStyle())
             .environment(\.appThemeID, appearance.theme.rawValue + "-" + appearance.mode.rawValue + "-" + String(appearance.isDark))
             .environment(\.colorScheme, appearance.colorScheme)
+            .transaction { transaction in
+                if appearance.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { transaction.animation = nil; transaction.disablesAnimations = true }
+            }
             .preferredColorScheme(appearance.colorScheme)
             .tint(ThemeColor.primary)
             .accentColor(ThemeColor.primary)

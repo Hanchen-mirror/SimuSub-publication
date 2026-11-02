@@ -123,62 +123,64 @@ struct SubtitleSettingsContent: View {
 
 struct AdvancedServiceSettings: View {
     @EnvironmentObject private var model: AppModel
-
+    @State private var managing = false
     @Environment(\.appThemeID) private var appThemeID
     var body: some View {
         let _ = appThemeID
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("模型与服务").font(.title3.bold())
-                        Text("默认使用自动安装的本地引擎；第三方接口为可选项，密钥保存在 Keychain。")
-                            .font(.callout).foregroundStyle(ThemeColor.muted)
-                    }
-                    Spacer()
-                    Menu {
-                        Button("添加 DeepSeek 翻译 / 核对") { model.addDeepSeekProfile() }
-                        Button("添加语音识别接口") { model.addProfile(.speechRecognition) }
-                        Button("添加翻译接口") { model.addProfile(.translation) }
-                    } label: { Label("添加服务", systemImage: "plus") }.disabled(model.isBusy)
+            VStack(alignment: .leading, spacing: 16) {
+                DesignPageHeading(title: "模型与服务") { Button { managing = true } label: { Image(systemName: "slider.horizontal.3") }.buttonStyle(.plain).help("管理接口与密钥") }
+                HStack(alignment: .top, spacing: 22) {
+                    servicePanel(.speechRecognition, selection: $model.selectedASRProfileID)
+                    servicePanel(.translation, selection: $model.selectedTranslationProfileID)
                 }
-                Button("使用默认本地引擎") {
-                    model.selectedASRProfileID = model.profiles.first { $0.kind == .local && $0.purpose == .speechRecognition }?.id
-                    model.selectedTranslationProfileID = model.profiles.first { $0.kind == .local && $0.purpose == .translation }?.id
-                    model.ensureLocalModels()
-                }.disabled(model.isBusy)
-                Text("日语 → 中文 · 本地引擎自动安装，无需手动选择模型文件。")
-                    .font(.callout).foregroundStyle(ThemeColor.muted)
-                HStack(spacing: 16) {
-                    ForEach(model.profiles.filter { $0.kind == .local }) { profile in
-                        VStack(alignment: .leading, spacing: 12) {
-                            Label(profile.name, systemImage: "desktopcomputer").font(.headline)
-                            Text(profile.model).font(.callout).foregroundStyle(ThemeColor.muted)
-                            let installed = profile.purpose == .speechRecognition ? model.asrInstalled : model.translationInstalled
-                            Label(installed ? "已就绪 · 本地运行" : "尚未安装", systemImage: installed ? "checkmark.circle" : "arrow.down.circle")
-                                .font(.caption).foregroundStyle(installed ? ThemeColor.primary : ThemeColor.muted)
-                            Button("使用此模型") {
-                                if profile.purpose == .speechRecognition { model.selectedASRProfileID = profile.id }
-                                else { model.selectedTranslationProfileID = profile.id }
-                                model.ensureLocalModels()
-                            }.disabled(model.isBusy)
-                        }.themeCard()
+                VStack(alignment: .leading, spacing: 22) {
+                    Text("翻译偏好").font(.system(size: 15, weight: .semibold))
+                    HStack { Text("直播日中翻译").font(.system(size: 13)); Spacer(); Button("编辑提示词与服务…") { managing = true } }
+                }.designPanel()
+                if model.isDownloadingModels { ProgressView(value: model.downloadProgress); Text(model.downloadStatus).font(.caption).foregroundStyle(ThemeColor.muted) }
+            }.padding(.horizontal, 32).padding(.vertical, 28)
+        }.background(ThemeColor.background)
+            .sheet(isPresented: $managing) {
+                VStack(spacing: 18) {
+                    HStack { Text("服务配置").font(.system(size: 20, weight: .semibold)); Spacer()
+                        Menu { Button("添加 DeepSeek 翻译 / 核对") { model.addDeepSeekProfile() }; Button("添加语音识别接口") { model.addProfile(.speechRecognition) }; Button("添加翻译接口") { model.addProfile(.translation) } } label: { Label("添加服务", systemImage: "plus") }.disabled(model.isBusy)
+                        Button("完成") { managing = false }
                     }
-                }
-                if model.isDownloadingModels { ProgressView(value: model.downloadProgress); Text(model.downloadStatus).font(.caption) }
-                ForEach(ServicePurpose.allCases) { purpose in
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(purpose.rawValue).font(.headline).padding(.top, 6)
-                        ForEach(model.profiles.filter { $0.purpose == purpose && $0.kind != .local }) { profile in
-                            ServiceProfileCard(profileID: profile.id)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            ForEach(ServicePurpose.allCases) { purpose in
+                                Text(purpose.rawValue).font(.headline)
+                                ForEach(model.profiles.filter { $0.purpose == purpose && $0.kind != .local }) { ServiceProfileCard(profileID: $0.id) }
+                            }
                         }
                     }
+                }.padding(26).frame(width: 820, height: 680).appTheme()
+            }
+    }
+    private func servicePanel(_ purpose: ServicePurpose, selection: Binding<UUID?>) -> some View {
+        let profile = model.profiles.first { $0.id == selection.wrappedValue }
+        let installed = purpose == .speechRecognition ? model.asrInstalled : model.translationInstalled
+        return VStack(alignment: .leading, spacing: 24) {
+            Text(purpose == .speechRecognition ? "语音识别" : "翻译").font(.system(size: 15, weight: .semibold))
+            VStack(alignment: .leading, spacing: 10) {
+                Text("服务商").font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
+                DesignMenuField(title: profile?.name ?? "选择服务") {
+                    ForEach(model.profiles.filter { $0.purpose == purpose && $0.isEnabled }) { value in Button(value.name) { selection.wrappedValue = value.id } }
+                }.disabled(model.isBusy)
+
+            }
+            HStack(spacing: 16) {
+                Image(systemName: profile?.kind == .local ? "cpu" : "cloud").font(.system(size: 20)).foregroundStyle(ThemeColor.primary)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(profile?.model ?? "未选择模型").font(.system(size: 13))
+                    Text(profile?.kind == .local ? (installed ? "本地已就绪" : "尚未安装") : (profile.map { model.savedCredentialIDs.contains($0.id) } == true ? "已保存密钥" : "需要配置 API Key")).font(.system(size: 11)).foregroundStyle(ThemeColor.muted)
                 }
-                Text("云端识别会发送音频；云端翻译会发送识别文本。本地识别和翻译在下载完模型后可离线运行。")
-                    .font(.caption).foregroundStyle(ThemeColor.muted)
-            }.padding(24).frame(maxWidth: 850, alignment: .leading).frame(maxWidth: .infinity)
-        }
-        .background(ThemeColor.background)
+            }.padding(.top, 10)
+            if profile?.kind == .local && !installed { Button("准备本地引擎", action: model.ensureLocalModels).disabled(model.isDownloadingModels || model.isBusy) }
+            else if profile?.kind != .local { Button("配置服务…") { managing = true } }
+            Spacer(minLength: 0)
+        }.frame(height: 268).designPanel()
     }
 }
 
