@@ -112,6 +112,19 @@ final class CapturePermissionCenter: ObservableObject {
         if !NSWorkspace.shared.open(url) { notice = "请手动打开系统设置 → 隐私与安全性 → 屏幕与系统音频录制。" }
     }
 
+    /// Setup only reads consent. It never probes audio or reuses an old session grant.
+    func refreshSetupConsent() {
+        screenGranted = readScreen()
+        if screenGranted { screenAccessError = "" }
+    }
+
+    func openSetupSettings() {
+        // Register this signed application in TCC on the user's explicit button press.
+        if !readScreen() { _ = CGRequestScreenCaptureAccess() }
+        openSettings()
+        refreshSetupConsent()
+    }
+
     func restartApplication() {
         do { try PermissionRecovery.relaunch() }
         catch { notice = "重新打开失败：\(error.localizedDescription)" }

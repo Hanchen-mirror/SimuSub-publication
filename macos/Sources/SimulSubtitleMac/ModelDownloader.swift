@@ -7,6 +7,7 @@ final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Se
     private var continuation: CheckedContinuation<URL, Error>?
     private var progress: (@Sendable (Double) -> Void)?
     private var cancelled = false
+    private var paused = false
     private var lastReportedPercent = -1
 
     func download(_ url: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
@@ -23,8 +24,8 @@ final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Se
                 self.session = session
                 let task = session.downloadTask(with: url)
                 self.task = task
+                if !paused { task.resume() }
                 lock.unlock()
-                task.resume()
             }
         } onCancel: {
             self.lock.lock()
@@ -33,6 +34,14 @@ final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Se
             self.lock.unlock()
             task?.cancel()
         }
+    }
+
+    func setPaused(_ value: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard paused != value else { return }
+        paused = value
+        if value { task?.suspend() } else { task?.resume() }
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,

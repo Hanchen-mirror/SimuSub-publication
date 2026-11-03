@@ -49,28 +49,52 @@ final class LocalModelStore: @unchecked Sendable {
 
     typealias Progress = @Sendable (Double, String) -> Void
 
-    func downloadASR(progress: @escaping Progress = { _, _ in }) async throws {
-        try await download(files, progress: progress)
+    func downloadASR(control: ModelDownloadControl? = nil, progress: @escaping Progress = { _, _ in }) async throws {
+        try await download(files, control: control, progress: progress)
     }
 
-    func downloadTranslation(progress: @escaping Progress = { _, _ in }) async throws {
-        try await download([translationModel], progress: progress)
+    func downloadTranslation(control: ModelDownloadControl? = nil, progress: @escaping Progress = { _, _ in }) async throws {
+        try await download([translationModel], control: control, progress: progress)
     }
 
-    private func download(_ requested: [ASRModelFile], progress: @escaping Progress) async throws {
+    /// Read-only verification: existing models and their markers are never rewritten.
+    func verifyInstalled(for purpose: ServicePurpose) async throws -> Bool {
+        let requested = purpose == .speechRecognition ? files : [translationModel]
+        return try await Task.detached { [self] in
+            var complete = true
+            for file in requested {
+                let url = root.appending(path: file.relativePath)
+                guard FileManager.default.fileExists(atPath: url.path) else { complete = false; continue }
+                guard matches(file), FileManager.default.isReadableFile(atPath: url.path),
+                      let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                      Int64(size) == file.byteCount, try Self.sha256(of: url) == file.sha256 else {
+                    throw ModelStoreError.checksumFailed(file.relativePath)
+                }
+            }
+            return complete
+        }.value
+    }
+
+    private func download(_ requested: [ASRModelFile], control: ModelDownloadControl?, progress: @escaping Progress) async throws {
         let total = requested.reduce(Int64(0)) { $0 + $1.byteCount }
         var completed: Int64 = 0
         for file in requested {
             try Task.checkCancellation()
             if matches(file) { completed += file.byteCount; continue }
             let destination = root.appending(path: file.relativePath)
+            // Never overwrite an existing model, including one with an invalid marker.
+            if FileManager.default.fileExists(atPath: destination.path) {
+                throw ModelStoreError.checksumFailed(file.relativePath)
+            }
             try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
             let before = completed
-            let temporary = try await ModelDownloader().download(file.url) { fraction in
+            let downloader = ModelDownloader()
+            control?.attach(downloader)
+            let temporary = try await downloader.download(file.url) { fraction in
                 progress((Double(before) + fraction * Double(file.byteCount)) / Double(total), "正在下载 \(file.relativePath)")
             }
             defer { try? FileManager.default.removeItem(at: temporary) }
-            progress(Double(completed) / Double(total), "正在校验 \(file.relativePath)…")
+            progress(Double(completed + file.byteCount) / Double(total), "正在校验 \(file.relativePath)…")
             try await Task.detached {
                 let size = try temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1
                 guard Int64(size) == file.byteCount, try Self.sha256(of: temporary) == file.sha256 else {
@@ -78,7 +102,11 @@ final class LocalModelStore: @unchecked Sendable {
                 }
             }.value
             try Task.checkCancellation()
-            try? FileManager.default.removeItem(at: destination)
+            // Another process may have installed it while this request was in flight.
+            guard !FileManager.default.fileExists(atPath: destination.path) else {
+                if matches(file) { completed += file.byteCount; continue }
+                throw ModelStoreError.checksumFailed(file.relativePath)
+            }
             try FileManager.default.moveItem(at: temporary, to: destination)
             try file.sha256.write(to: URL(fileURLWithPath: destination.path + ".sha256"), atomically: true, encoding: .utf8)
             completed += file.byteCount
@@ -200,7 +228,7 @@ enum ModelStoreError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .downloadFailed(let path): "模型下载失败：\(path)"
-        case .checksumFailed(let path): "模型校验失败：\(path)，请重新下载"
+        case .checksumFailed(let path): "模型校验失败：\(path)。已有文件未修改，请检查模型路径。"
         }
     }
 }

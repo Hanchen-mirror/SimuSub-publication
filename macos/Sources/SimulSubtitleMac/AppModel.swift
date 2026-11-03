@@ -73,7 +73,13 @@ final class AppModel: ObservableObject {
 
     private let defaults: UserDefaults
     private let keyStore = SecureCredentialStore()
-    private let modelStore: LocalModelStore
+    let modelStore: LocalModelStore
+    @Published private(set) var onboardingCompleted = false
+
+    func completeOnboarding() {
+        onboardingCompleted = true
+        defaults.set(true, forKey: "onboarding.completed.v131")
+    }
     private var captureEngine: AudioCaptureEngine?
     private var startupTask: Task<Void, Never>?
     private var stopTask: Task<Void, Never>?
@@ -116,6 +122,7 @@ final class AppModel: ObservableObject {
          recognizer: SpeechRecognizing? = nil, translator: TextTranslating? = nil) {
         self.defaults = defaults
         self.modelStore = modelStore
+        onboardingCompleted = defaults.bool(forKey: "onboarding.completed.v131")
         speechRecognizer = recognizer
         textTranslator = translator
         stablePrefixesEnabled = defaults.object(forKey: "speech.stablePrefixes.v123") as? Bool ?? true
@@ -190,7 +197,7 @@ final class AppModel: ObservableObject {
         guard !isBusy else { return }
         if !readinessIssues.isEmpty {
             errorSection = .services
-            errorMessage = readinessIssues.joined(separator: "\n") + "\n本地引擎自动准备完成后即可使用；第三方接口请到高级设置完善。"
+            errorMessage = readinessIssues.joined(separator: "\n")
             section = .services
             return
         }
@@ -533,6 +540,19 @@ final class AppModel: ObservableObject {
             guard (200..<300).contains(http.statusCode) else { throw ServiceError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
             return "鉴权成功；请导入一段音频验证转写模型"
         } catch { return "测试失败：\(error.localizedDescription)" }
+    }
+
+    /// Test the selected model's actual API, rather than accepting a /models response.
+    func checkSetupConnection(for profile: ServiceProfile) async throws {
+        let key = try credential(for: profile)
+        if profile.purpose == .translation {
+            _ = try await OpenAICompatibleTranslator(profile: profile, apiKey: key)
+                .translate("こんにちは", from: "Japanese", to: "中文")
+        } else {
+            // A synthetic silent WAV checks authentication, model and transcription endpoint.
+            _ = try await OpenAICompatibleSpeechRecognizer(profile: profile, apiKey: key)
+                .recognize(samples: [Float](repeating: 0, count: 16_000))
+        }
     }
 
     func saveAPIKey(_ key: String, for profile: ServiceProfile) throws {
