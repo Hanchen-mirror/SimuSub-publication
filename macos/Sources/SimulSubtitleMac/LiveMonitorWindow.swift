@@ -56,12 +56,12 @@ struct LiveConnectionSheet: View {
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text(credentials.usesAccount(platform) ? "使用已导入会话（由平台验证有效性）" : "访客模式 · 无需登录")
+                    Text(platform == .youtube ? "自动连接 · 浏览器优先" : (credentials.usesAccount(platform) ? "使用已导入会话（由平台验证有效性）" : "访客模式 · 无需登录"))
                         .font(.headline)
                     Text("关注列表只保存在本机。访客可读取公开直播；受登录限制的内容可使用自己的会话。")
                         .font(.callout).foregroundStyle(ThemeColor.muted)
                     HStack {
-                        Button("使用访客") { credentials.useGuest(platform); message = "已切换到访客模式。" }
+                        Button(platform == .youtube ? "无连接时用访客" : "使用访客") { credentials.useGuest(platform); message = platform == .youtube ? "浏览器仍优先；未接入时使用访客。" : "已切换到访客模式。" }
                         if credentials.hasCookies(platform) {
                             Button("使用已导入会话") { perform { try credentials.useSavedAccount(platform) } }
                             Button("移除会话", role: .destructive) { disconnect = true }
@@ -69,7 +69,7 @@ struct LiveConnectionSheet: View {
                     }
                     Divider()
                     Text("连接自己的账号").font(.headline)
-                    Text("先在官网登录，再导入仅包含该平台的 Netscape Cookies 文本。会话可代表你的账号，请只导入自己的文件；应用不会读取浏览器数据库。")
+                    Text(platform == .youtube ? "优先使用已接入的浏览器会话；未接入时使用已导入的 Cookies，没有会话则使用访客。" : "使用访客访问公开内容，或导入自己的 Cookies 会话。")
                         .font(.caption).foregroundStyle(ThemeColor.muted)
                     HStack {
                         Button("打开官网登录") { NSWorkspace.shared.open(platform.loginURL) }
@@ -157,8 +157,9 @@ struct PlatformConnectionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(spacing: 11) { PlatformLogo(platform: platform).frame(width: 22, height: 22); Text(platform.title).font(.system(size: 16, weight: .semibold)) }
+            if platform == .youtube { Text("浏览器优先 · 无连接时使用 Cookies 或访客").font(.caption).foregroundStyle(ThemeColor.muted) }
             HStack(spacing: 10) {
-                Button { credentials.useGuest(platform) } label: { Text("访客").frame(maxWidth: .infinity) }.buttonStyle(ThemeActionButtonStyle()).overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(credentials.usesAccount(platform) ? ThemeColor.line : ThemeColor.primary))
+                Button { credentials.useGuest(platform) } label: { Text(platform == .youtube ? "访客回退" : "访客").frame(maxWidth: .infinity) }.buttonStyle(ThemeActionButtonStyle()).overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(credentials.usesAccount(platform) ? ThemeColor.line : ThemeColor.primary))
                 Button { NSWorkspace.shared.open(platform.loginURL) } label: { Label("官网登录", systemImage: "arrow.up.right.square").frame(maxWidth: .infinity) }.buttonStyle(ThemeActionButtonStyle())
                 Button { importCookies() } label: { Text("导入 Cookies").frame(maxWidth: .infinity) }.buttonStyle(ThemeActionButtonStyle())
             }

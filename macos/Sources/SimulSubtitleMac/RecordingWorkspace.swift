@@ -15,6 +15,7 @@ struct RecordingWorkspace: View {
                 DesignPageHeading(title: "直播录制") {
                     Button { adding = true } label: { Label("添加主播", systemImage: "plus") }.buttonStyle(ThemeActionButtonStyle(prominent: true))
                 }
+                if let notice = monitor.notice { Text(notice).font(.caption).foregroundStyle(.orange) }
                 VStack(alignment: .leading, spacing: 20) {
                     HStack {
                         Text("关注的主播").font(.system(size: 15, weight: .semibold)); Spacer()
@@ -110,6 +111,11 @@ private struct CreatorRowV23: View {
     @EnvironmentObject private var monitor: LiveMonitorStore
     @State private var removing = false
     private var active: LiveRecording? { monitor.activeRecording(creator.id) }
+    private var recordingMessage: String? {
+        let latest = monitor.recordings.first { $0.creatorID == creator.id }
+        guard let latest, [.preparing, .interrupted, .failed].contains(latest.state) else { return nil }
+        return latest.message
+    }
     @Environment(\.appThemeID) private var appThemeID
     var body: some View {
         let _ = appThemeID
@@ -120,7 +126,7 @@ private struct CreatorRowV23: View {
             VStack(alignment: .leading, spacing: 7) {
                 Text(creator.name).font(.system(size: 15, weight: .semibold))
                 HStack(spacing: 6) { PlatformLogo(platform: creator.platform).frame(width: 14, height: 14); Text(creator.snapshot.state.title).lineLimit(1) }.font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
-                if let error = creator.lastError { Text(error).font(.caption).foregroundStyle(.orange).lineLimit(2) }
+                if let error = recordingMessage ?? creator.lastError { Text(error).font(.caption).foregroundStyle(.orange).lineLimit(3) }
             }
             Spacer()
             if let active { Text(active.state.title).font(.system(size: 11)).foregroundStyle(ThemeColor.muted) }
@@ -128,9 +134,9 @@ private struct CreatorRowV23: View {
                 if let active { monitor.stopRecording(active.id) } else { monitor.startRecording(creator.id) }
             } label: {
                 Image(systemName: active == nil ? "record.circle" : "stop.circle.fill").font(.system(size: 23)).foregroundStyle(Color(red: 0.67, green: 0.37, blue: 0.38)).frame(width: 38, height: 38)
-            }.buttonStyle(.plain).help(active == nil ? "开始录制" : "停止录制")
-                .accessibilityLabel(active == nil ? "开始录制" : "停止录制").accessibilityIdentifier("home.record." + creator.id.uuidString)
-                .disabled(active?.state == .preparing || active?.state == .stopping || (active == nil && CreatorBadge(creator) != .live))
+            }.buttonStyle(.plain).help(active == nil ? "检查并录制当前直播" : active?.state == .preparing ? "取消连接" : "停止录制")
+                .accessibilityLabel(active == nil ? "开始录制" : active?.state == .preparing ? "取消连接" : "停止录制").accessibilityIdentifier("home.record." + creator.id.uuidString)
+                .disabled(active?.state == .stopping)
             Menu {
                 if let active, [LiveRecordingState.recording, .paused].contains(active.state) {
                     Button(active.state == .paused ? "继续录制" : "暂停录制") {

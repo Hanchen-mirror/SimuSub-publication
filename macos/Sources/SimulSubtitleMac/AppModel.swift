@@ -105,6 +105,13 @@ final class AppModel: ObservableObject {
     private static let profilesKey = "serviceProfiles.v2"
 
     var isBusy: Bool { isCapturing || isStarting || isStopping || isProcessingFile }
+    var serviceSelectionLockReason: String? {
+        if isStopping { return "正在完成最后一段字幕，完成后可切换模型。" }
+        if isStarting { return "同传正在启动，停止后可切换模型。" }
+        if isProcessingFile { return "正在处理音频，完成后可切换模型。" }
+        if isCapturing { return "同传运行中，停止后可切换模型。" }
+        return nil
+    }
     var readinessIssues: [String] {
         [selectedASRProfileID, selectedTranslationProfileID].compactMap { id in
             guard let profile = profiles.first(where: { $0.id == id }) else { return "请选择处理服务" }

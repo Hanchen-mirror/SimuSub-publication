@@ -44,14 +44,18 @@ struct YTDLPLiveExtractor: LiveExtracting {
         var arguments = ["--ignore-config", "--no-warnings", "--skip-download", "--dump-single-json",
             "--socket-timeout", "15", "--retries", "1", "--extractor-retries", "1", "--no-cache-dir",
             "--js-runtimes", "deno:" + LiveTools.root.appendingPathComponent("deno").path,
-            "--playlist-end", flat ? "8" : "1", "--ignore-no-formats-error"]
+            "--playlist-end", flat ? "8" : "1"]
         if flat { arguments.append("--flat-playlist") }
         else {
             arguments += ["--no-playlist", "--format", "best[height<=1080]/bestvideo[height<=1080]+bestaudio/best"]
         }
         if let lease { arguments += ["--cookies", lease.file.path] }
         arguments += ["--", address]
-        let result = try await LiveTools.run("yt-dlp", arguments: arguments, timeout: flat ? 45 : 55)
+        let result: LiveToolOutput
+        do { result = try await LiveTools.run("yt-dlp", arguments: arguments, timeout: flat ? 45 : 75) }
+        catch LiveMonitorError.timeout {
+            throw LiveMonitorError.request(flat ? "主播信息读取超时，请重试。" : "直播地址解析超时，尚未开始写入录像，请重试。")
+        }
         withExtendedLifetime(lease) { }
         guard result.status == 0 else {
             if Self.isOffline(result.error) { throw LiveExtractionError.offline }
@@ -69,6 +73,9 @@ struct YTDLPLiveExtractor: LiveExtracting {
     }
     static func friendlyError(_ message: String) -> String {
         let text = message.lowercased()
+        if text.contains("confirm") && text.contains("bot") {
+            return "YouTube 要求验证当前访问，暂未取得视频流。主播查找和开播检查仍可使用；录制需在平台验证后重试。"
+        }
         if text.contains("sign in") || text.contains("login") || text.contains("cookies") || text.contains("private") || text.contains("members") {
             return "平台要求登录或当前内容受限。可连接自己的会话后重试；未将此次错误判断为下播。"
         }
@@ -96,6 +103,7 @@ struct ResolvedLiveInput: Sendable {
     }
     let tracks: [Track]
     let title: String
+    var browserCapture: BrowserCaptureRequest? = nil
 }
 
 protocol LivePlatformServing: Sendable {
@@ -108,17 +116,19 @@ protocol LivePlatformServing: Sendable {
 actor LivePlatformService: LivePlatformServing {
     private let session: URLSession
     private let extractor: LiveExtracting
+    private let youtube: (any YouTubeDiscovering)?
     private var biliGuestCookie: String?
     private var twitchValidatedToken: String?
     private var twitchValidatedClientID: String?
     private var twitchValidationUntil = Date.distantPast
-    init(session: URLSession? = nil, extractor: LiveExtracting = YTDLPLiveExtractor()) {
+    init(session: URLSession? = nil, extractor: LiveExtracting? = nil, youtube: (any YouTubeDiscovering)? = nil) {
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false; config.httpCookieAcceptPolicy = .never
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 30
         self.session = session ?? URLSession(configuration: config)
-        self.extractor = extractor
+        self.extractor = extractor ?? YTDLPLiveExtractor()
+        self.youtube = youtube ?? (extractor == nil ? YouTubePublicClient() : nil)
     }
 
     func search(_ query: String, platform: LivePlatform, access: LivePlatformAccess) async throws -> [CreatorCandidate] {
@@ -140,6 +150,7 @@ actor LivePlatformService: LivePlatformServing {
                     name: plain(string(row["uname"])), avatarURL: imageURL(string(row["face"])), description: plain(string(row["title"])))
             }
         case .youtube:
+            if let youtube { return try await youtube.search(query, cookies: access.cookies) }
             if let key = access.apiKey {
                 let json = try await get("https://www.googleapis.com/youtube/v3/search",
                     items: ["part": "snippet", "type": "channel", "maxResults": "10", "q": query, "key": key])
@@ -152,7 +163,7 @@ actor LivePlatformService: LivePlatformServing {
                         description: plain(string(snippet["description"])))
                 }
             }
-            let result = try await extractor.metadata("ytsearch8:" + query, cookies: access.cookies, flat: true)
+            let result = try await extractor.metadata("ytsearch8:" + query, cookies: nil, flat: true)
             var seen: Set<String> = []
             return (result.entries ?? []).compactMap { entry in
                 let channel = entry.channel_url ?? entry.channel_id.map { "https://www.youtube.com/channel/" + $0 }
@@ -195,15 +206,23 @@ actor LivePlatformService: LivePlatformServing {
                 name: (info?["uname"] as? String) ?? plain(string(data["title"])), avatarURL: imageURL(string(info?["face"])),
                 description: plain(string(data["title"])))
         case .youtube:
-            let media = try await extractor.metadata(address, cookies: access.cookies, flat: !address.contains("/watch?"))
+            var channelAddress = address
+            var publicName: String?
+            if address.contains("/watch?") {
+                // oEmbed identifies the channel without requesting protected playback formats.
+                let info = try await get("https://www.youtube.com/oembed", items: ["url": address, "format": "json"])
+                guard let author = info["author_url"] as? String else { throw LiveMonitorError.invalidResponse }
+                channelAddress = try LiveAddress.normalize(author, platform: .youtube)
+                publicName = info["author_name"] as? String
+            }
+            if let youtube { return try await youtube.profile(channelAddress, cookies: access.cookies) }
+            let media = try await extractor.metadata(channelAddress, cookies: nil, flat: true)
             let channelID = media.channel_id ?? (media.id?.hasPrefix("UC") == true ? media.id : nil)
-            let channel = media.channel_url ?? channelID.map { "https://www.youtube.com/channel/" + $0 } ?? address
-            guard !channel.contains("/watch?") else { throw LiveMonitorError.invalidInput("请使用主播的频道链接，暂时无法从这个视频确定频道。") }
+            let channel = media.channel_url ?? channelID.map { "https://www.youtube.com/channel/" + $0 } ?? channelAddress
             let canonical = try LiveAddress.normalize(channel, platform: platform)
-            let channelProfile = address.contains("/watch?") ? try await extractor.metadata(canonical, cookies: access.cookies, flat: true) : media
             return CreatorCandidate(platform: platform, address: canonical,
-                name: channelProfile.channel ?? channelProfile.uploader ?? channelProfile.title ?? URL(string: channel)!.lastPathComponent,
-                avatarURL: channelProfile.profileAvatar)
+                name: media.channel ?? media.uploader ?? publicName ?? media.title ?? URL(string: channel)!.lastPathComponent,
+                avatarURL: media.profileAvatar)
         case .twitch:
             let login = URL(string: address)!.lastPathComponent
             if let token = access.accessToken, let clientID = access.clientID {
@@ -235,6 +254,11 @@ actor LivePlatformService: LivePlatformServing {
                                 sessionID: live == 1 ? creator.address + ":" + start : nil, liveURL: creator.address,
                                 coverURL: imageURL(string(data["user_cover"])) ?? imageURL(string(data["keyframe"])), category: data["area_name"] as? String)
         }
+        if creator.platform == .youtube {
+            if let youtube { return try await youtube.status(creator.address, cookies: access.cookies) }
+            let listing = try await extractor.metadata(creator.address + "/streams", cookies: nil, flat: true)
+            return try Self.youtubeSnapshot(listing, channel: creator.address)
+        }
         if creator.platform == .twitch, let token = access.accessToken, let clientID = access.clientID {
             try await validateTwitch(token: token, clientID: clientID)
             let json = try await get("https://api.twitch.tv/helix/streams",
@@ -252,7 +276,9 @@ actor LivePlatformService: LivePlatformServing {
             if media.is_live == true || media.live_status == "is_live" { state = .live }
             else if media.live_status == "is_upcoming" { state = .upcoming }
             else if ["not_live", "was_live", "post_live"].contains(media.live_status ?? "") { state = .offline }
-            else { throw LiveMonitorError.unavailable("平台没有返回明确直播状态，稍后再确认。") }
+            else { throw LiveMonitorError.unavailable(creator.platform == .youtube
+                ? "YouTube 未返回明确直播状态，请稍后刷新。"
+                : "平台没有返回明确直播状态，稍后再确认。") }
             return LiveSnapshot(state: state, title: media.title ?? "", sessionID: media.id,
                 startedAt: (media.release_timestamp ?? media.timestamp).map(Date.init(timeIntervalSince1970:)),
                 liveURL: media.webpage_url ?? creator.address, coverURL: imageURL(media.thumbnail ?? ""), category: media.categories?.first)
@@ -260,7 +286,25 @@ actor LivePlatformService: LivePlatformServing {
     }
 
     func recordingInput(_ creator: WatchedCreator, access: LivePlatformAccess) async throws -> ResolvedLiveInput {
-        let media = try await extractor.metadata(LiveAddress.liveURL(creator.address, platform: creator.platform), cookies: access.cookies, flat: false)
+        let address: String
+        if creator.platform == .youtube {
+            if creator.snapshot.state == .live, let liveURL = creator.snapshot.liveURL,
+               let canonical = try? LiveAddress.normalize(liveURL, platform: .youtube), canonical.contains("/watch?") {
+                address = canonical
+            } else {
+                let snapshot = try await status(creator, access: access)
+                guard snapshot.state == .live, let liveURL = snapshot.liveURL else {
+                    throw LiveMonitorError.unavailable("主播当前没有可录制的直播。")
+                }
+                address = liveURL
+            }
+        } else { address = LiveAddress.liveURL(creator.address, platform: creator.platform) }
+        let cookies = access.cookies
+        if creator.platform == .youtube, let browser = await youtube?.browserMedia(address) {
+            if let input = browser.input { return input }
+            throw LiveMonitorError.unavailable("浏览器已连接，但网页尚未提供可录制的直播画面；请确认直播仍在播放。")
+        }
+        let media = try await extractor.metadata(address, cookies: cookies, flat: false)
         guard media.is_live == true || media.live_status == "is_live" else { throw LiveMonitorError.unavailable("主播当前没有可录制的直播，未下载过去的视频。") }
         let sources = media.requested_formats ?? [media]
         let tracks = sources.compactMap { source -> ResolvedLiveInput.Track? in
@@ -278,6 +322,25 @@ actor LivePlatformService: LivePlatformServing {
             throw LiveMonitorError.unavailable("平台暂时没有返回可用的视频直播流。")
         }
         return ResolvedLiveInput(tracks: tracks, title: media.title ?? creator.snapshot.title)
+    }
+
+    static func youtubeSnapshot(_ listing: ExtractedLiveMedia, channel: String) throws -> LiveSnapshot {
+        let entries = listing.entries ?? [listing]
+        let selected = entries.first { $0.is_live == true || $0.live_status == "is_live" }
+            ?? entries.first { $0.live_status == "is_upcoming" }
+        if let selected {
+            let live = selected.is_live == true || selected.live_status == "is_live"
+            guard let id = selected.id, id.range(of: #"^[A-Za-z0-9_-]{6,20}$"#, options: .regularExpression) != nil else {
+                throw LiveMonitorError.invalidResponse
+            }
+            return LiveSnapshot(state: live ? .live : .upcoming, title: selected.title ?? "",
+                sessionID: id, startedAt: selected.release_timestamp.map(Date.init(timeIntervalSince1970:)),
+                liveURL: "https://www.youtube.com/watch?v=" + id, coverURL: selected.thumbnail ?? selected.thumbnails?.last?.url)
+        }
+        guard !entries.isEmpty, entries.allSatisfy({ ["not_live", "was_live", "post_live"].contains($0.live_status ?? "") }) else {
+            throw LiveMonitorError.unavailable("YouTube 未返回明确直播状态，请稍后刷新。")
+        }
+        return LiveSnapshot(state: .offline, liveURL: channel)
     }
 
     private func twitchPublicProfile(login: String, cookies: String?) async throws -> CreatorCandidate {

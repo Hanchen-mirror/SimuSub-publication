@@ -15,7 +15,7 @@ struct HomeRecordingBar: View {
                 if let active { monitor.stopRecording(active.id) } else { monitor.startRecording(creator.id) }
             } label: {
                 Label(active == nil ? "录制" : active?.state == .stopping ? "保存中" : "停止保存", systemImage: active == nil ? "record.circle.fill" : "stop.circle.fill").foregroundStyle(.red)
-            }.disabled(active?.state == .preparing || active?.state == .stopping || (active == nil && CreatorBadge(creator) != .live))
+            }.disabled(active?.state == .stopping)
                 .accessibilityIdentifier("home.record.\(creator.id)")
             Button {
                 guard let active else { return }

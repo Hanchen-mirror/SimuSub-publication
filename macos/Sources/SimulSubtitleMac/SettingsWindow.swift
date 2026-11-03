@@ -60,6 +60,16 @@ struct AdvancedServiceSettings: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 DesignPageHeading(title: "模型与服务") { EmptyView() }
+                if let reason = model.serviceSelectionLockReason {
+                    HStack {
+                        Label(reason, systemImage: "info.circle").font(.callout).foregroundStyle(ThemeColor.muted)
+                        Spacer()
+                        if model.isCapturing && !model.isStopping {
+                            Button("停止同传", action: model.stopCapture).buttonStyle(ThemeActionButtonStyle())
+                                .accessibilityIdentifier("services.stopCapture")
+                        }
+                    }.accessibilityIdentifier("services.selectionLockReason")
+                }
                 HStack(alignment: .top, spacing: 22) {
                     servicePanel(.speechRecognition, selection: $model.selectedASRProfileID)
                     servicePanel(.translation, selection: $model.selectedTranslationProfileID)

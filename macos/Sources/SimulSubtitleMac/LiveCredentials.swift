@@ -38,6 +38,15 @@ struct LiveCookie: Sendable {
         }.map { $0.name + "=" + $0.value }
         return values.isEmpty ? nil : values.joined(separator: "; ")
     }
+    static func hasLoginSession(_ text: String, platform: LivePlatform) -> Bool {
+        let names: Set<String>
+        switch platform {
+        case .youtube: names = ["SAPISID", "__Secure-3PAPISID", "__Secure-1PAPISID"]
+        case .bilibili: names = ["SESSDATA"]
+        case .twitch: names = ["auth-token"]
+        }
+        return parse(text, platform: platform).contains { names.contains($0.name) && !$0.value.isEmpty }
+    }
 }
 
 final class LiveCookieLease {
@@ -116,13 +125,12 @@ final class LiveCredentials: ObservableObject {
         guard enabled else { return .init() }
         var result = LivePlatformAccess()
         if usesAccount(platform) {
-            guard let text = try store.read(account: key(platform.rawValue + ".cookies")), !LiveCookie.parse(text, platform: platform).isEmpty else {
-                throw LiveMonitorError.unavailable("保存的会话已过期，请重新导入，或切换访客模式。")
-            }
-            result.cookies = text
+            if let text = try? store.read(account: key(platform.rawValue + ".cookies"), allowInteraction: false), LiveCookie.hasLoginSession(text, platform: platform) {
+                result.cookies = text
+            } // An expired optional session must not disable public access.
         }
         if hasAPIKey(platform) {
-            if platform == .youtube { result.apiKey = try store.read(account: key("youtube.apiKey")) }
+            if platform == .youtube { result.apiKey = try? store.read(account: key("youtube.apiKey"), allowInteraction: false) }
             if platform == .twitch {
                 result.clientID = try store.read(account: key("twitch.clientID"))
                 result.accessToken = try store.read(account: key("twitch.token"))

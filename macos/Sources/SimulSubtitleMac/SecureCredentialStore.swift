@@ -43,14 +43,18 @@ struct SecureCredentialStore {
         guard status == errSecSuccess || status == errSecItemNotFound else { throw CredentialError.keychain(status) }
     }
 
-    func read(account: String) throws -> String? {
-        let query: [String: Any] = [
+    func read(account: String, allowInteraction: Bool = true) throws -> String? {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
+        if !allowInteraction {
+            let context = LAContext(); context.interactionNotAllowed = true
+            query[kSecUseAuthenticationContext as String] = context
+        }
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }

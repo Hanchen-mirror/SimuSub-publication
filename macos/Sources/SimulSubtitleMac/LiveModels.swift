@@ -132,7 +132,7 @@ struct LiveRecording: Identifiable, Codable, Equatable {
     var mediaURLs: [URL] {
         guard let segmentFolder else { return FileManager.default.fileExists(atPath: path) ? [URL(fileURLWithPath: path)] : [] }
         return ((try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: segmentFolder), includingPropertiesForKeys: nil)) ?? [])
-            .filter { ["mkv", "mp4"].contains($0.pathExtension) && LiveRecordingEngine.fileSize($0.path) > 0 }
+            .filter { ["mkv", "mp4", "webm"].contains($0.pathExtension) && LiveRecordingEngine.fileSize($0.path) > 0 }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
     var savedBytes: Int64 { mediaURLs.reduce(0) { $0 + LiveRecordingEngine.fileSize($1.path) } }
@@ -209,6 +209,10 @@ enum LiveAddress {
             if let first = parts.first, first.hasPrefix("@") { return "https://www.youtube.com/\(first)" }
             if parts.count >= 2, ["channel", "c", "user"].contains(parts[0]) {
                 return "https://www.youtube.com/\(parts[0])/\(parts[1])"
+            }
+            if parts.count == 2, parts[0] == "live",
+               parts[1].range(of: #"^[A-Za-z0-9_-]{6,20}$"#, options: .regularExpression) != nil {
+                return "https://www.youtube.com/watch?v=\(parts[1])"
             }
             if parts.first == "watch", let video = url.queryItems?.first(where: { $0.name == "v" })?.value,
                video.range(of: #"^[A-Za-z0-9_-]{6,20}$"#, options: .regularExpression) != nil {

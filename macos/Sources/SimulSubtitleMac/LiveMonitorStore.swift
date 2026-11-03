@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import UserNotifications
 
 @MainActor
@@ -22,7 +23,7 @@ final class LiveMonitorStore: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var searchGeneration = UUID()
     private var searchRequest: Task<[CreatorCandidate], Error>?
-    private var jobs: [UUID: LiveToolProcess] = [:]
+    private var jobs: [UUID: any LiveRecordingControl] = [:]
     @Published private(set) var convertingIDs: Set<UUID> = []
     private var conversionTasks: [UUID: Task<Void, Never>] = [:]
     private var pausingIDs: Set<UUID> = []
@@ -30,6 +31,7 @@ final class LiveMonitorStore: ObservableObject {
     private var shutdownRequested = false
     private var profileTasks: [UUID: Task<Void, Never>] = [:]
     private var nextProfileCheck: [UUID: Date] = [:]
+    private var credentialSubscription: AnyCancellable?
     var onLiveEvent: ((WatchedCreator) -> Void)?
 
     init(storage: LiveMonitorStorage = LiveMonitorStorage(), service: LivePlatformServing = LivePlatformService(),
@@ -53,6 +55,9 @@ final class LiveMonitorStore: ObservableObject {
         self.settings.intervalSeconds = min(900, max(60, settings.intervalSeconds))
         self.settings.maximumRecordings = min(3, max(1, settings.maximumRecordings))
         notice = [a, b, c].compactMap { $0 }.joined(separator: "\n").nilIfEmpty
+        credentialSubscription = self.credentials.$revision.dropFirst().sink { [weak self] _ in
+            Task { @MainActor [weak self] in self?.refreshNow() }
+        }
     }
 
     var activeRecordings: [LiveRecording] { recordings.filter { $0.state.isActive } }
@@ -255,7 +260,7 @@ final class LiveMonitorStore: ObservableObject {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let recording = LiveRecording(creatorID: creator.id, platform: creator.platform, creatorName: creator.name,
                                           title: creator.snapshot.title, path: folder.appendingPathComponent("attempt01-000000." + output.pathExtension).path,
-                                          message: "正在解析直播地址，尚未开始写入录像。", segmentFolder: folder.path)
+                                          message: "正在连接直播，尚未开始写入录像。", segmentFolder: folder.path)
             recordings.insert(recording, at: 0); persistRecordings()
             recordingTasks[recording.id] = Task { [weak self] in
                 guard let self else { return }
@@ -303,6 +308,23 @@ final class LiveMonitorStore: ObservableObject {
                 guard !shutdownRequested, recordings.first(where: { $0.id == id })?.state != .stopping else { break }
                 let pattern = folder.appendingPathComponent(String(format: "attempt%02d-%%06d.", attemptBase + attempt) + output.pathExtension)
                 let progressURL = folder.appendingPathComponent(String(format: "attempt%02d.progress", attemptBase + attempt))
+                let result: LiveToolOutput
+                if let capture = input.browserCapture {
+                    let job = BrowserCaptureJob(); jobs[id] = job
+                    defer { if jobs[id] === job { jobs[id] = nil } }
+                    updateRecording(id) { $0.title = input.title; $0.state = .preparing; $0.message = "已连接浏览器，正在等待直播画面。" }
+                    result = try await withTaskCancellationHandler {
+                        try await job.run(capture, folder: folder, prefix: String(format: "attempt%02d-", attemptBase + attempt),
+                                          container: output.pathExtension, maximumSeconds: max(0, deadline.timeIntervalSinceNow)) { [weak self] file in
+                            guard let self, self.jobs[id] === job else { return }
+                            self.updateRecording(id) {
+                                $0.path = file.path
+                                if $0.state == .preparing { $0.state = .recording; $0.message = "正在保存浏览器直播画面与声音。" }
+                                $0.bytes = $0.savedBytes
+                            }
+                        }
+                    } onCancel: { job.cancel() }
+                } else {
                 let arguments = try LiveRecordingEngine.arguments(input: input, output: pattern, segmentSeconds: 300, progressURL: progressURL)
                 let job = LiveToolProcess(); jobs[id] = job
                 defer { if jobs[id] === job { jobs[id] = nil } }
@@ -322,9 +344,10 @@ final class LiveMonitorStore: ObservableObject {
                 defer { progressTask.cancel(); try? FileManager.default.removeItem(at: progressURL) }
                 let remaining = deadline.timeIntervalSinceNow
                 guard remaining > 0 else { throw LiveMonitorError.unavailable("本场已达到 12 小时，请重新开始录制。") }
-                let result = try await withTaskCancellationHandler {
+                result = try await withTaskCancellationHandler {
                     try await job.run("ffmpeg", arguments: arguments, timeout: remaining)
                 } onCancel: { job.cancel() }
+                }
                 if result.status == 0 {
                     if recordings.first(where: { $0.id == id })?.state != .stopping, !shutdownRequested,
                        creator.stableState == .live {
