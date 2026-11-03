@@ -34,6 +34,27 @@ enum Release136Checks {
         }
         let sent = await engine.sources
         guard sent == [latest, "勉強したといったら面接と", "長い日語の草稿を最後まで保存します", "短い訂正"] else { throw ServiceError.invalidResponse }
+        try streamCache()
         print("v1.36: revised Japanese, empty final fallback and complete-source translation passed")
     }
+    static func streamCache() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("simusub-cache-check-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var creator = WatchedCreator(.init(platform: .bilibili, address: "https://live.bilibili.com/6", name: "测试"))
+        creator.snapshot = .init(state: .live, sessionID: "session1")
+        let input = ResolvedLiveInput(tracks: [.init(url: URL(string: "https://example.invalid/stream.flv")!, headers: ["Cookie": "secret", "Authorization": "secret", "Referer": creator.address], hasVideo: true, hasAudio: true)], title: "直播")
+        BiliStreamCache(root: root).save(input, for: creator, cookies: "secret")
+        let reopened = BiliStreamCache(root: root)
+        guard reopened.input(for: creator, cookies: "secret")?.title == "直播" else { throw ServiceError.invalidResponse }
+        let files = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+        guard files.count == 1, !(try String(contentsOf: files[0])).contains("secret"),
+              reopened.input(for: creator, cookies: "changed") == nil else { throw ServiceError.invalidResponse }
+        reopened.save(input, for: creator, cookies: nil, now: Date().addingTimeInterval(-700))
+        guard reopened.input(for: creator, cookies: nil) == nil else { throw ServiceError.invalidResponse }
+        reopened.save(input, for: creator, cookies: nil)
+        creator.snapshot.sessionID = "session2"
+        guard reopened.input(for: creator, cookies: nil) == nil else { throw ServiceError.invalidResponse }
+        print("v1.36: private stream cache persistence, account/session invalidation and expiry passed")
+    }
+
 }

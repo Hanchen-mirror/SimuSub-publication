@@ -94,7 +94,9 @@ actor YouTubePublicClient: YouTubeDiscovering {
     }
     static func snapshot(_ data: [String: Any]) throws -> LiveSnapshot {
         // YouTube serves both legacy renderers and newer lockup view models.
-        let modern = renderers("lockupViewModel", in: data).compactMap { item -> [String: Any]? in
+        let selected = renderers("tabRenderer", in: data).first { $0["selected"] as? Bool == true }
+        let content = selected?["content"] ?? data
+        let modern = renderers("lockupViewModel", in: content).compactMap { item -> [String: Any]? in
             guard item["contentType"] as? String == "LOCKUP_CONTENT_TYPE_VIDEO", let id = item["contentId"] as? String else { return nil }
             let badges = renderers("thumbnailBadgeViewModel", in: item["contentImage"] ?? [:])
             let live = badges.contains { ($0["badgeStyle"] as? String)?.hasSuffix("_LIVE") == true }
@@ -109,7 +111,7 @@ actor YouTubePublicClient: YouTubeDiscovering {
             else if duration { video["lengthText"] = true }
             return video
         }
-        let videos = renderers("videoRenderer", in: data) + modern
+        let videos = renderers("videoRenderer", in: content) + modern
         var upcoming: LiveSnapshot?
         for item in videos {
             guard let id = item["videoId"] as? String else { continue }
@@ -124,7 +126,14 @@ actor YouTubePublicClient: YouTubeDiscovering {
         }
         if let upcoming { return upcoming }
         if !videos.isEmpty && videos.allSatisfy({ $0["lengthText"] != nil }) { return .init(state: .offline) }
-        throw LiveMonitorError.unavailable("YouTube 暂未返回明确开播状态，仍可点击录制重新检查。")
+        // A successfully loaded channel streams grid without live badges is offline.
+        // Keep malformed, consent, restricted and network responses as errors.
+        let channel = !renderers("channelMetadataRenderer", in: data).isEmpty
+        let grid = !renderers("richGridRenderer", in: content).isEmpty
+            || !renderers("gridRenderer", in: content).isEmpty
+        let empty = !renderers("messageRenderer", in: content).isEmpty && videos.isEmpty
+        if channel && selected != nil && (grid || empty) { return .init(state: .offline) }
+        throw LiveMonitorError.unavailable("开播检查失败，请刷新或在官网确认频道状态。")
     }
     func status(_ address: String, cookies: String?) async throws -> LiveSnapshot {
         try Self.snapshot(try await page(address, cookies: cookies))

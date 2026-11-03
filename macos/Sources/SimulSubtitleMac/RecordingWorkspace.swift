@@ -125,7 +125,10 @@ private struct CreatorRowV23: View {
                 .help("双击打开直播间").accessibilityLabel(creator.name + " 直播间").accessibilityAction(named: "打开直播间", openLive)
             VStack(alignment: .leading, spacing: 7) {
                 Text(creator.name).font(.system(size: 15, weight: .semibold))
-                HStack(spacing: 6) { PlatformLogo(platform: creator.platform).frame(width: 14, height: 14); Text(creator.snapshot.state.title).lineLimit(1) }.font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
+                HStack(spacing: 6) { PlatformLogo(platform: creator.platform).frame(width: 14, height: 14); HStack(spacing: 4) {
+                    Circle().fill(CreatorBadge(creator).color).frame(width: 6, height: 6)
+                    Text(CreatorBadge(creator).title).fontWeight(.semibold)
+                }.foregroundStyle(CreatorBadge(creator).color).lineLimit(1) }.font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
                 if let error = recordingMessage ?? creator.lastError { Text(error).font(.caption).foregroundStyle(.orange).lineLimit(3) }
             }
             Spacer()

@@ -30,7 +30,7 @@ enum LivePlatform: String, Codable, CaseIterable, Identifiable {
 enum LiveState: String, Codable {
     case unknown, offline, upcoming, live
     var title: String {
-        switch self { case .unknown: "尚未确认"; case .offline: "未开播"; case .upcoming: "等待开播"; case .live: "直播中" }
+        switch self { case .unknown: "待检查"; case .offline: "未开播"; case .upcoming: "等待开播"; case .live: "直播中" }
     }
 }
 

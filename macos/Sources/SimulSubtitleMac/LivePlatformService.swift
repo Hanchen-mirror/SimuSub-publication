@@ -92,7 +92,10 @@ struct YTDLPLiveExtractor: LiveExtracting {
     }
 }
 
-enum LiveExtractionError: Error { case offline }
+enum LiveExtractionError: LocalizedError {
+    case offline, upcoming
+    var errorDescription: String? { self == .offline ? "主播未开播。" : "直播尚未开始。" }
+}
 
 struct ResolvedLiveInput: Sendable {
     struct Track: Sendable {
@@ -111,21 +114,27 @@ protocol LivePlatformServing: Sendable {
     func resolve(_ input: String, platform: LivePlatform, access: LivePlatformAccess) async throws -> CreatorCandidate
     func status(_ creator: WatchedCreator, access: LivePlatformAccess) async throws -> LiveSnapshot
     func recordingInput(_ creator: WatchedCreator, access: LivePlatformAccess) async throws -> ResolvedLiveInput
+    func invalidateRecordingInput(_ creator: WatchedCreator) async
+}
+extension LivePlatformServing {
+    func invalidateRecordingInput(_ creator: WatchedCreator) async {}
 }
 
 actor LivePlatformService: LivePlatformServing {
     private let session: URLSession
     private let extractor: LiveExtracting
     private let youtube: (any YouTubeDiscovering)?
+    private let streamCache: BiliStreamCache
     private var biliGuestCookie: String?
     private var twitchValidatedToken: String?
     private var twitchValidatedClientID: String?
     private var twitchValidationUntil = Date.distantPast
-    init(session: URLSession? = nil, extractor: LiveExtracting? = nil, youtube: (any YouTubeDiscovering)? = nil) {
+    init(session: URLSession? = nil, extractor: LiveExtracting? = nil, youtube: (any YouTubeDiscovering)? = nil, cacheRoot: URL? = nil) {
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false; config.httpCookieAcceptPolicy = .never
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 30
+        self.streamCache = BiliStreamCache(root: cacheRoot ?? (extractor == nil ? BiliStreamCache.defaultRoot : nil))
         self.session = session ?? URLSession(configuration: config)
         self.extractor = extractor ?? YTDLPLiveExtractor()
         self.youtube = youtube ?? (extractor == nil ? YouTubePublicClient() : nil)
@@ -286,6 +295,7 @@ actor LivePlatformService: LivePlatformServing {
     }
 
     func recordingInput(_ creator: WatchedCreator, access: LivePlatformAccess) async throws -> ResolvedLiveInput {
+        if creator.platform == .bilibili, let cached = streamCache.input(for: creator, cookies: access.cookies) { return cached }
         let address: String
         if creator.platform == .youtube {
             if creator.snapshot.state == .live, let liveURL = creator.snapshot.liveURL,
@@ -294,7 +304,7 @@ actor LivePlatformService: LivePlatformServing {
             } else {
                 let snapshot = try await status(creator, access: access)
                 guard snapshot.state == .live, let liveURL = snapshot.liveURL else {
-                    throw LiveMonitorError.unavailable("主播当前没有可录制的直播。")
+                    throw snapshot.state == .upcoming ? LiveExtractionError.upcoming : LiveExtractionError.offline
                 }
                 address = liveURL
             }
@@ -305,7 +315,7 @@ actor LivePlatformService: LivePlatformServing {
             throw LiveMonitorError.unavailable("浏览器已连接，但网页尚未提供可录制的直播画面；请确认直播仍在播放。")
         }
         let media = try await extractor.metadata(address, cookies: cookies, flat: false)
-        guard media.is_live == true || media.live_status == "is_live" else { throw LiveMonitorError.unavailable("主播当前没有可录制的直播，未下载过去的视频。") }
+        guard media.is_live == true || media.live_status == "is_live" else { throw media.live_status == "is_upcoming" ? LiveExtractionError.upcoming : LiveExtractionError.offline }
         let sources = media.requested_formats ?? [media]
         let tracks = sources.compactMap { source -> ResolvedLiveInput.Track? in
             guard let text = source.url, let url = URL(string: text), ["https", "http"].contains(url.scheme),
@@ -321,8 +331,12 @@ actor LivePlatformService: LivePlatformServing {
         guard !tracks.isEmpty, tracks.count <= 2, tracks.contains(where: \.hasVideo) else {
             throw LiveMonitorError.unavailable("平台暂时没有返回可用的视频直播流。")
         }
-        return ResolvedLiveInput(tracks: tracks, title: media.title ?? creator.snapshot.title)
+        let input = ResolvedLiveInput(tracks: tracks, title: media.title ?? creator.snapshot.title)
+        if creator.platform == .bilibili { streamCache.save(input, for: creator, cookies: access.cookies) }
+        return input
     }
+
+    func invalidateRecordingInput(_ creator: WatchedCreator) async { streamCache.remove(creator) }
 
     static func youtubeSnapshot(_ listing: ExtractedLiveMedia, channel: String) throws -> LiveSnapshot {
         let entries = listing.entries ?? [listing]

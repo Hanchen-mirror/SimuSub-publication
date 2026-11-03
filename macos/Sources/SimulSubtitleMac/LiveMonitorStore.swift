@@ -197,6 +197,7 @@ final class LiveMonitorStore: ObservableObject {
                 let access = try credentials.context(creator.platform)
                 let snapshot = try await service.status(creator, access: access)
                 guard !Task.isCancelled, !shutdownRequested else { break }
+                if snapshot.state == .offline { await service.invalidateRecordingInput(creator) }
                 let event = applySnapshot(snapshot, to: id)
                 if event, let current = creators.first(where: { $0.id == id }), current.notify {
                     onLiveEvent?(current)
@@ -298,12 +299,18 @@ final class LiveMonitorStore: ObservableObject {
                 try Task.checkCancellation()
                 guard !shutdownRequested, recordings.first(where: { $0.id == id })?.state != .stopping else { break }
                 if attempt > 1 {
+                    let access = try credentials.context(creator.platform)
+                    let snapshot = try await service.status(creator, access: access)
+                    applySnapshot(snapshot, to: creator.id)
+                    if snapshot.state == .offline { throw LiveExtractionError.offline }
+                    if snapshot.state == .upcoming { throw LiveExtractionError.upcoming }
                     updateRecording(id) { $0.state = .preparing; $0.message = (finalError.map { Self.message($0) } ?? "连接中断。") + " 正在重连（\(attempt - 1)/3）。" }
                     try await Task.sleep(nanoseconds: UInt64([0, 2, 5, 15][attempt - 1]) * 1_000_000_000)
                 }
                 let access = try credentials.context(creator.platform)
                 attempts = attempt
-                let input = try await service.recordingInput(creator, access: access)
+                let current = creators.first(where: { $0.id == creator.id }) ?? creator
+                let input = try await service.recordingInput(current, access: access)
                 try Task.checkCancellation()
                 guard !shutdownRequested, recordings.first(where: { $0.id == id })?.state != .stopping else { break }
                 let pattern = folder.appendingPathComponent(String(format: "attempt%02d-%%06d.", attemptBase + attempt) + output.pathExtension)
@@ -360,7 +367,16 @@ final class LiveMonitorStore: ObservableObject {
                     cleanEnd = true; break
                 }
                 throw LiveMonitorError.unavailable(LiveRecordingEngine.failureMessage(result.error))
+            } catch let ended as LiveExtractionError {
+                await service.invalidateRecordingInput(creator)
+                let state: LiveState = ended == .offline ? .offline : .upcoming
+                applySnapshot(.init(state: state), to: creator.id)
+                if ended == .offline { applySnapshot(.init(state: .offline), to: creator.id) }
+                updateRecording(id) { $0.state = .stopping; $0.stopReason = .broadcasterOffline }
+                finalError = ended
+                break
             } catch {
+                await service.invalidateRecordingInput(creator)
                 finalError = error
                 if Task.isCancelled || shutdownRequested || recordings.first(where: { $0.id == id })?.state == .stopping || Date() >= deadline { break }
             }

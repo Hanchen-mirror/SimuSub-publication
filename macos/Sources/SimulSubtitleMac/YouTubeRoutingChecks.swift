@@ -82,6 +82,10 @@ enum YouTubeRoutingChecks {
         try require(try YouTubePublicClient.snapshot(modern("THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT", "1:12:51")).state == .offline, "modern_youtube_finished_stream")
         try require(try YouTubePublicClient.snapshot(modern("THUMBNAIL_OVERLAY_BADGE_STYLE_UPCOMING", "UPCOMING")).state == .upcoming, "modern_youtube_upcoming")
         try require((try? YouTubePublicClient.snapshot(modern("UNKNOWN", "Unknown"))) == nil, "modern_unknown_not_misreported_offline")
+        let idle: [String: Any] = ["metadata": ["channelMetadataRenderer": ["externalId": "UCidle"]],
+            "contents": ["tabRenderer": ["selected": true, "content": ["richGridRenderer": ["contents": []]]]]]
+        try require(try YouTubePublicClient.snapshot(idle).state == .offline, "empty_channel_streams_grid_is_offline")
+        try require((try? YouTubePublicClient.snapshot(["error": "consent required"])) == nil, "restricted_page_is_not_offline")
         let genericPort = RoutingBrowserFixture(available: true), optionalBridge = RoutingBrowserFixture(available: true)
         _ = await LiveBrowserConnection(port: genericPort, bridge: optionalBridge).page(URL(string: "https://www.youtube.com/")!, player: false)
         let skippedBridge = await optionalBridge.calls

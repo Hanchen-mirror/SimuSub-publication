@@ -80,13 +80,13 @@ enum CreatorBadge: Equatable {
     }
     var title: String {
         switch self {
-        case .live: "LIVE"; case .offline: "OFFLINE"; case .upcoming: "UPCOMING"
-        case .unknown: "UNKNOWN"; case .error: "ERROR"; case .confirming: "CHECKING"
+        case .live: "直播中"; case .offline: "未开播"; case .upcoming: "等待开播"
+        case .unknown: "待检查"; case .error: "检查失败"; case .confirming: "确认下播中"
         }
     }
     var color: Color {
         switch self {
-        case .live: .green; case .offline: .red; case .upcoming, .confirming: .orange
+        case .live: .green; case .offline: .secondary; case .upcoming, .confirming: .orange
         case .unknown: .secondary; case .error: .orange
         }
     }
