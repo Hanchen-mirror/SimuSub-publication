@@ -34,6 +34,8 @@ enum ClipChecks {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try require(ClipTime.parse("01:02:03.250") == 3723.25 && ClipTime.parse("93.5") == 93.5, "clip_media_time_parsing")
             try require(ClipTime.parse("00:70:01") == nil && ClipTime.parse("nan") == nil && ClipTime.parse("-2") == nil, "clip_invalid_times_rejected")
+            try await Release136Checks.translation()
+            checks.append("v136_translation_cache_position_and_folders")
             let store = ClipStore(root: directory.appendingPathComponent("store"))
             let id = try await store.importVideo(fixture)
             let again = try await store.importVideo(fixture)
@@ -41,6 +43,8 @@ enum ClipChecks {
             try require(store.projects[0].posterPath.map { FileManager.default.fileExists(atPath: $0) } == true, "clip_cached_video_cover_generated_without_playback")
             let media = store.projects[0].media
             try media.validateFile()
+            try await Release136Checks.positionedVideo(media: media, directory: directory)
+            checks.append("v136_positioned_subtitle_real_video_export")
             try require(media.width == 640 && media.height == 360 && media.hasAudio && abs(media.duration - 10) < 0.1, "clip_probe_real_h264_audio_duration")
             checks += try await ClipV120Checks.run(fixture: fixture, directory: directory, model: model, monitor: monitor)
             checks += try await ClipV121Checks.run(fixture: fixture, directory: directory)

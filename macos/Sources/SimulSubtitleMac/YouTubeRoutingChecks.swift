@@ -56,6 +56,11 @@ enum YouTubeRoutingChecks {
             guard value else { throw LiveMonitorError.unavailable("CHECK FAILED: " + name) }
             checks.append(name)
         }
+        if let i = CommandLine.arguments.firstIndex(of: "--youtube-page-fixture"), CommandLine.arguments.count > i + 1 {
+            let bytes = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[i + 1]))
+            let page = try JSONSerialization.jsonObject(with: bytes) as! [String: Any]
+            try require(try YouTubePublicClient.snapshot(page).state == .offline, "real_kotoha_channel_page_is_offline")
+        }
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [RoutingHTTPFixture.self]
         let session = URLSession(configuration: config)
         let browser = RoutingBrowserFixture(available: true)

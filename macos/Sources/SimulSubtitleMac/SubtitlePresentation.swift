@@ -151,11 +151,17 @@ struct SubtitleStrip: View {
     private func compactLine(_ text: String, original: Bool) -> String {
         let available = textWidth
         let width = displayMode == .bilingual ? max(24, (available - 24) / 2) : available
-        // A one-row strip follows the current tail; the full text remains in
-        // history, in the hover description, and in exports.
-        return SubtitleLineLayout.format(text, language: original ? .japanese : .chinese, width: width,
-            font: SubtitleFont.native(original ? japaneseFont : chineseFont, size: original ? min(japaneseSize, 14) : min(chineseSize, 16), weight: original ? .regular : .medium))
-            .components(separatedBy: "\n").last ?? text
+        let font = SubtitleFont.native(original ? japaneseFont : chineseFont,
+            size: original ? min(japaneseSize, 14) : min(chineseSize, 16), weight: original ? .regular : .medium)
+        let clean = text.replacingOccurrences(of: "\n", with: " ")
+        if (clean as NSString).size(withAttributes: [.font: font]).width <= width { return clean }
+        var tail = ""
+        for character in clean.reversed() {
+            let next = String(character) + tail
+            if (("…" + next) as NSString).size(withAttributes: [.font: font]).width > width { break }
+            tail = next
+        }
+        return "…" + tail
     }
 
     private var controlsVisible: Bool {

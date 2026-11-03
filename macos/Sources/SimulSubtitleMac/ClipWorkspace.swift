@@ -129,7 +129,7 @@ struct ClipWorkspace: View {
             let recording = monitor.recordings.first { $0.mediaURLs.contains(url) }
             let grouping: [String]? = recording.map {
                 let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX"); date.dateFormat = "yyyy-MM-dd"
-                return [LiveRecordingEngine.safeName($0.creatorName) + "-" + $0.platform.title, date.string(from: $0.startedAt)]
+                return [LiveRecordingEngine.safeName($0.creatorName) + "-" + $0.platform.title, date.string(from: $0.broadcastStartedAt ?? $0.startedAt)]
             }
             try await clips.importVideo(url, creatorID: creator, name: name, outputGrouping: grouping)
         } catch { clips.notice = ClipFailure.message(error, operation: "导入视频") } }

@@ -260,7 +260,7 @@ final class LiveMonitorStore: ObservableObject {
             let folder = output.deletingPathExtension().appendingPathExtension("segments")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let recording = LiveRecording(creatorID: creator.id, platform: creator.platform, creatorName: creator.name,
-                                          title: creator.snapshot.title, path: folder.appendingPathComponent("attempt01-000000." + output.pathExtension).path,
+                                          title: creator.snapshot.title, broadcastStartedAt: creator.snapshot.startedAt, path: folder.appendingPathComponent("attempt01-000000." + output.pathExtension).path,
                                           message: "正在连接直播，尚未开始写入录像。", segmentFolder: folder.path)
             recordings.insert(recording, at: 0); persistRecordings()
             recordingTasks[recording.id] = Task { [weak self] in

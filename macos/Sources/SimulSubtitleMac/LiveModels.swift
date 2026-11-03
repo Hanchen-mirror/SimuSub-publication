@@ -119,6 +119,7 @@ struct LiveRecording: Identifiable, Codable, Equatable {
     var title: String
     var state: LiveRecordingState = .preparing
     var startedAt = Date()
+    var broadcastStartedAt: Date?
     var pausedAt: Date?
     var pausedSeconds: Double?
     var elapsed: Double { max(0, (pausedAt ?? endedAt ?? Date()).timeIntervalSince(startedAt) - (pausedSeconds ?? 0)) }

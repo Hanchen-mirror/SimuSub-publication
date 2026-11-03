@@ -42,7 +42,7 @@ enum HomeCanvasChecks {
         try require(CreatorBadge(creator) == .unknown, "unverified_creator_is_unknown")
         for state in [LiveState.live, .offline, .upcoming] {
             creator.snapshot = .init(state: state); creator.stableState = state
-            try require(CreatorBadge(creator).title == state.rawValue.uppercased(), "english_badge_" + state.rawValue)
+            try require(CreatorBadge(creator).title == state.title, "clear_live_state_badge_" + state.rawValue)
         }
         creator.stableState = .live; creator.snapshot = .init(state: .offline); creator.offlineConfirmations = 1
         try require(CreatorBadge(creator) == .confirming, "one_offline_observation_shows_checking")
