@@ -168,7 +168,10 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
             zoomRestoreFrame = nil
         } else if let visible = panel.screen?.visibleFrame {
             zoomRestoreFrame = panel.frame
-            panel.setFrame(visible.insetBy(dx: 16, dy: 16), display: true, animate: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+            let width = min(1000, visible.width - 32), height = min(360, visible.height - 32)
+            let expanded = NSRect(x: min(max(panel.frame.midX - width / 2, visible.minX + 16), visible.maxX - width - 16),
+                y: min(max(panel.frame.minY, visible.minY + 16), visible.maxY - height - 16), width: width, height: height)
+            panel.setFrame(expanded, display: true, animate: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         }
         lastExpandedFrame = panel.frame
         saveFrame()

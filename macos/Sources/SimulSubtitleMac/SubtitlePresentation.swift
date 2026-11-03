@@ -47,24 +47,35 @@ struct SubtitleStrip: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let bottomID = "subtitle.paper.bottom"
-    private var compact: Bool { SubtitleDensity.forSize(size) == .compact }
-    private var singleRowControls: Bool { size.height < 48 }
+    private var compact: Bool { size.height < 80 }
+    private var singleRowControls: Bool { true }
     private var controlSize: CGFloat { compact ? 20 : 26 }
     private var controlSpacing: CGFloat { compact ? 2 : 4 }
     // Equal gutters preserve the window center with either six-button layout.
-    private var textInset: CGFloat { singleRowControls ? 146 : 112 }
+    private var textInset: CGFloat { compact ? 146 : 16 }
     private var textWidth: CGFloat { max(24, size.width - textInset * 2) }
-    private var paperInset: CGFloat { size.height < 120 ? 4 : 10 }
+    private var paperInset: CGFloat { 8 }
+    private var contentHeight: CGFloat { max(1, size.height - (compact ? 0 : 34)) }
 
     @Environment(\.appThemeID) private var appThemeID
     var body: some View {
         let _ = appThemeID
-        ZStack {
+        VStack(spacing: 0) {
+            if !compact {
+                HStack(spacing: 10) {
+                    SubtitleNativeControls(onZoom: onZoom, onClose: onClose).frame(width: 66, height: 26)
+                    playbackButton
+                    Spacer(minLength: 8)
+                    rightControls
+                }.padding(.horizontal, 8).frame(height: 34)
+                .accessibilityIdentifier("subtitle.toolbar")
+            }
+            ZStack {
             if captions.isEmpty {
                 Text(idleText).font(.system(size: 15, weight: .medium)).foregroundStyle(ThemeColor.muted)
                     .multilineTextAlignment(.center).lineLimit(compact ? 1 : 2)
                     .truncationMode(.tail).help(idleText)
-                    .frame(width: textWidth, height: max(1, size.height - paperInset * 2))
+                    .frame(width: textWidth, height: max(1, contentHeight - paperInset * 2))
                     .accessibilityIdentifier("subtitle.idleText")
             } else if compact, let latest = captions.last {
                 HStack(spacing: 6) {
@@ -81,7 +92,7 @@ struct SubtitleStrip: View {
                         .frame(maxWidth: .infinity, alignment: displayMode == .bilingual ? .leading : .center)
                 }
                 .lineLimit(1).help(compactText(latest))
-                .frame(width: textWidth, height: max(1, size.height - paperInset * 2))
+                .frame(width: textWidth, height: max(1, contentHeight - paperInset * 2))
             } else {
                 ScrollViewReader { reader in
                     ScrollView(.vertical, showsIndicators: true) {
@@ -91,11 +102,9 @@ struct SubtitleStrip: View {
                                     shortWindow: size.height < 120, japaneseFont: japaneseFont, chineseFont: chineseFont,
                                     japaneseSize: japaneseSize, chineseSize: chineseSize).id(caption.id)
                             }
-                        }
-                        .frame(minHeight: max(0, size.height - paperInset * 2), alignment: captions.count <= 1 ? .center : .bottom)
-                        .overlay(alignment: .bottom) {
                             Color.clear.frame(height: 1).id(bottomID).allowsHitTesting(false)
                         }
+                        .frame(minHeight: max(0, contentHeight - paperInset * 2), alignment: captions.count <= 1 ? .center : .bottom)
                         .padding(.horizontal, textInset).padding(.vertical, paperInset)
                     }
                     .onAppear { reader.scrollTo(bottomID, anchor: .bottom) }
@@ -105,16 +114,16 @@ struct SubtitleStrip: View {
                 }
                 .accessibilityIdentifier("subtitle.history")
             }
+            }.frame(height: contentHeight).clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ThemeColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(alignment: compact ? .leading : .topLeading) {
-            SubtitleNativeControls(onZoom: onZoom, onClose: onClose).frame(width: 66, height: 26)
-                .padding(.leading, 8).padding(.top, compact ? 0 : 3)
+            if compact { SubtitleNativeControls(onZoom: onZoom, onClose: onClose).frame(width: 66, height: 26).padding(.leading, 8) }
         }
-        .overlay(alignment: .leading) { playbackButton.padding(.leading, compact ? 80 : 8) }
-        .overlay(alignment: .trailing) { rightControls.padding(.trailing, 8) }
+        .overlay(alignment: .leading) { if compact { playbackButton.padding(.leading, 80) } }
+        .overlay(alignment: .trailing) { if compact { rightControls.padding(.trailing, 8) } }
         .contentShape(Rectangle())
         .background { SubtitlePointerTracking(isInside: $pointerInside) }
         .onDisappear { pointerInside = false }
