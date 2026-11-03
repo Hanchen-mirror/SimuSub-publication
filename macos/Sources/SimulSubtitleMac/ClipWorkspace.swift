@@ -125,7 +125,14 @@ struct ClipWorkspace: View {
     }
     private func load(_ url: URL, creator: UUID?, name: String?) {
         importing = true
-        Task { defer { importing = false }; do { try await clips.importVideo(url, creatorID: creator, name: name) } catch { clips.notice = ClipFailure.message(error, operation: "导入视频") } }
+        Task { defer { importing = false }; do {
+            let recording = monitor.recordings.first { $0.mediaURLs.contains(url) }
+            let grouping: [String]? = recording.map {
+                let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX"); date.dateFormat = "yyyy-MM-dd"
+                return [LiveRecordingEngine.safeName($0.creatorName) + "-" + $0.platform.title, date.string(from: $0.startedAt)]
+            }
+            try await clips.importVideo(url, creatorID: creator, name: name, outputGrouping: grouping)
+        } catch { clips.notice = ClipFailure.message(error, operation: "导入视频") } }
     }
 }
 
@@ -152,6 +159,8 @@ struct ClipEditor: View {
     @State private var showingHighlights = false
     @State private var draftStyle = ClipSubtitleStyle.classic
     @State private var previewing: URL?
+    @State private var movingSubtitles = false
+    @State private var draggedStyle: ClipSubtitleStyle?
     @State private var pendingRecommendation: Int?
     @State private var removeID: UUID?
     @StateObject private var playback: ClipPlayback
@@ -176,10 +185,25 @@ struct ClipEditor: View {
                     editorToolbar
                     HStack(alignment: .top, spacing: 24) {
                         VStack(alignment: .leading, spacing: 12) {
-                            ClipStyledPlayer(player: playback.player, captions: cues, style: active.style, mediaSize: CGSize(width: project.media.width, height: project.media.height))
+                            ClipStyledPlayer(player: playback.player, captions: cues, style: draggedStyle ?? active.style,
+                                mediaSize: CGSize(width: project.media.width, height: project.media.height),
+                                onPosition: movingSubtitles ? { point, commit in
+                                    var style = draggedStyle ?? active.style
+                                    var position = style.position ?? ClipSubtitlePosition()
+                                    position.x = point.x; position.y = point.y; style.position = position
+                                    draggedStyle = style
+                                    if commit { applyStyle(style); draggedStyle = nil }
+                                } : nil)
                                 .frame(height: max(300, min(465, geometry.size.height - 320)))
                                 .clipShape(RoundedRectangle(cornerRadius: 16))
-                            HStack { Spacer()
+                            HStack {
+                                Button {
+                                    movingSubtitles.toggle(); playback.player.pause()
+                                } label: { Label(movingSubtitles ? "完成定位" : "移动字幕", systemImage: "arrow.up.and.down.and.arrow.left.and.right") }
+                                    .disabled(cues.isEmpty || clips.isBusy).help("拖动视频中的字幕，位置会保存并用于导出")
+                                    .accessibilityIdentifier("clips.moveSubtitles")
+                                if active.style.position != nil { Button("恢复位置") { var s = active.style; s.position = nil; applyStyle(s) } }
+                                Spacer()
                                 Picker("倍速", selection: $playback.speed) { ForEach([0.5,1,1.5,2], id: \.self) { Text(String(format: "%.1f×", $0)).tag($0) } }.labelsHidden().frame(width: 72)
                                 Button("原文件") { clips.reveal(project.media.path) }
                             }
@@ -396,7 +420,7 @@ struct ClipEditor: View {
         working.start = start; working.end = end
         do { try working.validate(duration: project.media.duration); clips.saveRange(project.id, range: working); syncTimes(); return true } catch { clips.notice = error.localizedDescription; return false }
     }
-    private func switchRange(_ range: ClipRange) { guard saveWorking() else { return }; working = range; syncTimes(); playback.seek(range.start) }
+    private func switchRange(_ range: ClipRange) { guard saveWorking() else { return }; draggedStyle = nil; movingSubtitles = false; working = range; syncTimes(); playback.seek(range.start) }
     private func addRange() { guard saveWorking() else { return }; duplicate(active) }
     private func duplicate(_ range: ClipRange) {
         var next = range; next.id = UUID(); next.title = "选段 \((project.ranges.compactMap { Int($0.title.split(separator: " ").last ?? "") }.max() ?? project.ranges.count) + 1)"; next.proofreadCandidates = nil

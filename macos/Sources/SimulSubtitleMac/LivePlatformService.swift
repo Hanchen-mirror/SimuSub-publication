@@ -259,8 +259,9 @@ actor LivePlatformService: LivePlatformServing {
                                      items: ["room_id": URL(string: creator.address)!.lastPathComponent], access: access)
             guard let data = json["data"] as? [String: Any], let live = data["live_status"] as? Int else { throw LiveMonitorError.invalidResponse }
             let start = string(data["live_time"])
+            let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX"); date.timeZone = TimeZone(identifier: "Asia/Shanghai"); date.dateFormat = "yyyy-MM-dd HH:mm:ss"
             return LiveSnapshot(state: live == 1 ? .live : .offline, title: plain(string(data["title"])),
-                                sessionID: live == 1 ? creator.address + ":" + start : nil, liveURL: creator.address,
+                                sessionID: live == 1 ? creator.address + ":" + start : nil, startedAt: live == 1 ? date.date(from: start) : nil, liveURL: creator.address,
                                 coverURL: imageURL(string(data["user_cover"])) ?? imageURL(string(data["keyframe"])), category: data["area_name"] as? String)
         }
         if creator.platform == .youtube {

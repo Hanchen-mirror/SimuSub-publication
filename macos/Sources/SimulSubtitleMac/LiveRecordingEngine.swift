@@ -7,10 +7,14 @@ enum LiveRecordingEngine {
         return String(clean.prefix(50)).trimmingCharacters(in: CharacterSet(charactersIn: "."))
     }
     static func outputURL(creator: WatchedCreator, settings: LiveMonitorSettings) throws -> URL {
+        let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX"); date.dateFormat = "yyyy-MM-dd"
+        let name = safeName(creator.name)
         let folder = URL(fileURLWithPath: settings.outputFolder, isDirectory: true)
+            .appendingPathComponent((name.isEmpty ? "主播" : name) + "-" + creator.platform.title, isDirectory: true)
+            .appendingPathComponent(date.string(from: creator.snapshot.startedAt ?? Date()), isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try checkSpace(folder, minimum: 1_000_000_000)
-        let date = DateFormatter(); date.dateFormat = "yyyyMMdd-HHmmss"
+        date.dateFormat = "HHmmss"
         return folder.appendingPathComponent("\(date.string(from: Date()))-\(creator.platform.rawValue)-\(safeName(creator.name))-\(UUID().uuidString.prefix(8)).\(settings.container.rawValue)")
     }
     static func checkSpace(_ folder: URL, minimum: Int64) throws {

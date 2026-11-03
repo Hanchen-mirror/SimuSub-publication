@@ -820,6 +820,21 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func retryTranslation(_ id: UUID) async {
+        guard let cue = captions.first(where: { $0.id == id }), !cue.original.isEmpty else { return }
+        let generation = captionGeneration
+        do {
+            if textTranslator == nil { try await prepareServices() }
+            guard generation == captionGeneration, let index = captions.firstIndex(where: { $0.id == id }) else { return }
+            let revision = (captionRevisions[id] ?? 0) + 1
+            captionRevisions[id] = revision
+            captions[index].translated = "正在翻译…"
+            captions[index].pendingOriginal = nil; captions[index].recognitionNeedsReview = false
+            await translateCaption(.init(id: id, revision: revision, isFinal: true, original: cue.original,
+                source: "Japanese", target: "中文", live: false, generation: generation))
+        } catch { errorMessage = error.localizedDescription }
+    }
+
     func resolveRecognition(_ id: UUID, useCandidate: Bool) async {
         guard let snapshot = captions.first(where: { $0.id == id }), snapshot.recognitionNeedsReview,
               let candidate = snapshot.pendingOriginal else { return }

@@ -81,17 +81,17 @@ private actor RepairTranslator: TextTranslating {
             await reviewModel.process([Float](repeating: 0.1, count: 32000), start: 0, id: reviewID, revision: 1, isFinal: false)
             await reviewModel.process([Float](repeating: 0.1, count: 64000), start: 0, id: reviewID, revision: 2)
             let before = await probe.sources
-            try require(reviewModel.captions[0].original == heard && reviewModel.captions[0].pendingOriginal == lost && before.isEmpty
-                && SubtitleDocument.render(reviewModel.captions, format: .srt, mode: .bilingual).isEmpty, "v125_rollback_neither_erases_nor_translates_or_exports_\(chooseNew)")
+            try require(reviewModel.captions[0].original == lost && reviewModel.captions[0].pendingOriginal == nil && before == [lost]
+                && reviewModel.captions[0].originalRevisions.contains(heard) && !SubtitleDocument.render(reviewModel.captions, format: .srt, mode: .bilingual).isEmpty, "v136_revision_translates_immediately_and_keeps_history_\(chooseNew)")
             if !chooseNew {
                 try await ClipV120Checks.snapshot(CaptionRow(caption: reviewModel.captions[0]).environmentObject(reviewModel).preferredColorScheme(.dark),
                     size: CGSize(width: 760, height: 320), output: directory.appendingPathComponent("rollback-review.png"))
-                try require(true, "v125_pending_review_native_ui_rendered")
+                try require(true, "v136_completed_revision_native_ui_rendered")
             }
             await reviewModel.resolveRecognition(reviewID, useCandidate: chooseNew)
             let after = await probe.sources
-            try require(after == [chooseNew ? lost : heard] && !reviewModel.captions[0].isDraft && reviewModel.captions[0].pendingOriginal == nil,
-                "v125_review_choice_translates_once_and_completes_\(chooseNew)")
+            try require(after == [lost] && !reviewModel.captions[0].isDraft && reviewModel.captions[0].pendingOriginal == nil,
+                "v136_legacy_review_action_does_not_duplicate_translation_\(chooseNew)")
         }
         let failing = RepairTranslator(failFirst: true)
         let retryModel = AppModel(defaults: defaults, modelStore: LocalModelStore(root: directory.appendingPathComponent("none")),
@@ -99,13 +99,12 @@ private actor RepairTranslator: TextTranslating {
         let retryID = UUID()
         await retryModel.process([Float](repeating: 0.1, count: 32000), start: 0, id: retryID, revision: 1, isFinal: false)
         await retryModel.process([Float](repeating: 0.1, count: 64000), start: 0, id: retryID, revision: 2)
-        await retryModel.resolveRecognition(retryID, useCandidate: false)
         let failedCalls = await failing.sources
-        try require(retryModel.captions[0].original == heard && retryModel.captions[0].recognitionNeedsReview && failedCalls.count == 1,
+        try require(retryModel.captions[0].original == lost && !retryModel.captions[0].recognitionNeedsReview && failedCalls.count == 1 && retryModel.captions[0].translated.hasPrefix("翻译失败"),
             "v125_review_translation_failure_preserves_choice_no_auto_retry")
-        await retryModel.resolveRecognition(retryID, useCandidate: false)
+        await retryModel.retryTranslation(retryID)
         let retryCalls = await failing.sources
-        try require(!retryModel.captions[0].isDraft && retryCalls == [heard, heard], "v125_review_manual_retry_completes_once")
+        try require(!retryModel.captions[0].isDraft && retryCalls == [lost, lost], "v125_review_manual_retry_completes_once")
         var temporary = ASRRevisionGuard()
         _ = temporary.protectRollback(heard, start: 0, end: 2)
         try require(temporary.protectRollback(lost, start: 0, end: 3).pending == lost, "v125_temporary_drop_keeps_candidate")

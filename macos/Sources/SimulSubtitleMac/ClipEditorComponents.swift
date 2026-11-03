@@ -22,10 +22,11 @@ struct ClipStyledPlayer: NSViewRepresentable {
     var captions: [Caption]
     var style: ClipSubtitleStyle
     var mediaSize: CGSize
+    var onPosition: ((CGPoint, Bool) -> Void)? = nil
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView(); view.player = player; view.controlsStyle = .inline; view.showsFullScreenToggleButton = true
-        let image = NSImageView(); image.imageScaling = .scaleProportionallyUpOrDown; image.autoresizingMask = [.width, .height]
+        let image = PositionView(); image.imageScaling = .scaleProportionallyUpOrDown; image.autoresizingMask = [.width, .height]
         if let container = view.contentOverlayView { image.frame = container.bounds; container.addSubview(image) }
         context.coordinator.image = image; context.coordinator.player = player; context.coordinator.configure(self)
         context.coordinator.observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [weak coordinator = context.coordinator] _ in coordinator?.refresh() }
@@ -33,17 +34,34 @@ struct ClipStyledPlayer: NSViewRepresentable {
     }
     func updateNSView(_ view: AVPlayerView, context: Context) { context.coordinator.configure(self) }
     static func dismantleNSView(_ view: AVPlayerView, coordinator: Coordinator) { coordinator.stop(); view.player = nil }
+    final class PositionView: NSImageView {
+        var onPosition: ((CGPoint, Bool) -> Void)?
+        var mediaSize = CGSize(width: 1920, height: 1080)
+        override func hitTest(_ point: NSPoint) -> NSView? { onPosition == nil ? nil : super.hitTest(point) }
+        override func resetCursorRects() { if onPosition != nil { addCursorRect(bounds, cursor: .openHand) } }
+        private func move(_ event: NSEvent, commit: Bool) {
+            let scale = min(bounds.width / max(1, mediaSize.width), bounds.height / max(1, mediaSize.height))
+            let w = mediaSize.width * scale, h = mediaSize.height * scale
+            guard w > 0, h > 0 else { return }
+            let p = convert(event.locationInWindow, from: nil)
+            onPosition?(CGPoint(x: min(1, max(0, (p.x - (bounds.width - w) / 2) / w)),
+                y: min(1, max(0, 1 - (p.y - (bounds.height - h) / 2) / h))), commit)
+        }
+        override func mouseDown(with event: NSEvent) { move(event, commit: false) }
+        override func mouseDragged(with event: NSEvent) { move(event, commit: false) }
+        override func mouseUp(with event: NSEvent) { move(event, commit: true) }
+    }
     final class Coordinator {
-        weak var image: NSImageView?
+        weak var image: PositionView?
         weak var player: AVPlayer?
         var observer: Any?
         var source: ClipStyledPlayer?
         var lastID: UUID?
-        func configure(_ source: ClipStyledPlayer) { if self.source?.style != source.style || self.source?.captions != source.captions { lastID = nil }; self.source = source; refresh(force: true) }
+        func configure(_ source: ClipStyledPlayer) { image?.onPosition = source.onPosition; image?.mediaSize = source.mediaSize; if self.source?.style != source.style || self.source?.captions != source.captions { lastID = nil }; self.source = source; refresh(force: true) }
         func refresh(force: Bool = false) {
             guard let source else { return }
             let time = player?.currentTime().seconds ?? 0
-            let cue = source.captions.first { $0.start <= time && time < $0.end }
+            let cue = source.captions.first { $0.start <= time && time < $0.end } ?? (source.onPosition == nil ? nil : source.captions.first)
             if !force && lastID == cue?.id { return }; lastID = cue?.id
             // Bound editor bitmaps while keeping the same 1920px design scale.
             let factor = min(1, 960 / source.mediaSize.width)
@@ -161,7 +179,10 @@ struct ClipStyleDrawer: View {
                             Picker("上下顺序", selection: $style.chineseFirst) { Text("中文在上").tag(true); Text("日语在上").tag(false) }.pickerStyle(.segmented)
                             Picker("对齐方式", selection: $style.alignment) { Text("左").tag(0); Text("居中").tag(1); Text("右").tag(2) }.pickerStyle(.segmented)
                             slider("行间距", value: $style.spacing, in: 0...60)
-                            slider("距底部", value: $style.bottom, in: 0...400)
+                            if style.position != nil {
+                                HStack { Text("字幕宽度").font(.caption); Slider(value: Binding(get: { style.position?.width ?? 0.6 }, set: { style.position?.width = $0 }), in: 0.2...0.92) }
+                                Button("恢复底部居中") { style.position = nil }
+                            } else { slider("距底部", value: $style.bottom, in: 0...400) }
                             DisclosureGroup("高级设置 · 阴影与背景") {
                                 Toggle("文字阴影", isOn: $style.shadow).toggleStyle(.checkbox)
                                 HStack { Text("背景透明度").font(.caption); Slider(value: $style.background, in: 0...1); Text("\(Int(style.background * 100))%").font(.caption).frame(width: 40) }

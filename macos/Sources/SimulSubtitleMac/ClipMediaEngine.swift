@@ -64,7 +64,8 @@ enum ClipMediaEngine {
             let time = request.compositionTime.seconds
             let image = request.sourceImage
             if let overlay = cache.image(at: time) {
-                let shifted = overlay.transformed(by: CGAffineTransform(translationX: (image.extent.width - overlay.extent.width) / 2, y: min(image.extent.height * 0.25, style.bottom * image.extent.width / 1920)))
+                let origin = ClipSubtitleRenderer.origin(size: image.extent.size, overlay: overlay.extent.size, style: style)
+                let shifted = overlay.transformed(by: CGAffineTransform(translationX: origin.x + image.extent.minX, y: origin.y + image.extent.minY))
                 request.finish(with: shifted.composited(over: image).cropped(to: image.extent), context: nil)
             } else { request.finish(with: image, context: nil) }
         }

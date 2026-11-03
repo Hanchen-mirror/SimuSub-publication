@@ -14,6 +14,12 @@ struct ClipTextStyle: Codable, Equatable {
     var outlineColor = "#000000"
     var outline: Double = 2
 }
+struct ClipSubtitlePosition: Codable, Equatable {
+    var x: Double = 0.5
+    var y: Double = 0.85
+    var width: Double = 0.6
+    var valid: Bool { [x, y, width].allSatisfy { $0.isFinite && (0...1).contains($0) } && width >= 0.2 }
+}
 struct ClipSubtitleStyle: Codable, Equatable {
     var mode: ClipLanguageMode = .bilingual
     var chinese = ClipTextStyle()
@@ -24,6 +30,7 @@ struct ClipSubtitleStyle: Codable, Equatable {
     var bottom: Double = 36
     var background: Double = 0
     var shadow = true
+    var position: ClipSubtitlePosition?
     static var classic: Self { Self() }
     static var pink: Self { var s = Self(); s.chinese.color = "#F2CDD8"; return s }
     static var gold: Self { var s = Self(); s.chinese.color = "#E9D6A2"; s.chinese.size = 46; return s }
@@ -33,6 +40,7 @@ struct ClipSubtitleStyle: Codable, Equatable {
             && t.font.count <= 100 && Self.isColor(t.color) && Self.isColor(t.outlineColor)
         } && spacing.isFinite && (0...60).contains(spacing) && bottom.isFinite && (0...400).contains(bottom)
             && background.isFinite && (0...1).contains(background) && (0...2).contains(alignment)
+            && (position?.valid ?? true)
     }
     static func isColor(_ value: String) -> Bool { value.range(of: "^#[0-9A-Fa-f]{6}$", options: .regularExpression) != nil }
     func lines(_ cue: Caption) -> [(String, ClipTextStyle)] {
@@ -63,7 +71,7 @@ extension NSColor {
 enum ClipSubtitleRenderer {
     static func overlay(_ cue: Caption, size: CGSize, style requested: ClipSubtitleStyle) -> CGImage? {
         let style = requested.valid ? requested : .classic
-        let scale = max(0.05, size.width / 1920), width = max(32, floor(size.width * 0.92))
+        let scale = max(0.05, size.width / 1920), width = max(32, floor(size.width * (style.position?.width ?? 0.92)))
         let padding = max(4, 14 * scale)
         var ratio: CGFloat = 1
         var text = NSMutableAttributedString(string: ""), height: CGFloat = 0
@@ -130,10 +138,20 @@ enum ClipSubtitleRenderer {
         guard width > 0, let cropped = image.cropping(to: CGRect(x: x, y: 0, width: width, height: image.height)) else { return nil }
         return NSImage(cgImage: cropped, size: CGSize(width: cropped.width, height: cropped.height))
     }
+    /// Origin in the video pixel coordinate system (bottom-left), shared by preview/export.
+    static func origin(size: CGSize, overlay: CGSize, style: ClipSubtitleStyle) -> CGPoint {
+        guard let position = style.position, position.valid else {
+            return CGPoint(x: (size.width - overlay.width) / 2,
+                y: min(max(0, size.height - overlay.height), min(size.height * 0.25, style.bottom * size.width / 1920)))
+        }
+        return CGPoint(x: min(max(0, size.width * position.x - overlay.width / 2), max(0, size.width - overlay.width)),
+            y: min(max(0, size.height * (1 - position.y) - overlay.height / 2), max(0, size.height - overlay.height)))
+    }
     static func image(_ cue: Caption, size: CGSize, style: ClipSubtitleStyle) -> NSImage? {
         guard let overlay = overlay(cue, size: size, style: style),
               let ctx = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        ctx.draw(overlay, in: CGRect(x: (size.width - CGFloat(overlay.width)) / 2, y: min(size.height * 0.25, style.bottom * size.width / 1920), width: CGFloat(overlay.width), height: CGFloat(overlay.height)))
+        let overlaySize = CGSize(width: overlay.width, height: overlay.height)
+        ctx.draw(overlay, in: CGRect(origin: origin(size: size, overlay: overlaySize, style: style), size: overlaySize))
         return ctx.makeImage().map { NSImage(cgImage: $0, size: size) }
     }
 }

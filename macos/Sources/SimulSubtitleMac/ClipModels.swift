@@ -45,6 +45,7 @@ struct ClipProject: Identifiable, Codable, Equatable {
     var id = UUID()
     var name: String
     var creatorID: UUID?
+    var outputGrouping: [String]?
     var media: ClipMedia
     var captions: [Caption] = []
     var ranges: [ClipRange] = []

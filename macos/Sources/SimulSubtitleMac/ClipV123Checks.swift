@@ -60,12 +60,8 @@ enum ClipV123Checks {
             try require(early == (mode == "disabled" || mode == "fullSentence" ? [] : [prefix]), "v123_early_request_" + mode)
             await model.process([Float](repeating: 0.1, count: 48000), start: 0, id: id, revision: 3, isFinal: true)
             await model.process([Float](repeating: 0.1, count: 48000), start: 0, id: id, revision: 3, isFinal: true)
-            if mode == "exact", model.captions[0].recognitionNeedsReview {
-                try require(model.captions[0].pendingOriginal == full, "v125_shortened_exact_final_needs_review")
-                await model.resolveRecognition(id, useCandidate: true)
-            }
             let requests = await translator.inputs
-            let expected = mode == "reuse" ? [prefix, "とても楽しかったです"] : mode == "disabled" || mode == "fullSentence" ? [full] : [prefix, full]
+            let expected = mode == "disabled" || mode == "fullSentence" ? [full] : [prefix, full]
             try require(requests == expected && model.captions.count == 1 && model.captions[0].original == full && !model.captions[0].isDraft, "v123_final_reuse_or_correction_no_duplicate_" + mode)
             try require(!model.captions[0].translated.contains("…") && !model.captions[0].translated.contains("失败"), "v123_final_export_has_no_partial_marker_" + mode)
             await model.clearCaptions()

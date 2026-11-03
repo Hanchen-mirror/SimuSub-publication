@@ -48,10 +48,10 @@ enum ClipV124Checks {
             try require(model.captions.count == 1, "v124_revision_never_deletes_caption_\(checks.count)")
             let caption = model.captions[0]
             if final.isEmpty {
-                try require(caption.original == first && caption.isDraft && !caption.recognitionNotice.isEmpty && SubtitleDocument.render([caption], format: .srt, mode: .bilingual).isEmpty, "v124_empty_final_keeps_visible_draft_not_false_export")
+                try require(caption.original == first && !caption.isDraft && !SubtitleDocument.render([caption], format: .srt, mode: .bilingual).isEmpty, "v136_empty_final_translates_retained_source")
             } else if final == "明日は行きません" {
-                try require(caption.original == first && caption.pendingOriginal == final && caption.recognitionNeedsReview && caption.isDraft,
-                    "v125_large_rollback_keeps_original_and_pending_candidate")
+                try require(caption.original == final && caption.pendingOriginal == nil && !caption.recognitionNeedsReview && !caption.isDraft && caption.originalRevisions.contains(first),
+                    "v136_revised_source_translates_without_review_and_keeps_history")
             } else {
                 try require(caption.original == final && caption.originalRevisions == [first] && !caption.isDraft, "v124_correction_keeps_prior_text_without_concatenation_\(checks.count)")
             }

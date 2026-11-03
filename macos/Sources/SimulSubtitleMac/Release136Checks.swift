@@ -35,6 +35,7 @@ enum Release136Checks {
         let sent = await engine.sources
         guard sent == [latest, "勉強したといったら面接と", "長い日語の草稿を最後まで保存します", "短い訂正"] else { throw ServiceError.invalidResponse }
         try streamCache()
+        try layoutAndFolders()
         print("v1.36: revised Japanese, empty final fallback and complete-source translation passed")
     }
     static func streamCache() throws {
@@ -55,6 +56,28 @@ enum Release136Checks {
         creator.snapshot.sessionID = "session2"
         guard reopened.input(for: creator, cookies: nil) == nil else { throw ServiceError.invalidResponse }
         print("v1.36: private stream cache persistence, account/session invalidation and expiry passed")
+    }
+
+    static func layoutAndFolders() throws {
+        let classic = try JSONEncoder().encode(ClipSubtitleStyle.classic)
+        var legacy = try JSONSerialization.jsonObject(with: classic) as! [String: Any]
+        legacy.removeValue(forKey: "position")
+        guard try JSONDecoder().decode(ClipSubtitleStyle.self, from: JSONSerialization.data(withJSONObject: legacy)).position == nil else { throw ServiceError.invalidResponse }
+        var style = ClipSubtitleStyle.classic
+        style.position = .init(x: 0.2, y: 0.15, width: 0.5)
+        let restored = try JSONDecoder().decode(ClipSubtitleStyle.self, from: JSONEncoder().encode(style))
+        let size = CGSize(width: 1920, height: 1080), box = CGSize(width: 960, height: 100)
+        let point = ClipSubtitleRenderer.origin(size: size, overlay: box, style: restored)
+        guard restored == style, style.valid, point.x == 0, point.y > 800,
+              point.y + box.height <= size.height else { throw ServiceError.invalidResponse }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("simusub-folder-check-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let creator = WatchedCreator(.init(platform: .bilibili, address: "https://live.bilibili.com/6", name: "主播/测试"))
+        var settings = LiveMonitorSettings(); settings.outputFolder = root.path
+        let output = try LiveRecordingEngine.outputURL(creator: creator, settings: settings)
+        guard output.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent == "主播_测试-Bilibili",
+              output.deletingLastPathComponent().lastPathComponent.count == 10 else { throw ServiceError.invalidResponse }
+        print("v1.36: legacy style decoding, normalized position and creator/date folders passed")
     }
 
 }

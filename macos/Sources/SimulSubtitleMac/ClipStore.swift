@@ -43,10 +43,10 @@ final class ClipStore: ObservableObject {
         selectedID = projects.first?.id
         notice = [p, j].compactMap { $0 }.joined(separator: "\n"); if notice == "" { notice = nil }
     }
-    @discardableResult func importVideo(_ url: URL, creatorID: UUID? = nil, name: String? = nil) async throws -> UUID {
+    @discardableResult func importVideo(_ url: URL, creatorID: UUID? = nil, name: String? = nil, outputGrouping: [String]? = nil) async throws -> UUID {
         let media = try await ClipMediaEngine.inspect(url)
         if let match = projects.first(where: { $0.media == media }) { selectedID = match.id; return match.id }
-        let project = ClipProject(name: name ?? url.deletingPathExtension().lastPathComponent, creatorID: creatorID, media: media,
+        let project = ClipProject(name: name ?? url.deletingPathExtension().lastPathComponent, creatorID: creatorID, outputGrouping: outputGrouping, media: media,
                                   ranges: [ClipRange(title: "切片 1", start: 0, end: min(60, media.duration))])
         projects.insert(project, at: 0); selectedID = project.id; persist()
         let posters = root.appendingPathComponent("Posters")
@@ -135,6 +135,11 @@ final class ClipStore: ObservableObject {
         guard let project = projects.first(where: { $0.id == job.projectID }) else { return }
         pauseRequested = false
         var pending = job
+        if job.kind == .export, !jobs.contains(where: { $0.id == job.id }), let base = job.outputFolder,
+           let grouping = project.outputGrouping, grouping.count == 2,
+           grouping.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("/") }) {
+            pending.outputFolder = grouping.reduce(URL(fileURLWithPath: base)) { $0.appendingPathComponent($1, isDirectory: true) }.path
+        }
         // Retry uses saved current ranges, with one consistent project snapshot.
         // Receipts are retained only when their content fingerprint still matches.
         if jobs.contains(where: { $0.id == job.id }) {
@@ -256,6 +261,7 @@ final class ClipStore: ObservableObject {
     private func export(_ job: ClipJob, project: ClipProject) async throws {
         guard let folderPath = job.outputFolder else { throw ClipError.message("请选择导出文件夹。") }
         let folder = URL(fileURLWithPath: folderPath)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         guard !job.ranges.isEmpty else { throw ClipError.message("请勾选至少一个切片。") }
         // Preflight every segment before creating any output.
         for range in job.ranges {
