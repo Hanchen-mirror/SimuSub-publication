@@ -57,7 +57,7 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
             let screen = homeWindow?.screen ?? NSScreen.main
             let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1100, height: 760)
             let width = min(800, max(320, visible.width - 40))
-            let defaultFrame = NSRect(x: visible.midX - width / 2, y: visible.minY + 70, width: width, height: 280)
+            let defaultFrame = NSRect(x: visible.midX - width / 2, y: visible.minY + 70, width: width, height: 96)
             var frame = defaults.string(forKey: frameKey).map(NSRectFromString) ?? defaultFrame
             if !frame.width.isFinite || !frame.height.isFinite || frame.width < 360 || frame.height < 40 {
                 frame = defaultFrame
@@ -181,7 +181,7 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
             let height = min(700, ((panel?.screen ?? NSScreen.main)?.visibleFrame.height ?? 780) - 80)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: height),
                 styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-            window.title = "字幕设置 · 术语库与翻译模型"
+            window.title = "字幕设置"
             window.titlebarAppearsTransparent = true
             window.backgroundColor = ThemePalette.color(appearance.theme, dark: appearance.isDark, role: .background)
             window.identifier = NSUserInterfaceItemIdentifier("subtitle.settings.window")

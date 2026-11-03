@@ -40,15 +40,10 @@ enum ThemeChecks {
                 try require(restored.theme == .green && restored.mode == .light && restored.japaneseFont == saved.japaneseFont && restored.chineseFont == saved.chineseFont, "theme_mode_fonts_restore_from_saved_defaults")
                 try require(restored.japaneseSize == 18 && restored.chineseSize == 24 && restored.reduceMotion && restored.restorePage && restored.lastPage == "subtitle", "font_sizes_and_workspace_preferences_persist")
             }
-            let largeType = SubtitleAdaptiveType.fit(original: "今日も一緒に、ゆっくりいこう。", translated: "今天也一起，慢慢来吧。", size: CGSize(width: 750, height: 224), ratio: 0.73)
-            let smallType = SubtitleAdaptiveType.fit(original: "今日も一緒に、ゆっくりいこう。", translated: "今天也一起，慢慢来吧。", size: CGSize(width: 454, height: 158), ratio: 0.73)
-            try require(largeType > smallType && smallType >= 9, "v130_floating_type_scales_with_window")
             let imported = try ClipSubtitleImport.parse("1\n00:00:01,000 --> 00:00:03,000\nテスト字幕です。\n这是测试字幕。\n", extension: "srt", layout: .automatic, offset: 0, duration: 10)
             try require(imported.count == 1 && imported[0].original == "テスト字幕です。" && imported[0].translated == "这是测试字幕。", "v130_direct_import_detects_bilingual_text")
             let chinese = try ClipSubtitleImport.parse("1\n00:00:01,000 --> 00:00:03,000\n只有中文字幕。\n", extension: "srt", layout: .automatic, offset: 0, duration: 10)
             try require(chinese[0].original.isEmpty && chinese[0].translated == "只有中文字幕。", "v130_direct_import_detects_chinese_only")
-            let longType = SubtitleAdaptiveType.fit(original: String(repeating: "こんにちは。", count: 20), translated: String(repeating: "你好。", count: 20), size: CGSize(width: 454, height: 158), ratio: 0.73)
-            try require(longType < smallType, "v130_long_caption_reduces_type_to_fit")
             appearance.apply()
             host("settings", HStack(spacing: 0) { WorkspaceSidebar(selected: .settings, onSelect: { _ in }).frame(width: DesignV23.sidebar); SettingsWindow() })
             for (name, category) in [("permissions", "权限"), ("platforms", "平台"), ("recording-settings", "录制")] {
@@ -56,6 +51,7 @@ enum ThemeChecks {
             }
             host("subtitle", HStack(spacing: 0) { WorkspaceSidebar(selected: .subtitle, onSelect: { _ in }).frame(width: DesignV23.sidebar); SubtitleConfiguration(onServices: {}) })
             host("recording", HStack(spacing: 0) { WorkspaceSidebar(selected: .recording, onSelect: { _ in }).frame(width: DesignV23.sidebar); RecordingWorkspace(onSettings: {}, onClips: { _ in }) })
+            host("add-creator", AddCreatorSheet(presentation: HomeLivePresentation(), onDone: {}))
             host("services", HStack(spacing: 0) { WorkspaceSidebar(selected: .services, onSelect: { _ in }).frame(width: DesignV23.sidebar); AdvancedServiceSettings() })
             host("controls", TextField("主题输入框", text: .constant("保留编辑内容")).textFieldStyle(ClipFieldStyle()).frame(width: 400))
             let emptyClips = ClipStore(root: directory.appendingPathComponent("empty-import-store"))

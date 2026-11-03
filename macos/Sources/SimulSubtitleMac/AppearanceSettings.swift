@@ -63,17 +63,22 @@ struct SubtitleFontSettings: View {
     var body: some View {
         let _ = appThemeID
         HStack(spacing: 14) {
-            fontPicker("日语字体", selection: $appearance.japaneseFont)
-            fontPicker("中文字体", selection: $appearance.chineseFont)
+            fontPicker("日语字体", selection: $appearance.japaneseFont, size: $appearance.japaneseSize)
+            fontPicker("中文字体", selection: $appearance.chineseFont, size: $appearance.chineseSize)
         }
     }
-    private func fontPicker(_ title: String, selection: Binding<String>) -> some View {
+    private func fontPicker(_ title: String, selection: Binding<String>, size: Binding<Double>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.system(size: 12))
             DesignMenuField(title: selection.wrappedValue.isEmpty ? "系统字体" : selection.wrappedValue) {
                 Button("系统字体") { selection.wrappedValue = "" }
                 ForEach(families, id: \.self) { family in Button(family) { selection.wrappedValue = family } }
             }.accessibilityLabel(title)
+            Stepper(value: size, in: 12...32, step: 1) {
+                Text("字号 \(Int(size.wrappedValue))").font(.system(size: 12)).monospacedDigit()
+            }
+            .accessibilityLabel(title.replacingOccurrences(of: "字体", with: "字号"))
+            .accessibilityValue("\(Int(size.wrappedValue))")
 
         }.frame(maxWidth: .infinity, alignment: .leading)
     }

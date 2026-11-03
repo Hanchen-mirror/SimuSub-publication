@@ -31,7 +31,7 @@ enum SubtitlePanelChecks {
             if let settings = controller.settingsWindow { try snapshot(settings, to: directory.appendingPathComponent("第六按钮-字幕设置.png")); settings.close() }
             try require(panel.isVisible && panel.frame == originalFrame, "v123_closing_settings_keeps_subtitles", &checks)
             try snapshot(panel, to: directory.appendingPathComponent("字幕-六按钮.png"))
-            try require(panel.frame.height == 280 && panel.frame.width <= 800, "initial_adaptive_window_size", &checks)
+            try require(panel.frame.height == 96 && panel.frame.width <= 800, "initial_v127_strip_size", &checks)
             try require(panel.styleMask.contains(.nonactivatingPanel) && !panel.hidesOnDeactivate,
                         "nonactivating_panel_survives_deactivation", &checks)
             try require(panel.collectionBehavior.contains(.canJoinAllSpaces)
@@ -39,11 +39,43 @@ enum SubtitlePanelChecks {
                         && panel.collectionBehavior.contains(.canJoinAllApplications), "fullscreen_collection_flags", &checks)
             try require(panel.level == .statusBar && !panel.canBecomeMain, "overlay_level_without_main_focus", &checks)
 
+            // The idle label must remain centered even in a very short strip.
+            for size in [NSSize(width: 500, height: 48), NSSize(width: 800, height: 66), NSSize(width: 800, height: 96)] {
+                panel.setContentSize(size)
+                try await Task.sleep(nanoseconds: 180_000_000)
+                try snapshot(panel, to: directory.appendingPathComponent("idle-\(Int(size.width))x\(Int(size.height)).png"))
+            }
+
             let caption = Caption(start: 0, end: 2, original: "今日は一緒に配信を楽しみましょう。", translated: "今天也一起开心地看直播吧。")
             model.captions = [caption]
             model.subtitleDisplayMode = .bilingual
             try await Task.sleep(nanoseconds: 200_000_000)
             try snapshot(panel, to: directory.appendingPathComponent("字幕-双语-800x96.png"))
+            // Exercise the real AppKit tracking handlers without moving the
+            // user's physical pointer or requiring Accessibility permission.
+            for size in [NSSize(width: 800, height: 96), NSSize(width: 500, height: 48)] {
+                panel.setContentSize(size)
+                try await Task.sleep(nanoseconds: 180_000_000)
+                guard let tracking = findPointerTracking(panel.contentView),
+                      let event = NSEvent.mouseEvent(with: .mouseMoved, location: NSPoint(x: size.width / 2, y: size.height / 2),
+                          modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                          windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)
+                else { throw CheckFailure("missing_pointer_tracking") }
+                tracking.mouseEntered(with: event)
+                tracking.mouseMoved(with: event)
+                try await Task.sleep(nanoseconds: 180_000_000)
+                try require(tracking.isInside.wrappedValue, "pointer_enter_shows_controls_\(Int(size.height))", &checks)
+                let shown = directory.appendingPathComponent("hover-\(Int(size.width))x\(Int(size.height)).png")
+                try snapshot(panel, to: shown)
+                tracking.mouseExited(with: event)
+                try await Task.sleep(nanoseconds: 180_000_000)
+                try require(!tracking.isInside.wrappedValue, "pointer_exit_hides_controls_\(Int(size.height))", &checks)
+                let hidden = directory.appendingPathComponent("unhover-\(Int(size.width))x\(Int(size.height)).png")
+                try snapshot(panel, to: hidden)
+                try require(try Data(contentsOf: shown) != Data(contentsOf: hidden), "hover_changes_rendered_controls_\(Int(size.height))", &checks)
+            }
+            panel.setContentSize(NSSize(width: 800, height: 96))
+            try await Task.sleep(nanoseconds: 180_000_000)
             guard let native = findNativeControls(panel.contentView) else { throw CheckFailure("missing_native_controls") }
             try require(native.buttons.count == 3, "native_traffic_light_controls", &checks)
             native.buttons[2].performClick(nil)
@@ -51,7 +83,7 @@ enum SubtitlePanelChecks {
             try require(panel.frame.height > 96, "native_green_zoom", &checks)
             native.buttons[2].performClick(nil)
             try await Task.sleep(nanoseconds: 550_000_000)
-            try require(panel.frame.height == 280, "native_green_restore", &checks)
+            try require(panel.frame.height == 96, "native_green_restore", &checks)
             panel.setContentSize(NSSize(width: 500, height: 48))
             try await Task.sleep(nanoseconds: 180_000_000)
             try require(SubtitleDensity.forSize(panel.frame.size) == .compact, "compact_single_row_density", &checks)
@@ -117,10 +149,21 @@ enum SubtitlePanelChecks {
             model.subtitleDisplayMode = .bilingual
             model.isSubtitleOnly = true
             controller.show()
-            for size in [NSSize(width: 800, height: 96), NSSize(width: 1000, height: 300), NSSize(width: 500, height: 48)] {
+            for size in [NSSize(width: 800, height: 96), NSSize(width: 1000, height: 300), NSSize(width: 500, height: 48), NSSize(width: 800, height: 66), NSSize(width: 360, height: 80)] {
                 panel.setContentSize(size)
                 try await Task.sleep(nanoseconds: 180_000_000)
                 try snapshot(panel, to: directory.appendingPathComponent("短语换行-\(Int(size.width))x\(Int(size.height)).png"))
+            }
+            model.captions = (0..<8).map { index in
+                Caption(start: Double(index * 4), end: Double(index * 4 + 3),
+                    original: "字幕 \(index + 1)：今日は一緒に配信を楽しみましょう。",
+                    translated: "字幕 \(index + 1)：今天也一起开心地看直播吧。")
+            }
+            for height in [96, 180, 320, 480] {
+                panel.setContentSize(NSSize(width: 800, height: height))
+                try await Task.sleep(nanoseconds: 180_000_000)
+                try snapshot(panel, to: directory.appendingPathComponent("history-800x\(height).png"))
+                try require(model.captions.count == 8, "expanded_history_preserves_all_captions_\(height)", &checks)
             }
             controller.returnHome()
 
@@ -179,6 +222,13 @@ enum SubtitlePanelChecks {
         return nil
     }
 
+    private static func findPointerTracking(_ view: NSView?) -> SubtitlePointerTracking.TrackingView? {
+        guard let view else { return nil }
+        if let tracking = view as? SubtitlePointerTracking.TrackingView { return tracking }
+        for child in view.subviews { if let result = findPointerTracking(child) { return result } }
+        return nil
+    }
+
     private static func containsBubbleDragView(_ view: NSView?) -> Bool {
         guard let view else { return false }
         return view is SubtitleBubbleInteraction.DragView || view.subviews.contains { containsBubbleDragView($0) }
@@ -206,7 +256,10 @@ enum SubtitlePanelChecks {
                 "panelFrame": NSStringFromRect(panel.frame), "observedAt": ISO8601DateFormatter().string(from: Date()),
                 "foregroundCoverage": coverage,
                 "panelAboveForeground": above && panel.isOnActiveSpace && front?.processIdentifier != ProcessInfo.processInfo.processIdentifier,
-                "pinEnabled": panel.level == .statusBar, "panelLevel": panel.level.rawValue]
+                "pinEnabled": panel.level == .statusBar, "panelLevel": panel.level.rawValue,
+                "pointerInside": findPointerTracking(panel.contentView)?.isInside.wrappedValue ?? false,
+                "trackingBounds": findPointerTracking(panel.contentView).map { NSStringFromRect($0.bounds) } ?? "missing",
+                "mouseInWindow": NSStringFromPoint(panel.mouseLocationOutsideOfEventStream)]
     }
 
     private static func require(_ value: Bool, _ name: String, _ checks: inout [String]) throws {

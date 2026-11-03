@@ -29,12 +29,7 @@ struct RecordingWorkspace: View {
             }.padding(DesignV23.pageInset)
         }.background(ThemeColor.background)
             .sheet(isPresented: $adding) {
-                VStack(alignment: .leading, spacing: 20) {
-                    HStack { Text("添加主播").font(.system(size: 20, weight: .semibold)); Spacer(); Button("完成") { adding = false } }
-                    Picker("平台", selection: $presentation.platform) { ForEach(LivePlatform.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented)
-                    HomeCreatorSearch(presentation: presentation)
-                    Spacer(minLength: 0)
-                }.padding(26).frame(width: 620, height: 400).appTheme()
+                AddCreatorSheet(presentation: presentation, onDone: { adding = false })
             }
     }
     private func filter(_ value: LivePlatform?) -> some View {
@@ -42,6 +37,48 @@ struct RecordingWorkspace: View {
             Group { if let value { PlatformLogo(platform: value).frame(width: 17, height: 17) } else { Image(systemName: "square.grid.2x2").font(.system(size: 16)) } }
                 .frame(width: 32, height: 30).background(platform == value ? ThemeColor.surface : .clear, in: RoundedRectangle(cornerRadius: 9))
         }.buttonStyle(.plain).help(value?.title ?? "全部平台").accessibilityLabel(value?.title ?? "全部平台")
+    }
+}
+
+struct AddCreatorSheet: View {
+    @ObservedObject var presentation: HomeLivePresentation
+    var onDone: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                Text("添加主播").font(.system(size: 20, weight: .semibold))
+                Spacer()
+                Button("完成", action: onDone)
+            }
+            CreatorPlatformPicker(selection: $presentation.platform)
+            HomeCreatorSearch(presentation: presentation)
+            Spacer(minLength: 0)
+        }.padding(26).frame(width: 620, height: 400).appTheme()
+    }
+}
+
+struct CreatorPlatformPicker: View {
+    @Binding var selection: LivePlatform
+    @Environment(\.appThemeID) private var themeID
+    var body: some View {
+        let _ = themeID
+        HStack(spacing: 4) {
+            ForEach(LivePlatform.allCases) { platform in
+                Button { selection = platform } label: {
+                    Text(platform.title).font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(selection == platform ? ThemeColor.primaryInk : ThemeColor.muted)
+                        .frame(maxWidth: .infinity).frame(height: 34)
+                        .background(selection == platform ? ThemeColor.selection : .clear, in: RoundedRectangle(cornerRadius: 8))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain).help(platform.title)
+                .accessibilityLabel(platform.title)
+                .accessibilityAddTraits(selection == platform ? .isSelected : [])
+                .accessibilityIdentifier("creator.platform." + platform.rawValue)
+            }
+        }
+        .padding(4).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .contain).accessibilityLabel("平台")
     }
 }
 

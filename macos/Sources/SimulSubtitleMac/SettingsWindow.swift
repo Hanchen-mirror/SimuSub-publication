@@ -8,6 +8,7 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
 struct SettingsWindow: View {
     @State private var category: SettingsCategory = .appearance
     var recording = false
+    var subtitleFontsFirst = false
     var initialCategory: String? = nil
     var onClose: (() -> Void)? = nil
     @Environment(\.appThemeID) private var appThemeID
@@ -31,7 +32,11 @@ struct SettingsWindow: View {
                 ScrollView {
                     Group {
                         switch category {
-                        case .appearance: AppearanceSettings()
+                        case .appearance:
+                            VStack(spacing: 20) {
+                                if subtitleFontsFirst { SubtitleFontSettings().designPanel() }
+                                AppearanceSettings()
+                            }
                         case .recording: LiveRecordingSettings()
                         case .accounts: PlatformAdvancedSettings()
                         case .permissions: SubtitlePermissionTools()
@@ -132,4 +137,4 @@ private struct ServiceProfileCard: View {
         VStack(alignment: .leading, spacing: 9) { Text(title).font(.caption).foregroundStyle(ThemeColor.muted); TextField(title, text: text).textFieldStyle(ClipFieldStyle()) }
     }
 }
-struct SubtitleQuickSettings: View { var body: some View { SettingsWindow() } }
+struct SubtitleQuickSettings: View { var body: some View { SettingsWindow(subtitleFontsFirst: true) } }

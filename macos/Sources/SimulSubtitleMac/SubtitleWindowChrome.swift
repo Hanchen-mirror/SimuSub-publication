@@ -9,6 +9,53 @@ enum SubtitleDensity: String {
     }
 }
 
+/// Track the whole nonactivating panel even while another app is frontmost.
+/// SwiftUI onHover can miss this surface when the native resize layer is above it.
+struct SubtitlePointerTracking: NSViewRepresentable {
+    @Binding var isInside: Bool
+    func makeNSView(context: Context) -> TrackingView { TrackingView(isInside: $isInside) }
+    func updateNSView(_ view: TrackingView, context: Context) { view.isInside = $isInside }
+
+    final class TrackingView: NSView {
+        var isInside: Binding<Bool>
+        private var area: NSTrackingArea?
+        private var trackedBounds: NSRect?
+        init(isInside: Binding<Bool>) {
+            self.isInside = isInside
+            super.init(frame: .zero)
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            // Hover state redraws must not replace the area or resample the
+            // pointer; only geometry changes need a new initial containment check.
+            guard area == nil || trackedBounds != bounds else { return }
+            trackedBounds = bounds
+            if let area { removeTrackingArea(area) }
+            let tracking = NSTrackingArea(rect: .zero,
+                options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved, .enabledDuringMouseDrag], owner: self)
+            addTrackingArea(tracking)
+            area = tracking
+            // Initialize after layout, including windows opened under the pointer
+            // and bounds changed by a resize, without mutating SwiftUI during layout.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let inside = self.window.map {
+                    $0.isVisible && self.bounds.contains(self.convert($0.mouseLocationOutsideOfEventStream, from: nil))
+                } ?? false
+                self.setInside(inside)
+            }
+        }
+        override func mouseMoved(with event: NSEvent) { setInside(bounds.contains(convert(event.locationInWindow, from: nil))) }
+        override func mouseEntered(with event: NSEvent) { setInside(true) }
+        override func mouseExited(with event: NSEvent) { setInside(false) }
+        private func setInside(_ value: Bool) {
+            if isInside.wrappedValue != value { isInside.wrappedValue = value }
+        }
+    }
+}
+
 /// WindowServer owns the drag. A SwiftUI local-coordinate drag moves its own
 /// coordinate space on each event and can feed that movement back into the next
 /// translation, causing the small floating window to jitter or leave trails.
