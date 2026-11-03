@@ -703,22 +703,13 @@ final class AppModel: ObservableObject {
             guard revision > (captionRevisions[id] ?? 0) else { return }
             let end = start + Double(samples.count) / 16_000
             let reconciliation = revisionGuard.reconcile(recognition, start: start, end: end)
-            let protected = revisionGuard.protectRollback(reconciliation.text.trimmingCharacters(in: .whitespacesAndNewlines), start: start, end: end)
             revisionGuards[id] = isFinal ? nil : revisionGuard
-            let original = protected.text
-            if original.isEmpty {
-                if isFinal {
-                    captionRevisions[id] = revision; prefixConfirmations[id] = nil; prefixTranslations[id] = nil
-                    if let index = captions.firstIndex(where: { $0.id == id }) {
-                        captions[index].recognitionNotice = "整句识别为空，已保留上一版日语；待核对，不作为定稿导出。"
-                        captions[index].confirmedPrefix = ""
-                        captions[index].pendingOriginal = ""; captions[index].recognitionNeedsReview = true
-                        captions[index].translated = "译文未完成：整句识别为空，已保留日语草稿"
-                    }
-                }
-                status = "正在监听，等待说话…"
-                return
-            }
+            // Full-window ASR revisions are corrections, not a manual approval gate.
+            // Preserve every hypothesis in history and immediately translate the latest.
+            let recognized = reconciliation.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let original = recognized.isEmpty && isFinal
+                ? (captions.first(where: { $0.id == id })?.original ?? "") : recognized
+            guard !original.isEmpty else { status = "正在监听，等待说话…"; return }
             captionRevisions[id] = revision
             if let index = captions.firstIndex(where: { $0.id == id }) {
                 let previous = captions[index].original
@@ -730,11 +721,8 @@ final class AppModel: ObservableObject {
                     ? "已恢复连续识别一致、且音频时间戳支持的遗漏前段。原始候选保留在修订记录中。"
                     : previous.count - original.count >= 6
                     ? "识别结果比上一版缩短，旧文字已保留在日语修订记录中，可检查是否遗漏。" : ""
-                captions[index].pendingOriginal = protected.pending
-                captions[index].recognitionNeedsReview = isFinal && protected.pending != nil
-                if protected.pending != nil {
-                    captions[index].recognitionNotice = isFinal ? "已拦截日语大幅回退：保留原文，新结果待核对。" : "检测到日语回退，暂时保留原文，等待后续识别。"
-                }
+                captions[index].pendingOriginal = nil
+                captions[index].recognitionNeedsReview = false
                 captions[index].original = original
                 captions[index].start = start
                 captions[index].end = end
@@ -742,14 +730,6 @@ final class AppModel: ObservableObject {
                 if isFinal || !original.hasPrefix(captions[index].confirmedPrefix) { captions[index].confirmedPrefix = "" }
             } else {
                 captions.append(Caption(id: id, start: start, end: end, original: original, translated: "", isDraft: true))
-            }
-            if protected.pending != nil {
-                if let index = captions.firstIndex(where: { $0.id == id }) {
-                    captions[index].translated = "译文未完成：日语识别回退，已保留原文"
-                }
-                if isFinal { prefixConfirmations[id] = nil; prefixTranslations[id] = nil }
-                status = isFinal ? "日语出现大幅回退，请在字幕记录核对候选" : "日语回退保护中，等待后续识别"
-                return
             }
             if queueTranslation, firstOriginalLatency == nil { firstOriginalLatency = Date().timeIntervalSince(sessionStart) }
             // A changing Japanese draft is useful, but translating each revision
@@ -804,7 +784,6 @@ final class AppModel: ObservableObject {
 
     private func translateCaption(_ item: TranslationSegment) async {
         guard let textTranslator else { return }
-        guard captions.first(where: { $0.id == item.id })?.pendingOriginal == nil else { return }
         // A pending newer source revision makes this work obsolete. Final revisions
         // are queued separately and cannot be overwritten by a stale draft result.
         guard item.generation == captionGeneration else { return }
@@ -819,18 +798,12 @@ final class AppModel: ObservableObject {
                 .init(original: $0.original, translated: SubtitleDocument.completedTranslation($0) ?? "")
             }, isFinal: true)
             context.isStablePrefix = !item.isFinal
-            let reusable = item.isFinal ? prefixTranslations[item.id].flatMap { item.original.hasPrefix($0.source) ? $0 : nil } : nil
-            let source = reusable.map { String(item.original.dropFirst($0.source.count)).trimmingCharacters(in: .whitespacesAndNewlines) } ?? item.original
-            if let reusable { context.previous.append(.init(original: reusable.source, translated: reusable.chinese)) }
-            let tail = source.isEmpty ? "" : try await textTranslator.translate(source, from: item.source, to: item.target, context: context)
-            if !source.isEmpty && tail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { throw ServiceError.emptyResponse }
-            let translated = [reusable?.chinese ?? "", tail].filter { !$0.isEmpty }.joined(separator: "\n")
+            let translated = try await textTranslator.translate(item.original, from: item.source, to: item.target, context: context)
             guard item.generation == captionGeneration else { return }
             if item.isFinal { guard captionRevisions[item.id] == item.revision else { return } }
             else { guard captions.contains(where: { $0.id == item.id && $0.isDraft && $0.original.hasPrefix(item.original) }) else { return } }
             guard !translated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ServiceError.emptyResponse }
-            guard captions.first(where: { $0.id == item.id })?.pendingOriginal == nil else { return }
-            if let index = captions.firstIndex(where: { $0.id == item.id }) {
+                if let index = captions.firstIndex(where: { $0.id == item.id }) {
                 captions[index].translated = translated + (item.isFinal ? "" : " …")
                 captions[index].isDraft = !item.isFinal
                 if !item.isFinal { prefixTranslations[item.id] = (item.original, translated) }

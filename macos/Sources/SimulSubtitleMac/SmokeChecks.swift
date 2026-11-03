@@ -30,6 +30,7 @@ final class SmokeOutcome: @unchecked Sendable {
 enum SmokeChecks {
     static func run() async throws {
         try checkCapturedPCM()
+        try await Release136Checks.translation()
         precondition("字幕をテストしています".containsJapaneseScript)
         precondition(!"Hello world".containsJapaneseScript)
         let japanese = AppModel.removingOverlap("字幕をテストしています", previous: "今日は日本語の字幕を")

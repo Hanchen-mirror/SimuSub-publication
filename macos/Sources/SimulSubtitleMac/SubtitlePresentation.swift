@@ -254,17 +254,6 @@ private struct PaperCaption: View {
     var body: some View {
         let _ = appThemeID
         VStack(alignment: .center, spacing: shortWindow ? 2 : 5) {
-            if let candidate = caption.pendingOriginal {
-                Text("待核对候选：" + candidate).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(2)
-            }
-            if !caption.recognitionNotice.isEmpty {
-                Text("日语识别有修订 · 记录中可核对").font(.system(size: 10)).foregroundStyle(.orange)
-                    .help(caption.recognitionNotice)
-            }
-            if caption.isDraft && !caption.confirmedPrefix.isEmpty {
-                Text("前段已确认 · 后文识别中").font(.system(size: 10)).foregroundStyle(ThemeColor.muted)
-                    .help(caption.confirmedPrefix)
-            }
             if mode == .bilingual {
                 Text(SubtitleLineLayout.format(caption.original, language: .japanese, width: textWidth, font: SubtitleFont.native(japaneseFont, size: originalSize)))
                     .font(Font(SubtitleFont.native(japaneseFont, size: originalSize)))
