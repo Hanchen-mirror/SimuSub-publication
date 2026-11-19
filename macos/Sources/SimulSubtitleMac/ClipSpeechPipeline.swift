@@ -19,7 +19,8 @@ enum ClipSpeechPipeline {
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temp) }
         let buffer = ClipSegmentBuffer()
-        let frontend = try SpeechAudioFrontend(options: .init(suppressMusic: true, showDrafts: false))
+        let frontend = try SpeechAudioFrontend(options: .init(suppressMusic: true, showDrafts: false,
+            japanesePhraseBoundaries: services.sourceLanguage == .japanese && !(services.recognizer is ReazonSpeechRecognizer)))
         frontend.begin(at: Date(timeIntervalSince1970: range.start))
         frontend.onSegment = { buffer.append($0) }
         var cursor = range.start, previous: [SubtitleTranslationContext.Line] = []
@@ -29,25 +30,44 @@ enum ClipSpeechPipeline {
                 let start = max(range.start, segment.timestamp.timeIntervalSince1970)
                 let end = min(range.end, segment.timestamp.timeIntervalSince1970 + Double(segment.samples.count) / 16000)
                 guard end > start, segment.samples.contains(where: { abs($0) > 0.003 }) else { continue }
-                let saved = existing.first { abs($0.start - start) < 0.15 && abs($0.end - end) < 0.3 }
-                var cue: Caption
-                if let saved { cue = saved }
+                func savedCue(_ begin: Double, _ finish: Double) -> Caption? {
+                    existing.first { abs($0.start - begin) < 0.15 && abs($0.end - finish) < 0.3
+                        && $0.sourceLanguage == services.sourceLanguage && $0.targetLanguage == services.targetLanguage }
+                }
+                var cues: [Caption] = []
+                if let saved = savedCue(start, end) { cues = [saved] }
                 else {
-                    let original = try await services.recognizer.recognize(samples: segment.samples).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let hypothesis = try await services.recognizer.recognizeDetailed(samples: segment.samples)
                     try Task.checkCancellation()
-                    guard !original.isEmpty else { continue }
-                    cue = Caption(start: start, end: end, original: original, translated: "")
-                    await onCue(cue)
+                    let phrases: [JapaneseCaptionPhrase]
+                    if services.sourceLanguage == .japanese {
+                        phrases = JapaneseCaptionPhrase.split(hypothesis, duration: end - start,
+                            forTranslation: services.targetLanguage.isChinese)
+                    } else {
+                        let text = services.sourceLanguage == .english ? EnglishVocalTranscript.words(in: hypothesis.text)
+                            : hypothesis.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        phrases = text.isEmpty ? [] : [.init(text: text, start: 0, end: end - start)]
+                    }
+                    for phrase in phrases {
+                        let begin = start + phrase.start, finish = start + phrase.end
+                        if let saved = savedCue(begin, finish) { cues.append(saved); continue }
+                        let cue = Caption(start: begin, end: finish, original: phrase.text, translated: "",
+                                          sourceLanguage: services.sourceLanguage, targetLanguage: services.targetLanguage)
+                        cues.append(cue)
+                        await onCue(cue)
+                    }
                 }
-                if SubtitleDocument.completedTranslation(cue) == nil {
-                    cue.translated = try await services.translator.translate(cue.original, from: "日语", to: "中文", context: .init(previous: previous, isFinal: true))
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    try Task.checkCancellation()
-                    guard !cue.translated.isEmpty else { throw ClipError.message("翻译返回空内容，日语字幕已保留，请重试。") }
-                    await onCue(cue)
+                for var cue in cues {
+                    if SubtitleDocument.completedTranslation(cue) == nil {
+                        cue.translated = try await services.translator.translate(cue.original, from: services.sourceLanguage.name, to: services.targetLanguage.name, context: .init(previous: previous, isFinal: true))
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        try Task.checkCancellation()
+                        guard !cue.translated.isEmpty else { throw ClipError.message("翻译返回空内容，原文字幕已保留，请重试。") }
+                        await onCue(cue)
+                    }
+                    previous.append(.init(original: cue.original, translated: cue.translated))
+                    if previous.count > 2 { previous.removeFirst() }
                 }
-                previous.append(.init(original: cue.original, translated: cue.translated))
-                if previous.count > 2 { previous.removeFirst() }
                 await progress(min(0.99, (end - range.start) / range.duration), "已处理 " + ClipTime.label(end - range.start) + " / " + ClipTime.label(range.duration))
             }
         }
@@ -70,6 +90,6 @@ enum ClipSpeechPipeline {
             cursor += span
         }
         frontend.finish(); try await consume()
-        try media.validateFile(); await progress(1, "日中字幕已保存，可编辑后导出。")
+        try media.validateFile(); await progress(1, "字幕已保存，可编辑后导出。")
     }
 }

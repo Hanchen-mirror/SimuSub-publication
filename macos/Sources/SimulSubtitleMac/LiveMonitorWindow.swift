@@ -14,26 +14,65 @@ extension LivePlatform {
 struct LiveRecordingSettings: View {
     @EnvironmentObject private var monitor: LiveMonitorStore
     @Environment(\.appThemeID) private var themeID
+    @AppStorage("clips.exportFolder.v150") private var exportFolder = ""
     var body: some View {
         let _ = themeID
-        VStack(alignment: .leading, spacing: 24) {
-            Text("录制").font(.system(size: 16, weight: .semibold))
-            HStack { Text("保存位置"); Spacer(); Button(action: monitor.chooseFolder) { Label("选择文件夹", systemImage: "folder") }.buttonStyle(ThemeActionButtonStyle()) }.help(monitor.settings.outputFolder)
-            HStack(spacing: 17) {
-                VStack(alignment: .leading, spacing: 9) {
-                    Text("格式").font(.caption).foregroundStyle(ThemeColor.muted)
-                    DesignMenuField(title: monitor.settings.container.title) { ForEach(RecordingContainer.allCases) { value in Button(value.title) { monitor.updateSettings { $0.container = value } } } }
+        VStack(alignment: .leading, spacing: 16) {
+            Text(L10n.text("录制与剪辑")).interfaceFont(size: 16, weight: .semibold)
+            VStack(spacing: 0) {
+                destination(symbol: "video", path: monitor.settings.outputFolder, label: "录制文件夹", action: monitor.chooseFolder)
+                Divider().overlay(ThemeColor.line)
+                destination(symbol: "square.and.arrow.up", path: exportFolder.isEmpty ? NSHomeDirectory() + "/Movies/SimuSub/Exports" : exportFolder, label: "导出文件夹", action: chooseExportFolder)
+            }.designPanel(inset: 18)
+            VStack(alignment: .leading, spacing: 10) {
+                Text(L10n.text("录制质量")).font(.headline)
+                HStack {
+                    Text(L10n.text("格式")); Spacer()
+                    Picker(L10n.text("格式"), selection: Binding(get: { monitor.settings.container }, set: { value in monitor.updateSettings { $0.container = value } })) {
+                        ForEach(RecordingContainer.allCases) { value in Text(value.title).tag(value) }
+                    }.labelsHidden().pickerStyle(.segmented).frame(width: 180)
+                }.frame(minHeight: 36)
+                Divider().overlay(ThemeColor.line)
+                HStack {
+                    Text(L10n.text("画质")); Spacer()
+                    DesignMenuField(title: L10n.text(monitor.settings.quality.title)) {
+                        ForEach(RecordingQuality.allCases) { quality in Button(L10n.text(quality.title)) { monitor.updateSettings { $0.quality = quality } } }
+                    }.frame(width: 116).accessibilityIdentifier("recording.quality")
                 }
-                VStack(alignment: .leading, spacing: 9) {
-                    Text("同时录制").font(.caption).foregroundStyle(ThemeColor.muted)
-                    DesignMenuField(title: "\(monitor.settings.maximumRecordings)") { ForEach(1...3, id: \.self) { value in Button("\(value)") { monitor.updateSettings { $0.maximumRecordings = value } } } }
+            }.designPanel(inset: 20)
+            VStack(alignment: .leading, spacing: 10) {
+                Text(L10n.text("录制行为")).font(.headline)
+                HStack {
+                    Text(L10n.text("同时录制")); Spacer()
+                    Picker(L10n.text("同时录制"), selection: Binding(get: { monitor.settings.maximumRecordings }, set: { value in monitor.updateSettings { $0.maximumRecordings = value } })) {
+                        ForEach(1...3, id: \.self) { value in Text("\(value)").tag(value) }
+                    }.labelsHidden().pickerStyle(.segmented).frame(width: 132)
+                }.frame(minHeight: 36)
+                Divider().overlay(ThemeColor.line)
+                HStack {
+                    Text(L10n.text("检查间隔")); Spacer()
+                    DesignMenuField(title: L10n.text(monitor.settings.intervalSeconds < 60 ? "\(monitor.settings.intervalSeconds) 秒" : "\(monitor.settings.intervalSeconds / 60) 分钟")) {
+                        ForEach([15, 30] + (1...15).map { $0 * 60 }, id: \.self) { value in
+                            Button(L10n.text(value < 60 ? "\(value) 秒" : "\(value / 60) 分钟")) { monitor.updateSettings { $0.intervalSeconds = value } }
+                        }
+                    }.frame(width: 116).accessibilityIdentifier("recording.interval")
                 }
-            }
-            VStack(alignment: .leading, spacing: 9) {
-                Text("检查间隔").font(.caption).foregroundStyle(ThemeColor.muted)
-                DesignMenuField(title: "\(monitor.settings.intervalSeconds / 60) 分钟") { ForEach(1...15, id: \.self) { value in Button("\(value) 分钟") { monitor.updateSettings { $0.intervalSeconds = value * 60 } } } }
-            }
-        }.designPanel()
+            }.designPanel(inset: 20)
+        }
+    }
+    private func destination(symbol: String, path: String, label: String, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: symbol).foregroundStyle(ThemeColor.primaryInk).frame(width: 36, height: 36).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 10))
+            Text(path.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.system(size: 13, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 8)
+            Button(action: action) { Image(systemName: "folder").frame(width: 32, height: 30) }
+                .buttonStyle(.plain).background(ThemeColor.control, in: RoundedRectangle(cornerRadius: 9))
+                .help(L10n.text(label)).accessibilityLabel(L10n.text(label))
+        }.padding(.vertical, 7)
+    }
+    private func chooseExportFolder() {
+        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
+        if panel.runModal() == .OK, let url = panel.url { exportFolder = url.path }
     }
 }
 
@@ -50,64 +89,64 @@ struct LiveConnectionSheet: View {
         let _ = appThemeID
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                Label(platform.title + " 连接", systemImage: platform.symbol).font(.title2.bold())
+                Label(L10n.text(platform.title + " 连接"), systemImage: platform.symbol).font(.title2.bold())
                 Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark") }.buttonStyle(.plain).help("关闭连接设置")
+                Button { dismiss() } label: { Image(systemName: "xmark") }.buttonStyle(.plain).help(L10n.text("关闭连接设置"))
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text(platform == .youtube ? "自动连接 · 浏览器优先" : (credentials.usesAccount(platform) ? "使用已导入会话（由平台验证有效性）" : "访客模式 · 无需登录"))
+                    Text(L10n.text(credentials.selectedSource(platform) == .browser ? "已连接浏览器会话" : (credentials.usesAccount(platform) ? "使用已导入会话（由平台验证有效性）" : "访客模式 · 无需登录")))
                         .font(.headline)
-                    Text("关注列表只保存在本机。访客可读取公开直播；受登录限制的内容可使用自己的会话。")
+                    Text(L10n.text("关注列表只保存在本机。访客可读取公开直播；受登录限制的内容可使用自己的会话。"))
                         .font(.callout).foregroundStyle(ThemeColor.muted)
                     HStack {
-                        Button(platform == .youtube ? "无连接时用访客" : "使用访客") { credentials.useGuest(platform); message = platform == .youtube ? "浏览器仍优先；未接入时使用访客。" : "已切换到访客模式。" }
+                        Button(L10n.text("使用访客")) { credentials.useGuest(platform); message = "已切换到访客模式。" }
                         if credentials.hasCookies(platform) {
-                            Button("使用已导入会话") { perform { try credentials.useSavedAccount(platform) } }
-                            Button("移除会话", role: .destructive) { disconnect = true }
+                            Button(L10n.text("使用已导入会话")) { perform { try credentials.useSavedAccount(platform) } }
+                            Button(L10n.text("移除会话"), role: .destructive) { disconnect = true }
                         }
                     }
                     Divider()
-                    Text("连接自己的账号").font(.headline)
-                    Text(platform == .youtube ? "优先使用已接入的浏览器会话；未接入时使用已导入的 Cookies，没有会话则使用访客。" : "使用访客访问公开内容，或导入自己的 Cookies 会话。")
+                    Text(L10n.text("连接自己的账号")).font(.headline)
+                    Text(L10n.text(platform == .youtube ? "优先使用已接入的浏览器会话；未接入时使用已导入的 Cookies，没有会话则使用访客。" : "使用访客访问公开内容，或导入自己的 Cookies 会话。"))
                         .font(.caption).foregroundStyle(ThemeColor.muted)
                     HStack {
-                        Button("打开官网登录") { NSWorkspace.shared.open(platform.loginURL) }
-                        Button("导入 Cookies…") {
+                        Button(L10n.text("打开官网登录")) { credentials.openLogin(platform) }
+                        Button(L10n.text("导入 Cookies…")) {
                             let panel = NSOpenPanel(); panel.allowedContentTypes = [.plainText]; panel.allowsMultipleSelection = false
                             if panel.runModal() == .OK, let url = panel.url {
                                 perform { try credentials.importCookies(url, platform: platform); message = "会话已导入 Keychain，等待下一次平台请求验证。" }
                             }
                         }
                     }
-                    Text("仅保存所选平台的有效 Cookie；临时调用文件权限为 0600，用后删除。不会上传会话到 SimuSub 服务器。")
+                    Text(L10n.text("仅保存所选平台的有效 Cookie；临时调用文件权限为 0600，用后删除。不会上传会话到 SimuSub 服务器。"))
                         .font(.caption).foregroundStyle(ThemeColor.muted)
                     if platform != .bilibili {
                         Divider()
-                        DisclosureGroup("高级 · 官方搜索接口（可选）") {
+                        DisclosureGroup(L10n.text("高级 · 官方搜索接口（可选）")) {
                             VStack(alignment: .leading, spacing: 12) {
-                                Text(platform == .youtube ? "YouTube API Key 用于频道关键词搜索；直播检查与录制仍使用公开频道或已导入会话。" : "Twitch 官方关键词搜索和开播检查需要 Client ID 与 Access Token；访客可以按英文频道名或链接添加。")
+                                Text(L10n.text(platform == .youtube ? "YouTube API Key 用于频道关键词搜索；直播检查与录制仍使用公开频道或已导入会话。" : "Twitch 官方关键词搜索和开播检查需要 Client ID 与 Access Token；访客可以按英文频道名或链接添加。"))
                                     .font(.caption).foregroundStyle(ThemeColor.muted)
                                 if platform == .twitch { TextField("Client ID", text: $clientID).textFieldStyle(ClipFieldStyle()) }
                                 SecureField(platform == .youtube ? "YouTube Data API Key" : "Twitch Access Token", text: $secret).textFieldStyle(ClipFieldStyle())
                                 HStack {
-                                    Button("保存到 Keychain") {
+                                    Button(L10n.text("保存到 Keychain")) {
                                         perform { try credentials.saveAPIKey(secret, platform: platform, clientID: clientID); secret = ""; clientID = ""; message = "接口凭证已保存，下一次请求会验证有效性。" }
                                     }.disabled(secret.isEmpty || (platform == .twitch && clientID.isEmpty))
                                     if credentials.hasAPIKey(platform) {
-                                        Button("移除接口凭证", role: .destructive) { perform { try credentials.removeAPIKey(platform) } }
+                                        Button(L10n.text("移除接口凭证"), role: .destructive) { perform { try credentials.removeAPIKey(platform) } }
                                     }
                                 }
                                 Link("官方接口申请说明", destination: URL(string: platform == .youtube ? "https://developers.google.com/youtube/v3/getting-started" : "https://dev.twitch.tv/docs/authentication/")!)
                             }.padding(.top, 12)
                         }
                     }
-                    if let message { Text(message).font(.callout).foregroundStyle(ThemeColor.muted) }
+                    if let message { Text(L10n.text(message)).font(.callout).foregroundStyle(ThemeColor.muted) }
                 }
             }
         }.padding(26).frame(width: 620, height: 590)
-            .confirmationDialog("移除本机保存的 \(platform.title) 会话？", isPresented: $disconnect) {
-                Button("移除并切换访客", role: .destructive) { perform { try credentials.disconnect(platform) } }
+            .confirmationDialog(L10n.text("移除本机保存的 \(platform.title) 会话？"), isPresented: $disconnect) {
+                Button(L10n.text("移除并切换访客"), role: .destructive) { perform { try credentials.disconnect(platform) } }
             }
     }
     private func perform(_ action: () throws -> Void) {
@@ -121,13 +160,13 @@ struct SimuSubGuide: View {
     var body: some View {
         let _ = appThemeID
         VStack(alignment: .leading, spacing: 22) {
-            HStack { Text("使用 SimuSub").font(.title2.bold()); Spacer(); Button("完成") { dismiss() } }
-            Label("日中同传", systemImage: "captions.bubble").font(.headline)
-            Text("在日中同传页选择声音来源与模型，然后开始同传。日语和中文可分别选择字体；浮窗可拖大查看历史，切换双语或仅中文，并导出 TXT、SRT、VTT。")
-            Label("主播监控", systemImage: "bell.badge").font(.headline)
-            Text("在直播录制页搜索并添加主播。平台入口可管理访客或导入的会话；右键主播可调整监控、提醒和自动录制。录制设置中可选择保存目录。关闭窗口继续运行，退出或睡眠后停止监控。")
-            Label("自动切片", systemImage: "scissors").font(.headline)
-            Text("从侧栏或首页打开独立剪辑窗，导入视频或已保存的录制。可新增、切换和删除选段，分别编辑日中字幕并设置样式；勾选片段后批量导出。原视频保留，任务可暂停或重试。高光候选由本地规则推荐；云端识别与核对会在调用前说明费用。")
+            HStack { Text(L10n.text("使用 SimuSub")).font(.title2.bold()); Spacer(); Button(L10n.text("完成")) { dismiss() } }
+            Label(L10n.text("字幕同传"), systemImage: "captions.bubble").font(.headline)
+            Text(L10n.text("选择声音来源和语言，开始同传。浮窗支持双语、仅译文和 TXT / SRT / VTT 导出。"))
+            Label(L10n.text("主播监控"), systemImage: "bell.badge").font(.headline)
+            Text(L10n.text("在直播录制页搜索并添加主播。平台入口可管理访客或导入的会话；右键主播可调整监控、提醒和自动录制。录制设置中可选择保存目录。关闭窗口继续运行，退出或睡眠后停止监控。"))
+            Label(L10n.text("自动切片"), systemImage: "scissors").font(.headline)
+            Text(L10n.text("从侧栏或首页打开独立剪辑窗，导入视频或已保存的录制。可新增、切换和删除选段，分别编辑日中字幕并设置样式；勾选片段后批量导出。原视频保留，任务可暂停或重试。高光候选由本地规则推荐；云端识别与核对会在调用前说明费用。"))
             Spacer()
         }.padding(28).frame(width: 550, height: 470)
     }
@@ -141,7 +180,7 @@ struct PlatformAdvancedSettings: View {
         let _ = themeID
         VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 8) {
-                Button { selected = nil } label: { Image(systemName: "display").frame(width: 32, height: 32).background(selected == nil ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 8)) }.help("全部平台")
+                Button { selected = nil } label: { Image(systemName: "display").frame(width: 32, height: 32).background(selected == nil ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 8)) }.help(L10n.text("全部平台"))
                 ForEach(LivePlatform.allCases) { platform in Button { selected = platform } label: { PlatformLogo(platform: platform).frame(width: 18, height: 18).frame(width: 32, height: 32).background(selected == platform ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 8)) }.help(platform.title) }
             }.buttonStyle(.plain)
             ForEach(LivePlatform.allCases.filter { selected == nil || $0 == selected }) { platform in
@@ -156,15 +195,18 @@ struct PlatformConnectionCard: View {
     @State private var message: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            HStack(spacing: 11) { PlatformLogo(platform: platform).frame(width: 22, height: 22); Text(platform.title).font(.system(size: 16, weight: .semibold)) }
-            if platform == .youtube { Text("浏览器优先 · 无连接时使用 Cookies 或访客").font(.caption).foregroundStyle(ThemeColor.muted) }
+            HStack(spacing: 11) { PlatformLogo(platform: platform).frame(width: 22, height: 22); Text(platform.title).interfaceFont(size: 16, weight: .semibold) }
             HStack(spacing: 10) {
-                Button { credentials.useGuest(platform) } label: { Text(platform == .youtube ? "访客回退" : "访客").frame(maxWidth: .infinity) }.buttonStyle(ThemeActionButtonStyle()).overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(credentials.usesAccount(platform) ? ThemeColor.line : ThemeColor.primary))
-                Button { NSWorkspace.shared.open(platform.loginURL) } label: { Label("官网登录", systemImage: "arrow.up.right.square").frame(maxWidth: .infinity) }.buttonStyle(ThemeActionButtonStyle())
-                Button { importCookies() } label: { Text("导入 Cookies").frame(maxWidth: .infinity) }.buttonStyle(ThemeActionButtonStyle())
+                Button { credentials.useGuest(platform) } label: { Text(L10n.text("访客")).frame(maxWidth: .infinity) }.buttonStyle(ThemeActionButtonStyle()).overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(credentials.selectedSource(platform) == .guest ? ThemeColor.primary : ThemeColor.line))
+                Button { credentials.openLogin(platform) } label: { Label(L10n.text("官网登录"), systemImage: "arrow.up.right.square").frame(maxWidth: .infinity) }.buttonStyle(ThemeActionButtonStyle()).overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(credentials.selectedSource(platform) == .browser ? ThemeColor.primary : ThemeColor.line)).accessibilityAddTraits(credentials.selectedSource(platform) == .browser ? .isSelected : [])
+                Button { importCookies() } label: { Text(L10n.text("导入 Cookies")).frame(maxWidth: .infinity) }.buttonStyle(ThemeActionButtonStyle()).overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(credentials.selectedSource(platform) == .cookies ? ThemeColor.primary : ThemeColor.line))
             }
-            if let message { Text(message).font(.caption).foregroundStyle(ThemeColor.muted) }
+            if let message { Text(L10n.text(message)).font(.caption).foregroundStyle(ThemeColor.muted) }
         }.designPanel()
+            .task { await credentials.refreshBrowserSession(platform) }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                Task { await credentials.refreshBrowserSession(platform) }
+            }
     }
     private func importCookies() {
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.plainText]; panel.allowsMultipleSelection = false

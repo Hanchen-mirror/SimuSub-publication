@@ -7,6 +7,9 @@ struct RecognizedSpeech: Sendable {
     }
     var text: String
     var tokens: [Token] = []
+    var language: SubtitleLanguage? = nil
+
+
 }
 
 /// Restores only timestamp gaps anchored by matching tokens. Substitutions,
@@ -14,6 +17,7 @@ struct RecognizedSpeech: Sendable {
 struct ASRRevisionGuard {
     private var previous: [RecognizedSpeech.Token] = []
     private var confirmed: [RecognizedSpeech.Token] = []
+    private(set) var japaneseAgreement = JapaneseTimedAgreement()
     private var previousEnd = -Double.infinity
     private var previousStart: Double?
     private var visibleText = ""
@@ -43,14 +47,21 @@ struct ASRRevisionGuard {
         return (text, nil)
     }
 
-    mutating func reconcile(_ speech: RecognizedSpeech, start: Double, end: Double) -> (text: String, restored: Bool) {
+    mutating func reconcile(_ speech: RecognizedSpeech, start: Double, end: Double,
+                            recoverShortOmissions: Bool = false) -> (text: String, restored: Bool, tokens: [RecognizedSpeech.Token]) {
         let current = speech.tokens.map { RecognizedSpeech.Token(text: $0.text, time: $0.time + start) }
         guard !current.isEmpty, current.map(\.text).joined() == speech.text,
               current.allSatisfy({ $0.time.isFinite && $0.time >= start && $0.time <= end }),
               zip(current, current.dropFirst()).allSatisfy({ $0.time <= $1.time }),
               previousStart == nil || start <= previousStart! + 0.001 else {
+            // Padding can put a single draft's last token just outside its real
+            // samples. Discard that alignment, retaining independent evidence
+            // from earlier valid windows of this same utterance.
+            if let previousStart, abs(start - previousStart) > 0.001 || end < previousEnd {
+                japaneseAgreement = JapaneseTimedAgreement()
+            }
             previous = []; confirmed = []; previousStart = start; previousEnd = end
-            return (speech.text, false)
+            return (speech.text, false, speech.tokens)
         }
         func matches(_ a: RecognizedSpeech.Token, _ b: RecognizedSpeech.Token) -> Bool {
             a.text == b.text && abs(a.time - b.time) <= 0.12
@@ -58,6 +69,7 @@ struct ASRRevisionGuard {
         // Agreement is from two distinct, growing audio windows, never from
         // repairing our own output. Keep two tail tokens and 350 ms provisional.
         if end > previousEnd + 0.05 {
+            if recoverShortOmissions { japaneseAgreement.observe(previous: previous, current: current, previousEnd: previousEnd) }
             let agreement = zip(previous, current).prefix { matches($0, $1) }.count
             let safe = Array(current.prefix(max(0, agreement - 2)).prefix { $0.time < end - 0.35 })
             if safe.count > confirmed.count { confirmed = safe }
@@ -76,7 +88,12 @@ struct ASRRevisionGuard {
             let rightAnchor = (0..<3).allSatisfy { offset in
                 oldIndex + offset < confirmed.count && newIndex + offset < current.count && matches(confirmed[oldIndex + offset], current[newIndex + offset])
             }
-            if newIndex == lastNew + 1, missing.map(\.text).joined().count >= 3, rightAnchor,
+            // One missing kana can change the meaning. A short deletion needs
+            // two matching timed tokens before it and three matching tokens after.
+            let shortGapAnchored = recoverShortOmissions && lastOld >= 1 && lastNew >= 1
+                && matches(confirmed[lastOld - 1], current[lastNew - 1])
+            if newIndex == lastNew + 1, !missing.isEmpty,
+               missing.map(\.text).joined().count >= 3 || shortGapAnchored, rightAnchor,
                let first = missing.first, let last = missing.last,
                last.time < current[newIndex].time - 0.12,
                lastNew < 0 || first.time > current[lastNew].time + 0.12 {
@@ -85,8 +102,9 @@ struct ASRRevisionGuard {
             lastOld = oldIndex; lastNew = newIndex
         }
         previous = current; previousStart = start; previousEnd = end
-        guard !insertions.isEmpty else { return (speech.text, false) }
-        let text = current.indices.map { (insertions[$0] ?? []).map(\.text).joined() + current[$0].text }.joined()
-        return (text, true)
+        var repaired = insertions.isEmpty ? current : current.indices.flatMap { (insertions[$0] ?? []) + [current[$0]] }
+        if recoverShortOmissions { repaired = japaneseAgreement.fillingGaps(in: repaired, start: start, end: end) }
+        guard repaired.count > current.count else { return (speech.text, false, speech.tokens) }
+        return (repaired.map(\.text).joined(), true, repaired.map { .init(text: $0.text, time: $0.time - start) })
     }
 }

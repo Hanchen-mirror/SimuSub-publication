@@ -79,12 +79,14 @@ extension EnvironmentValues {
     }
 }
 struct AppThemeModifier: ViewModifier {
+    @ObservedObject private var localization = AppLocalization.shared
     var clearBackground = false
     @EnvironmentObject private var appearance: HomeAppearance
     func body(content: Content) -> some View {
         content
             .buttonStyle(ThemeActionButtonStyle())
-            .environment(\.appThemeID, appearance.theme.rawValue + "-" + appearance.mode.rawValue + "-" + String(appearance.isDark))
+            .environment(\.appThemeID, appearance.theme.rawValue + "-" + appearance.mode.rawValue + "-" + String(appearance.isDark) + "-" + localization.language.rawValue)
+            .environment(\.locale, Locale(identifier: localization.language.rawValue))
             .environment(\.colorScheme, appearance.colorScheme)
             .transaction { transaction in
                 if appearance.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { transaction.animation = nil; transaction.disablesAnimations = true }
@@ -112,7 +114,7 @@ struct ThemeActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let _ = appThemeID
         return configuration.label
-            .font(.system(size: 13, weight: .medium))
+            .interfaceFont(size: 13, weight: .medium)
             .foregroundStyle(prominent ? ThemeColor.surface : ThemeColor.ink)
             .padding(.horizontal, 13).padding(.vertical, 8)
             .background(prominent ? ThemeColor.primary : configuration.isPressed ? ThemeColor.selection : ThemeColor.control, in: RoundedRectangle(cornerRadius: 10))

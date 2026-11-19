@@ -23,6 +23,22 @@ private final class ReviewURLProtocol: URLProtocol {
         return data
     }
 }
+/// Endless bytes keep an inactivity timer alive; the configured wall deadline must still expire.
+private final class DrippingReviewProtocol: URLProtocol {
+    private var tick: Timer?
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        tick = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            client?.urlProtocol(self, didLoad: Data([32]))
+        }
+    }
+    override func stopLoading() { tick?.invalidate(); tick = nil }
+}
+
 private actor ContextProbe: TextTranslating {
     var contexts: [SubtitleTranslationContext] = []
     var texts: [String] = []
@@ -35,6 +51,9 @@ private actor ContextProbe: TextTranslating {
         if texts.count == failAt { throw URLError(.timedOut) }
         return "核对：" + text
     }
+}
+private struct OrphanedYearRecognizer: SpeechRecognizing {
+    func recognize(samples: [Float]) async throws -> String { "by 25 to 30 years." }
 }
 private struct DraftRecognizer: SpeechRecognizing {
     func recognize(samples: [Float]) async throws -> String { "今日は歌枠です" }
@@ -72,6 +91,14 @@ enum ClipV122Checks {
         _ = try await GlossaryTranslator(base: nearby, terms: terms).translate("それです", from: "ja", to: "zh", context: .init(previous: [.init(original: "今日は歌枠です", translated: "歌回")]))
         let nearbyContext = await nearby.contexts
         try require(nearbyContext[0].terms == [terms[0]], "v122_glossary_retrieves_terms_from_recent_context")
+        let keyProbe = ContextProbe()
+        let keyWrapper = GlossaryTranslator(base: keyProbe, terms: terms)
+        let keyHistory = SubtitleTranslationContext(previous: [.init(original: "Rotate the CRYPTO KEYS.", translated: "轮换密钥。")])
+        for phrase in ["Rotate the CRYPTO KEYS.", "Revoke the cryptographic key.", "Crypto and cryptocurrency prices fell.", "Crypto keyboards are on sale."] {
+            _ = try await keyWrapper.translate(phrase, from: "en", to: "zh", context: keyHistory)
+        }
+        let keyTerms = await keyProbe.contexts.map { $0.terms.map(\.chinese) }
+        try require(keyTerms == [["加密密钥"], ["加密密钥"], [], []], "english_key_terms_match_only_current_whole_phrase")
         let draftProbe = ContextProbe()
         let draftModel = AppModel(defaults: UserDefaults(suiteName: "SimuSub.DraftChecks." + UUID().uuidString)!,
             modelStore: LocalModelStore(root: directory.appendingPathComponent("no-models")), recognizer: DraftRecognizer(), translator: draftProbe)
@@ -118,6 +145,24 @@ enum ClipV122Checks {
         _ = try await custom.translate("行きません", from: "ja", to: "zh")
         _ = try await custom.translate("行きません", from: "ja", to: "zh", context: .init(isStablePrefix: true))
         try require(promptCalls == 2, "v124_custom_prompt_sent_in_final_and_prefix_with_one_request_each")
+        let yearSuite = "SimuSub.OrphanedYearChecks." + UUID().uuidString
+        let yearDefaults = UserDefaults(suiteName: yearSuite)!
+        defer { yearDefaults.removePersistentDomain(forName: yearSuite) }
+        yearDefaults.set("en", forKey: "subtitle.sourceLanguage.v141")
+        yearDefaults.set("zh-Hans", forKey: "subtitle.targetLanguage.v141")
+        ReviewURLProtocol.handler = { _ in
+            (200, Data(#"{"choices":[{"message":{"content":"25至30歲。"},"finish_reason":"stop"}]}"#.utf8))
+        }
+        for host in ["https://api.deepseek.com", "https://compatible.invalid/v1"] {
+            var profile = ServiceProfile.deepSeek
+            profile.baseURL = host
+            let fixture = OpenAICompatibleTranslator(profile: profile, apiKey: "test-only", session: session)
+            let yearModel = AppModel(defaults: yearDefaults, modelStore: LocalModelStore(root: directory.appendingPathComponent("no-models")),
+                                     recognizer: OrphanedYearRecognizer(), translator: fixture)
+            await yearModel.process([Float](repeating: 0.1, count: 16_000), start: 0)
+            try require(yearModel.captions.first?.translated == "25到30年。",
+                        profile.isDeepSeek ? "deepseek_orphan_duration_repaired_before_publication" : "compatible_orphan_duration_repaired_before_publication")
+        }
         var earlyTimeout = 0.0
         ReviewURLProtocol.handler = { request in
             earlyTimeout = request.timeoutInterval
@@ -125,6 +170,23 @@ enum ClipV122Checks {
         }
         _ = try await cloud.translate("歌枠です", from: "ja", to: "zh", context: .init(isStablePrefix: true))
         try require(earlyTimeout == 4, "v123_cloud_prefix_short_timeout_does_not_use_full_minute")
+        let slowConfig = URLSessionConfiguration.ephemeral
+        slowConfig.protocolClasses = [DrippingReviewProtocol.self]
+        let slowSession = URLSession(configuration: slowConfig)
+        defer { slowSession.invalidateAndCancel() }
+        for host in ["https://api.deepseek.com", "https://compatible.invalid/v1"] {
+            var slowProfile = ServiceProfile.deepSeek
+            slowProfile.baseURL = host
+            slowProfile.timeoutSeconds = 1
+            let slow = OpenAICompatibleTranslator(profile: slowProfile, apiKey: "fixture", session: slowSession)
+            let clock = ContinuousClock(), started = clock.now
+            var timedOut = false
+            do { _ = try await slow.translate("The doors will not open.", from: "en", to: "zh") }
+            catch let error as URLError { timedOut = error.code == .timedOut }
+            let elapsed = started.duration(to: clock.now)
+            try require(timedOut && elapsed >= .milliseconds(800) && elapsed < .seconds(4),
+                        slowProfile.isDeepSeek ? "deepseek_streaming_bytes_obeys_total_final_deadline" : "compatible_streaming_bytes_obeys_total_final_deadline")
+        }
         for status in [401,402,404,429,503] {
             var calls = 0
             ReviewURLProtocol.handler = { _ in calls += 1; return (status, Data("secret_key source text".utf8)) }

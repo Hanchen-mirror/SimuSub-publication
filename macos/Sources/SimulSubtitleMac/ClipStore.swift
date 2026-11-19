@@ -18,7 +18,7 @@ final class ClipStore: ObservableObject {
     static var diagnosticRoot: URL? {
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--clip-demo"), args.count > i + 1 { return URL(fileURLWithPath: args[i + 1]) }
-        return args.contains(where: { $0.hasPrefix("--") }) ? FileManager.default.temporaryDirectory.appendingPathComponent("simusub-clip-checks-" + UUID().uuidString) : nil
+        return AppLaunchOptions.isDiagnostic ? FileManager.default.temporaryDirectory.appendingPathComponent("simusub-clip-checks-" + UUID().uuidString) : nil
     }
     init(root: URL? = nil, writeSubtitle: @escaping (String, URL) throws -> Void = { text, url in
         try text.write(to: url, atomically: true, encoding: .utf8)
@@ -135,6 +135,10 @@ final class ClipStore: ObservableObject {
         guard let project = projects.first(where: { $0.id == job.projectID }) else { return }
         pauseRequested = false
         var pending = job
+        if job.kind == .transcribe {
+            pending.sourceLanguage = job.sourceLanguage ?? services?.sourceLanguage ?? project.captions.first?.sourceLanguage ?? model?.sourceLanguage ?? .japanese
+            pending.targetLanguage = job.targetLanguage ?? services?.targetLanguage ?? project.captions.first?.targetLanguage ?? model?.targetLanguage ?? .simplifiedChinese
+        }
         if job.kind == .export, !jobs.contains(where: { $0.id == job.id }), let base = job.outputFolder,
            let grouping = project.outputGrouping, grouping.count == 2,
            grouping.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("/") }) {
@@ -195,7 +199,7 @@ final class ClipStore: ObservableObject {
                     if pendingRanges.isEmpty { break }
                     let engines: ClipServices
                     if let services { engines = services }
-                    else if let model { engines = try await model.makeClipServices(configured: job.configuredServices) }
+                    else if let model { engines = try await model.makeClipServices(configured: job.configuredServices, source: job.sourceLanguage, target: job.targetLanguage) }
                     else { throw ClipError.message("识别与翻译引擎尚未准备。") }
                     for pendingRange in pendingRanges {
                     try await ClipSpeechPipeline.transcribe(media: project.media, range: pendingRange, services: engines, existing: self.projects.first { $0.id == project.id }?.captions ?? project.captions,
@@ -214,7 +218,7 @@ final class ClipStore: ObservableObject {
                     else if let model { translator = try await model.makeProofreadTranslator(configured: job.configuredServices) }
                     else { throw ClipError.message("核对模型尚未准备。") }
                     let cues = project.captions(for: range).filter { !$0.original.isEmpty && !$0.isDraft }.sorted { $0.start < $1.start }
-                    guard !cues.isEmpty else { throw ClipError.message("请先添加日语字幕，再使用模型核对。") }
+                    guard !cues.isEmpty else { throw ClipError.message("请先添加原文字幕，再使用模型核对。") }
                     var proposals: [Caption] = []
                     for (index, original) in cues.enumerated() {
                         try Task.checkCancellation()
@@ -222,7 +226,7 @@ final class ClipStore: ObservableObject {
                         let context = SubtitleTranslationContext(
                             previous: cues[..<index].suffix(2).map { .init(original: $0.original, translated: SubtitleDocument.completedTranslation($0) ?? "") },
                             following: cues.dropFirst(index + 1).prefix(1).map(\.original))
-                        cue.translated = try await translator.translate(cue.original, from: "日语", to: "中文", context: context)
+                        cue.translated = try await translator.translate(cue.original, from: cue.sourceLanguage.name, to: cue.targetLanguage.name, context: context)
                         try Task.checkCancellation()
                         if SubtitleDocument.completedTranslation(cue) != nil && cue.translated != original.translated { proposals.append(cue) }
                         // Persist completed suggestions so a network interruption does not discard review work.

@@ -145,14 +145,17 @@ enum Release136Checks {
         }
         guard let view = find(window.contentView!), view.bounds.width > 0 else { throw ServiceError.invalidResponse }
         let scale = min(view.bounds.width / 640, view.bounds.height / 360)
-        let local = CGPoint(x: (view.bounds.width - 640 * scale) / 2 + 160 * scale,
-                            y: (view.bounds.height - 360 * scale) / 2 + 270 * scale)
-        guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: view.convert(local, to: nil), modifierFlags: [], timestamp: 0,
-            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
-              let up = NSEvent.mouseEvent(with: .leftMouseUp, location: view.convert(local, to: nil), modifierFlags: [], timestamp: 1,
-            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0) else { throw ServiceError.invalidResponse }
-        view.mouseDown(with: down); view.mouseUp(with: up)
-        guard committed, let dragged, abs(dragged.x - 0.25) < 0.01, abs(dragged.y - 0.25) < 0.01 else { throw ServiceError.invalidResponse }
+        let inset = CGPoint(x: (view.bounds.width-640*scale)/2, y: (view.bounds.height-360*scale)/2)
+        guard let overlay = ClipSubtitleRenderer.overlay(cue, size: CGSize(width: 640,height: 360), style: style) else { throw ServiceError.invalidResponse }
+        let overlaySize = CGSize(width: overlay.width,height: overlay.height)
+        let origin = ClipSubtitleRenderer.origin(size: CGSize(width: 640,height: 360), overlay: overlaySize, style: style)
+        let start = CGPoint(x: inset.x+(origin.x+overlaySize.width/2)*scale,y: inset.y+(origin.y+overlaySize.height/2)*scale)
+        let target = CGPoint(x: inset.x+160*scale,y: inset.y+270*scale)
+        func event(_ type: NSEvent.EventType, _ point: CGPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: view.convert(point,to: nil), modifierFlags: [], timestamp: 0,windowNumber: window.windowNumber,context: nil,eventNumber: 0,clickCount: 1,pressure: 1)!
+        }
+        view.mouseDown(with: event(.leftMouseDown,start)); view.mouseDragged(with: event(.leftMouseDragged,target)); view.mouseUp(with: event(.leftMouseUp,target))
+        guard committed, let dragged, abs(dragged.x-0.25)<0.01,abs(dragged.y-0.25)<0.01 else { throw ClipError.message("Caption drag did not preserve video coordinates") }
         print("v1.36: native drag respects video letterboxing, style persists and grouped export succeeds")
 
     }

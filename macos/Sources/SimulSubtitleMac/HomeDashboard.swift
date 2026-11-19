@@ -64,20 +64,20 @@ private struct DashboardSection: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 Circle().fill(group.color).frame(width: 9, height: 9)
-                Text(group.title).font(.system(size: 21, weight: .semibold))
+                Text(L10n.text(group.title)).font(.system(size: 21, weight: .semibold))
                 Text("\(creators.count)").font(.caption.weight(.semibold)).padding(.horizontal, 9).padding(.vertical, 4)
                     .background(group.color.opacity(0.15), in: Capsule())
                 Spacer()
                 Menu {
-                    Button("全部平台") { platform = "" }
-                    ForEach(LivePlatform.allCases) { item in Button(item.title) { platform = item.rawValue } }
+                    Button(L10n.text("全部平台")) { platform = "" }
+                    ForEach(LivePlatform.allCases) { item in Button(L10n.text(item.title)) { platform = item.rawValue } }
                 } label: { Text(LivePlatform(rawValue: platform)?.title ?? "全部平台") }
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 122, height: 32)
                     .overlay { filterLabel(LivePlatform(rawValue: platform)?.title ?? "全部平台").allowsHitTesting(false) }
                 Menu {
-                    Button("全部分类") { category = "" }
+                    Button(L10n.text("全部分类")) { category = "" }
                     ForEach(categories, id: \.self) { value in Button(value) { category = value } }
-                } label: { Text(category.isEmpty ? "全部分类" : category) }
+                } label: { Text(L10n.text(category.isEmpty ? "全部分类" : category)) }
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 122, height: 32)
                     .overlay { filterLabel(category.isEmpty ? "全部分类" : category).allowsHitTesting(false) }
 
@@ -85,11 +85,11 @@ private struct DashboardSection: View {
             if creators.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: group == .live ? "video" : "moon.zzz").font(.system(size: 25, weight: .light)).foregroundStyle(group.color)
-                    Text(monitor.creators.isEmpty ? "从上方搜索并添加喜欢的主播" : "没有符合条件的主播").font(.callout)
+                    Text(L10n.text(monitor.creators.isEmpty ? "从上方搜索并添加喜欢的主播" : "没有符合条件的主播")).font(.callout)
                     if !platform.isEmpty || !keyword.isEmpty || !category.isEmpty {
-                        Button("清除筛选") { platform = ""; keyword = ""; category = "" }.buttonStyle(.borderless)
+                        Button(L10n.text("清除筛选")) { platform = ""; keyword = ""; category = "" }.buttonStyle(.borderless)
                     } else if !monitor.creators.isEmpty {
-                        Button("刷新直播状态") { monitor.refreshNow() }.buttonStyle(.borderless)
+                        Button(L10n.text("刷新直播状态")) { monitor.refreshNow() }.buttonStyle(.borderless)
                     }
                 }.frame(maxWidth: .infinity).frame(height: 130)
                     .background(ThemeColor.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
@@ -103,7 +103,7 @@ private struct DashboardSection: View {
         }.accessibilityIdentifier("home.section." + group.rawValue)
     }
     private func filterLabel(_ text: String) -> some View {
-        HStack { Text(text).font(.system(size: 12, weight: .medium)); Spacer(); Image(systemName: "chevron.down").font(.system(size: 10)) }
+        HStack { Text(L10n.text(text)).font(.system(size: 12, weight: .medium)); Spacer(); Image(systemName: "chevron.down").font(.system(size: 10)) }
             .padding(.horizontal, 12).frame(width: 122, height: 32)
             .background(HomePalette.raised(scheme), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(HomePalette.border(scheme)))
@@ -145,11 +145,11 @@ private struct DashboardCreatorCard: View {
                         }.padding(7).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7)).padding(9)
                     }
                     .overlay(alignment: .topTrailing) {
-                        Text(status).font(.caption.weight(.semibold)).foregroundStyle(active == nil ? badge.color : .red)
+                        Text(L10n.text(status)).font(.caption.weight(.semibold)).foregroundStyle(active == nil ? badge.color : .red)
                             .padding(7).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7)).padding(9)
                     }
             }.frame(height: DashboardGroup.group(creator) == .live ? 180 : 104)
-                .contentShape(Rectangle()).onTapGesture(perform: openCreator).help("点击在浏览器观看")
+                .contentShape(Rectangle()).onTapGesture(perform: openCreator).help(L10n.text("点击在浏览器观看"))
             HStack(alignment: .top, spacing: 10) {
                 PlatformAvatar(url: creator.avatarURL, platform: creator.platform)
                     .frame(width: groupIsLive ? 48 : 40, height: groupIsLive ? 48 : 40).clipShape(Circle())
@@ -171,28 +171,28 @@ private struct DashboardCreatorCard: View {
         .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(HomePalette.border(scheme).opacity(0.65)))
         .overlay(alignment: .bottomTrailing) {
             Button { controls.toggle() } label: { Image(systemName: "ellipsis").font(.system(size: 12)).padding(7) }
-                .buttonStyle(.plain).foregroundStyle(ThemeColor.muted).help("录制操作与文件")
+                .buttonStyle(.plain).foregroundStyle(ThemeColor.muted).help(L10n.text("录制操作与文件"))
                 .popover(isPresented: $controls) {
                     VStack(alignment: .leading, spacing: 14) {
                         Text(creator.name).font(.headline)
                         HomeRecordingBar(creator: creator, onClips: onClips)
-                        Button("进入剪辑工作台", action: onClips)
+                        Button(L10n.text("进入剪辑工作台"), action: onClips)
                     }.padding(18)
                 }
         }
         .contextMenu {
-            Button("在浏览器观看", action: openCreator)
-            Button("刷新直播状态") { monitor.refreshNow() }
-            Button("剪辑这位主播的录像", action: onClips)
-            Button("打开录制文件夹", action: monitor.showFolder)
-            Toggle("自动录制", isOn: Binding(get: { creator.autoRecord }, set: { monitor.updateCreator(creator.id, autoRecord: $0); if $0 { monitor.startMonitoring() } }))
-            Toggle("开播提醒", isOn: Binding(get: { creator.notify }, set: { monitor.updateCreator(creator.id, notify: $0) }))
-            Button("允许系统开播提醒…") { Task { await monitor.requestNotifications() } }
-            Toggle("监控这位主播", isOn: Binding(get: { creator.monitoring }, set: { monitor.updateCreator(creator.id, monitoring: $0); if $0 { monitor.startMonitoring() } }))
+            Button(L10n.text("在浏览器观看"), action: openCreator)
+            Button(L10n.text("刷新直播状态")) { monitor.refreshNow() }
+            Button(L10n.text("剪辑这位主播的录像"), action: onClips)
+            Button(L10n.text("打开录制文件夹"), action: monitor.showFolder)
+            Toggle(L10n.text("自动录制"), isOn: Binding(get: { creator.autoRecord }, set: { monitor.updateCreator(creator.id, autoRecord: $0); if $0 { monitor.startMonitoring() } }))
+            Toggle(L10n.text("开播提醒"), isOn: Binding(get: { creator.notify }, set: { monitor.updateCreator(creator.id, notify: $0) }))
+            Button(L10n.text("允许系统开播提醒…")) { Task { await monitor.requestNotifications() } }
+            Toggle(L10n.text("监控这位主播"), isOn: Binding(get: { creator.monitoring }, set: { monitor.updateCreator(creator.id, monitoring: $0); if $0 { monitor.startMonitoring() } }))
             Divider()
-            Button("向前移动") { monitor.shiftCreator(creator.id, by: -1) }
-            Button("向后移动") { monitor.shiftCreator(creator.id, by: 1) }
-            Button("移除主播…", role: .destructive) { removing = true }
+            Button(L10n.text("向前移动")) { monitor.shiftCreator(creator.id, by: -1) }
+            Button(L10n.text("向后移动")) { monitor.shiftCreator(creator.id, by: 1) }
+            Button(L10n.text("移除主播…"), role: .destructive) { removing = true }
         }
         .sheet(isPresented: $removing) {
             CreatorRemovalConfirmation(name: creator.name, onCancel: { removing = false }) {
@@ -207,7 +207,7 @@ private struct DashboardCreatorCard: View {
         Button {
             if let active { monitor.stopRecording(active.id) } else { monitor.startRecording(creator.id) }
         } label: {
-            Label(active == nil ? "开始录制" : active?.state == .preparing ? "取消连接" : active?.state == .stopping ? "保存中" : "停止保存", systemImage: active == nil ? "record.circle" : "stop.circle")
+            Label(L10n.text(active == nil ? "开始录制" : active?.state == .preparing ? "取消连接" : active?.state == .stopping ? "保存中" : "停止保存"), systemImage: active == nil ? "record.circle" : "stop.circle")
                 .font(.system(size: 11, weight: .semibold)).padding(.horizontal, 9).frame(height: 33)
                 .foregroundStyle(ThemeColor.ink).background(active == nil ? ThemeColor.selection : .orange, in: RoundedRectangle(cornerRadius: 8))
         }.buttonStyle(.plain).disabled(active?.state == .stopping).fixedSize()

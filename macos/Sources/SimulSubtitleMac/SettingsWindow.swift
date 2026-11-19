@@ -1,150 +1,128 @@
 import SwiftUI
 
 private enum SettingsCategory: String, CaseIterable, Identifiable {
-    case appearance = "外观", recording = "录制", accounts = "平台", permissions = "权限"
+    case appearance = "外观", recording = "录制与剪辑", accounts = "平台", permissions = "权限"
     var id: String { rawValue }
-    var symbol: String { switch self { case .appearance: "eye"; case .recording: "record.circle"; case .accounts: "display"; case .permissions: "checkmark.shield" } }
+}
+
+private struct SettingsCategoryGlyph: View {
+    let category: SettingsCategory
+
+    var body: some View {
+        Canvas { context, size in
+            context.scaleBy(x: size.width / 20, y: size.height / 20)
+            let pen = StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round)
+            switch category {
+            case .appearance:
+                let disc = CGRect(x: 2.5, y: 2.5, width: 15, height: 15)
+                var litHalf = Path()
+                litHalf.addArc(center: CGPoint(x: 10, y: 10), radius: 7.5,
+                               startAngle: .degrees(90), endAngle: .degrees(270), clockwise: false)
+                litHalf.closeSubpath()
+                context.fill(litHalf, with: .foreground)
+                context.stroke(Path(ellipseIn: disc), with: .foreground, style: pen)
+            case .recording:
+                // A selected stretch of playable footage.
+                var track = Path()
+                track.addLines([CGPoint(x: 5, y: 4), CGPoint(x: 2.5, y: 4), CGPoint(x: 2.5, y: 16), CGPoint(x: 5, y: 16)])
+                track.addLines([CGPoint(x: 15, y: 4), CGPoint(x: 17.5, y: 4), CGPoint(x: 17.5, y: 16), CGPoint(x: 15, y: 16)])
+                context.stroke(track, with: .foreground, style: pen)
+                var play = Path()
+                play.addLines([CGPoint(x: 7.8, y: 6.4), CGPoint(x: 13.6, y: 10), CGPoint(x: 7.8, y: 13.6)])
+                play.closeSubpath()
+                context.fill(play, with: .foreground)
+            case .accounts:
+                // One connection branching out to the available platforms.
+                var links = Path()
+                links.addEllipse(in: CGRect(x: 7, y: 2, width: 6, height: 6))
+                links.addLines([CGPoint(x: 10, y: 8), CGPoint(x: 10, y: 10)])
+                links.addLines([CGPoint(x: 4, y: 14), CGPoint(x: 4, y: 12)])
+                links.addQuadCurve(to: CGPoint(x: 6, y: 10), control: CGPoint(x: 4, y: 10))
+                links.addLine(to: CGPoint(x: 14, y: 10))
+                links.addQuadCurve(to: CGPoint(x: 16, y: 12), control: CGPoint(x: 16, y: 10))
+                links.addLine(to: CGPoint(x: 16, y: 14))
+                context.stroke(links, with: .foreground, style: pen)
+                for x in [1.5, 13.5] {
+                    context.fill(Path(roundedRect: CGRect(x: x, y: 13, width: 5, height: 4.5), cornerRadius: 1.3), with: .foreground)
+                }
+            case .permissions:
+                var key = Path(ellipseIn: CGRect(x: 2, y: 2, width: 8.5, height: 8.5))
+                key.move(to: CGPoint(x: 9.3, y: 9.3))
+                key.addLine(to: CGPoint(x: 17.2, y: 17.2))
+                key.addLine(to: CGPoint(x: 19, y: 15.4))
+                key.move(to: CGPoint(x: 14.2, y: 14.2))
+                key.addLine(to: CGPoint(x: 16.2, y: 12.2))
+                context.stroke(key, with: .foreground, style: pen)
+            }
+        }
+        .frame(width: 18, height: 18)
+        .accessibilityHidden(true)
+    }
 }
 struct SettingsWindow: View {
+    @EnvironmentObject private var appearance: HomeAppearance
     @State private var category: SettingsCategory = .appearance
     var recording = false
     var subtitleFontsFirst = false
     var initialCategory: String? = nil
     var onClose: (() -> Void)? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.appThemeID) private var appThemeID
     var body: some View {
         let _ = appThemeID
-        VStack(alignment: .leading, spacing: 20) {
-            DesignPageHeading(title: "设置") {
-                if let onClose { Button(action: onClose) { Image(systemName: "xmark") }.buttonStyle(.plain).help("关闭设置") }
-            }
-            HStack(alignment: .top, spacing: 25) {
-                VStack(spacing: 8) {
-                    ForEach(SettingsCategory.allCases) { item in
-                        Button { category = item } label: {
-                            Label(item.rawValue, systemImage: item.symbol).font(.system(size: 13))
-                                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).frame(height: 44)
-                                .foregroundStyle(ThemeColor.ink)
-                                .background(category == item ? ThemeColor.selection : .clear, in: RoundedRectangle(cornerRadius: 10))
-                        }.buttonStyle(.plain).accessibilityIdentifier("settings." + item.id)
+        GeometryReader { geometry in
+            let metrics = WorkspaceMetrics(width: geometry.size.width)
+            let layout = metrics.stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 14))
+                : AnyLayout(HStackLayout(alignment: .top, spacing: 18))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    DesignPageHeading(title: "设置") {
+                        if let onClose { Button(action: onClose) { Image(systemName: "xmark") }.buttonStyle(.plain).help(L10n.text("关闭设置")) }
                     }
-                }.frame(width: 158)
-                ScrollView {
-                    Group {
-                        switch category {
-                        case .appearance:
-                            VStack(spacing: 20) {
-                                if subtitleFontsFirst { SubtitleFontSettings().designPanel() }
-                                AppearanceSettings()
+                    layout {
+                        LazyVGrid(columns: metrics.stacked ? [GridItem(.adaptive(minimum: 116), spacing: 6)] : [GridItem(.flexible())], spacing: 4) {
+                            ForEach(SettingsCategory.allCases) { item in
+                                Button { withAnimation(reduceMotion || appearance.reduceMotion ? nil : .easeInOut(duration: 0.18)) { category = item } } label: {
+                                    HStack(spacing: 7) {
+                                        SettingsCategoryGlyph(category: item)
+                                            .foregroundStyle(category == item ? ThemeColor.primaryInk : ThemeColor.muted)
+                                        Text(L10n.text(item.rawValue)).lineLimit(2)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .interfaceFont(size: 13)
+                                    .padding(.horizontal, 8).padding(.vertical, 4)
+                                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                                    .foregroundStyle(ThemeColor.ink)
+                                    .background(category == item ? ThemeColor.selection : .clear, in: RoundedRectangle(cornerRadius: 8))
+                                    .contentShape(Rectangle())
+                                }.buttonStyle(.plain)
+                                    .help(L10n.text(item.rawValue))
+                                    .accessibilityLabel(L10n.text(item.rawValue))
+                                    .accessibilityAddTraits(category == item ? .isSelected : [])
+                                    .accessibilityIdentifier("settings." + item.id)
                             }
-                        case .recording: LiveRecordingSettings()
-                        case .accounts: PlatformAdvancedSettings()
-                        case .permissions: SubtitlePermissionTools()
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .topLeading)
-                }
+                        }.frame(width: metrics.stacked ? nil : 122)
+
+                        Group {
+                            switch category {
+                            case .appearance:
+                                VStack(spacing: 20) {
+                                    if subtitleFontsFirst { SubtitleFontSettings(stacked: metrics.narrow).designPanel(inset: metrics.cardInset) }
+                                    AppearanceSettings(compact: metrics.narrow, inset: metrics.cardInset)
+                                }
+                            case .recording: LiveRecordingSettings()
+                            case .accounts: PlatformAdvancedSettings()
+                            case .permissions: SubtitlePermissionTools()
+                            }
+                        }.id(category).transition(.opacity).frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
+                }.padding(metrics.gutter)
             }
-            Spacer(minLength: 0)
-        }.padding(DesignV23.pageInset).background(ThemeColor.background).appTheme()
-            .onAppear { if recording { category = .recording }; if let initialCategory, let initial = SettingsCategory(rawValue: initialCategory) { category = initial } }
+        }.background(ThemeColor.background).appTheme()
+            .onAppear { if recording { category = .recording }; if let initialCategory, let initial = SettingsCategory(rawValue: initialCategory == "录制" ? "录制与剪辑" : initialCategory) { category = initial } }
     }
 }
 // Retained type for diagnostic callers; the actual settings entry is unified.
 struct SubtitleSettingsContent: View { var body: some View { SubtitlePermissionTools() } }
 
-struct AdvancedServiceSettings: View {
-    @EnvironmentObject private var model: AppModel
-    @Environment(\.appThemeID) private var themeID
-    var body: some View {
-        let _ = themeID
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                DesignPageHeading(title: "模型与服务") { EmptyView() }
-                if let reason = model.serviceSelectionLockReason {
-                    HStack {
-                        Label(reason, systemImage: "info.circle").font(.callout).foregroundStyle(ThemeColor.muted)
-                        Spacer()
-                        if model.isCapturing && !model.isStopping {
-                            Button("停止同传", action: model.stopCapture).buttonStyle(ThemeActionButtonStyle())
-                                .accessibilityIdentifier("services.stopCapture")
-                        }
-                    }.accessibilityIdentifier("services.selectionLockReason")
-                }
-                HStack(alignment: .top, spacing: 22) {
-                    servicePanel(.speechRecognition, selection: $model.selectedASRProfileID)
-                    servicePanel(.translation, selection: $model.selectedTranslationProfileID)
-                }
-                if model.isDownloadingModels { ProgressView(value: model.downloadProgress); Text(model.downloadStatus).font(.caption).foregroundStyle(ThemeColor.muted) }
-            }.padding(DesignV23.pageInset)
-        }.background(ThemeColor.background)
-    }
-    private func servicePanel(_ purpose: ServicePurpose, selection: Binding<UUID?>) -> some View {
-        let profile = model.profiles.first { $0.id == selection.wrappedValue }
-        let installed = purpose == .speechRecognition ? model.asrInstalled : model.translationInstalled
-        return VStack(alignment: .leading, spacing: 24) {
-            Text(purpose == .speechRecognition ? "语音识别" : "翻译").font(.system(size: 16, weight: .semibold))
-            DesignMenuField(title: profile?.name ?? "选择服务") {
-                ForEach(model.profiles.filter { $0.purpose == purpose && $0.isEnabled }) { value in Button(value.name) { selection.wrappedValue = value.id } }
-                Divider()
-                if purpose == .translation { Button("添加 DeepSeek") { model.addDeepSeekProfile() } }
-                Button("添加接口") { model.addProfile(purpose) }
-            }.disabled(model.isBusy)
-            if let profile, profile.kind != .local { ServiceProfileCard(profileID: profile.id).id(profile.id) }
-            else {
-                HStack {
-                    VStack(alignment: .leading, spacing: 8) { Text(profile?.model ?? "本地引擎").font(.system(size: 13)); Text(installed ? "已就绪" : "未安装").font(.caption).foregroundStyle(ThemeColor.muted) }
-                    Spacer()
-                    if !installed { Button("准备模型", action: model.ensureLocalModels).disabled(model.isDownloadingModels || model.isBusy) }
-                }
-            }
-        }.designPanel()
-    }
-}
-private struct ServiceProfileCard: View {
-    @EnvironmentObject private var model: AppModel
-    let profileID: UUID
-    @State private var apiKey = ""
-    @State private var status = ""
-    @State private var isTesting = false
-    @State private var confirmRemove = false
-    var body: some View {
-        if let binding = model.binding(for: profileID) {
-            VStack(alignment: .leading, spacing: 18) {
-                field("API 地址", text: binding.baseURL)
-                VStack(alignment: .leading, spacing: 9) {
-                    Text("API Key").font(.caption).foregroundStyle(ThemeColor.muted)
-                    SecureField(model.savedCredentialIDs.contains(profileID) ? "已保存密钥" : "输入 API Key", text: $apiKey).textFieldStyle(ClipFieldStyle())
-                }
-                field("模型", text: binding.model)
-                HStack {
-                    Button("保存") {
-                        do { if !apiKey.isEmpty { try model.saveAPIKey(apiKey, for: binding.wrappedValue); apiKey = "" }; status = "已保存" }
-                        catch { status = error.localizedDescription }
-                    }.buttonStyle(ThemeActionButtonStyle(prominent: true))
-                    Spacer()
-                    Menu {
-                        Button(isTesting ? "测试中…" : "测试连接") { isTesting = true; Task { status = await model.testConnection(for: binding.wrappedValue); isTesting = false } }.disabled(isTesting)
-                        Button("删除服务", role: .destructive) { confirmRemove = true }
-                    } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).frame(width: 30)
-                }
-                if !status.isEmpty { Text(status).font(.caption).foregroundStyle(ThemeColor.muted).textSelection(.enabled) }
-                DisclosureGroup("高级") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        field("服务名称", text: binding.name)
-                        Stepper("超时 \(binding.wrappedValue.timeoutSeconds) 秒", value: binding.timeoutSeconds, in: 5...180, step: 5)
-                        if binding.wrappedValue.purpose == .translation {
-                            Text("翻译提示词").font(.caption)
-                            TextEditor(text: Binding(get: { binding.wrappedValue.translationPrompt ?? ServiceProfile.defaultTranslationPrompt }, set: { binding.wrappedValue.translationPrompt = String($0.prefix(2000)) })).font(.system(size: 12)).scrollContentBackground(.hidden).frame(height: 100).background(ThemeColor.control)
-                            Button("恢复默认提示词") { binding.wrappedValue.translationPrompt = nil }
-                        }
-                    }.padding(.top, 12)
-                }.font(.system(size: 12))
-            }.disabled(model.isBusy)
-                .confirmationDialog("删除服务配置？", isPresented: $confirmRemove) { Button("删除", role: .destructive) { model.removeProfile(profileID) } }
-        }
-    }
-    private func field(_ title: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 9) { Text(title).font(.caption).foregroundStyle(ThemeColor.muted); TextField(title, text: text).textFieldStyle(ClipFieldStyle()) }
-    }
-}
 struct SubtitleQuickSettings: View { var body: some View { SettingsWindow(subtitleFontsFirst: true) } }

@@ -17,7 +17,7 @@ struct LiveBrowserConnection: LiveBrowserReading {
 /// Uses an already-running browser's supported local bridge; never launches a browser.
 struct LiveBrowserBridge: LiveBrowserReading {
     func page(_ url: URL, player: Bool) async -> [String: Any]? {
-        guard url.scheme == "https", url.host == "www.youtube.com" else { return nil }
+        guard LiveBrowserPort.supports(url) else { return nil }
         let running = await MainActor.run {
             NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.citrolabs.ego.lite" }
         }
@@ -43,11 +43,22 @@ struct LiveBrowserBridge: LiveBrowserReading {
         guard let bytes = try? JSONSerialization.data(withJSONObject: url.absoluteString, options: .fragmentsAllowed) else { return nil }
         let address = String(decoding: bytes, as: UTF8.self)
         let space = diagnosticSpace.map(String.init) ?? "'SimuSub browser ' + \"\(UUID().uuidString)\""
+        if url.path == "/" && !player {
+            return """
+            const task = await taskSpace(\(space));
+            try {
+                const cookies = await task.page('p1').cdp('Network.getCookies', {urls:[\(address)]});
+                console.log('SIMUSUB_BROWSER_RESULT ' + JSON.stringify({data:{},cookies:cookies.cookies}));
+            } finally {
+                \(diagnosticSpace == nil ? "await task.finish({keep:[]});" : "")
+            }
+            """
+        }
         return """
         const task = await taskSpace(\(space));
         const page = task.page('p1');
-        await page.cdp('Page.addScriptToEvaluateOnNewDocument', {source:'const play=HTMLMediaElement.prototype.play;HTMLMediaElement.prototype.play=function(){this.muted=true;return play.call(this)}'});
-        await page.goto(\(address));
+        await page.cdp('Page.addScriptToEvaluateOnNewDocument', {source:'(()=>{const play=HTMLMediaElement.prototype.play;HTMLMediaElement.prototype.play=function(){this.muted=true;return play.call(this)}})()'});
+        await page.goto(\(address), {waitUntil:"domcontentloaded",timeout:10000});
         await page.waitForFunction(() => \(player ? "(()=>{const p=document.getElementById('movie_player')?.getPlayerResponse?.() || window.ytInitialPlayerResponse;return !!p?.streamingData || (!!p?.playabilityStatus?.status && p.playabilityStatus.status!=='OK')})()" : "!!window.ytInitialData"), undefined, {timeout:10000});
         const result = await page.evaluate(() => ({capture: typeof document.querySelector('video')?.captureStream === 'function', transport:'bridge', data: \(player ? "document.getElementById('movie_player')?.getPlayerResponse?.() || window.ytInitialPlayerResponse" : "window.ytInitialData"), userAgent:navigator.userAgent}));
         console.log('SIMUSUB_BROWSER_RESULT ' + JSON.stringify(result));

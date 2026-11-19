@@ -43,6 +43,20 @@ enum SpeechProcessingChecks {
         results["longSpeechInputSeconds"] = Double(longSpeech.count) / 16_000
         results["longSpeechFinalCount"] = longFinals.count
         results["longSpeechMaximumFinalSeconds"] = Double(longFinals.map { $0.samples.count }.max() ?? 0) / 16_000
+        let japaneseFinals = try segments(longSpeech, enhance: true, showDrafts: false, japaneseBoundaries: true)
+        guard japaneseFinals.count >= 2,
+              japaneseFinals.allSatisfy({ $0.samples.count <= JapanesePhraseEndpoint.window + 512 }),
+              zip(japaneseFinals, japaneseFinals.dropFirst()).allSatisfy({ left, right in
+                  let leftEnd = Int((left.timestamp.timeIntervalSince1970 * 16_000).rounded()) + left.samples.count
+                  return leftEnd <= Int((right.timestamp.timeIntervalSince1970 * 16_000).rounded())
+              }),
+              japaneseFinals.contains(where: { $0.samples.count >= 5 * 16_000 }),
+              japaneseFinals.allSatisfy({ segment in
+                  let start = Int((segment.timestamp.timeIntervalSince1970 * 16_000).rounded())
+                  let end = start + segment.samples.count
+                  return start >= 0 && end <= longSpeech.count && segment.samples.elementsEqual(longSpeech[start..<end])
+              }) else { throw CheckError.failed("Japanese phrases lost timing or source samples at a cut") }
+        results["japaneseMaximumFinalSeconds"] = Double(japaneseFinals.map { $0.samples.count }.max() ?? 0) / 16_000
         var realMixed: [AudioSegment] = []
         if let instrumentalAudio {
             let piano = try AudioFileReader.read(instrumentalAudio)
@@ -127,8 +141,9 @@ enum SpeechProcessingChecks {
         print("Speech processing checks passed; report: \(report.path)")
     }
 
-    private static func segments(_ samples: [Float], enhance: Bool, showDrafts: Bool = true) throws -> [AudioSegment] {
-        let engine = try SpeechAudioFrontend(options: .init(suppressMusic: enhance, showDrafts: showDrafts))
+    private static func segments(_ samples: [Float], enhance: Bool, showDrafts: Bool = true, japaneseBoundaries: Bool = false) throws -> [AudioSegment] {
+        let engine = try SpeechAudioFrontend(options: .init(suppressMusic: enhance, showDrafts: showDrafts,
+            japanesePhraseBoundaries: japaneseBoundaries))
         var segments: [AudioSegment] = []
         engine.onSegment = { segments.append($0) }
         engine.begin(at: Date(timeIntervalSince1970: 0))

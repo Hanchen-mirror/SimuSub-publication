@@ -73,7 +73,7 @@ struct SubtitleBubbleInteraction: NSViewRepresentable {
             super.init(frame: .zero)
             setAccessibilityElement(true)
             setAccessibilityRole(.button)
-            setAccessibilityLabel("展开字幕")
+            setAccessibilityLabel(L10n.text("展开字幕"))
             toolTip = "展开字幕 · 拖动移动位置"
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

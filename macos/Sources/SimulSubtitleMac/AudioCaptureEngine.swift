@@ -14,11 +14,13 @@ struct CaptureApplication: Identifiable, Hashable {
 
 // Audio buffer mutation is confined to `queue`; start/stop are serialized by AppModel.
 final class AudioCaptureEngine: NSObject, AudioCapturing, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+    static let systemAudioID = "simusub.system-audio"
     var onSegment: ((CapturedAudioSegment) -> Void)?
     var processingOptions = SubtitleProcessingOptions()
     private var systemStream: SCStream?
     private let queue = DispatchQueue(label: "simul-subtitle.audio-buffer")
     private var frontend: SpeechAudioFrontend?
+    private var generationForFrontend: UUID?
     private var stopping = false
     private var captureEpoch = Date()
     private var receivedSamples = 0
@@ -53,6 +55,7 @@ final class AudioCaptureEngine: NSObject, AudioCapturing, SCStreamOutput, SCStre
             captureEpoch = Date()
             receivedSamples = 0
             frontend = processor
+            generationForFrontend = generation
             processor.begin(at: captureEpoch)
             processor.onSegment = { [weak self] in self?.onSegment?(.init(audio: $0, generation: generation)) }
         }
@@ -70,9 +73,17 @@ final class AudioCaptureEngine: NSObject, AudioCapturing, SCStreamOutput, SCStre
                     processor.begin(at: captureEpoch.addingTimeInterval(Double(receivedSamples) / 16_000))
                     processor.onSegment = { [weak self] in self?.onSegment?(.init(audio: $0, generation: generation)) }
                     frontend = processor
+                    generationForFrontend = generation
                 }
                 continuation.resume()
             }
+        }
+    }
+
+    func noteEnglishMusic(generation: UUID) {
+        queue.async { [weak self] in
+            guard let self, generationForFrontend == generation, !stopping else { return }
+            frontend?.noteEnglishMusic()
         }
     }
 
@@ -92,8 +103,8 @@ final class AudioCaptureEngine: NSObject, AudioCapturing, SCStreamOutput, SCStre
     private func startSystemAudio(for bundleID: String) async throws {
         let content = try await Self.shareableContent()
         guard let display = content.displays.first else { throw AudioCaptureError.noDisplay }
-        guard content.applications.contains(where: { $0.bundleIdentifier == bundleID }) else { throw AudioCaptureError.applicationUnavailable }
-        let excluded = content.applications.filter { $0.bundleIdentifier != bundleID }
+        guard bundleID == Self.systemAudioID || content.applications.contains(where: { $0.bundleIdentifier == bundleID }) else { throw AudioCaptureError.applicationUnavailable }
+        let excluded = bundleID == Self.systemAudioID ? [] : content.applications.filter { $0.bundleIdentifier != bundleID }
         let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
         let configuration = SCStreamConfiguration()
         configuration.capturesAudio = true

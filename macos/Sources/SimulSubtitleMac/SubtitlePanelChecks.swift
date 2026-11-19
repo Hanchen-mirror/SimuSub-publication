@@ -27,10 +27,10 @@ enum SubtitlePanelChecks {
             controller.openSubtitleSettings()
             try await Task.sleep(nanoseconds: 250_000_000)
             try require(controller.settingsWindow?.isVisible == true && panel.frame == originalFrame && !home.isVisible,
-                        "v123_sixth_settings_opens_without_leaving_or_resizing_subtitles", &checks)
-            if let settings = controller.settingsWindow { try snapshot(settings, to: directory.appendingPathComponent("第六按钮-字幕设置.png")); settings.close() }
+                        "independent_settings_opens_without_resizing_subtitles", &checks)
+            if let settings = controller.settingsWindow { try snapshot(settings, to: directory.appendingPathComponent("独立字幕设置.png")); settings.close() }
             try require(panel.isVisible && panel.frame == originalFrame, "v123_closing_settings_keeps_subtitles", &checks)
-            try snapshot(panel, to: directory.appendingPathComponent("字幕-六按钮.png"))
+            try snapshot(panel, to: directory.appendingPathComponent("字幕-浮窗.png"))
             try require(panel.frame.height == 96 && panel.frame.width <= 800, "initial_v127_strip_size", &checks)
             try require(panel.styleMask.contains(.nonactivatingPanel) && !panel.hidesOnDeactivate,
                         "nonactivating_panel_survives_deactivation", &checks)
@@ -65,6 +65,22 @@ enum SubtitlePanelChecks {
                 tracking.mouseMoved(with: event)
                 try await Task.sleep(nanoseconds: 180_000_000)
                 try require(tracking.isInside.wrappedValue, "pointer_enter_shows_controls_\(Int(size.height))", &checks)
+                let singleMode: SubtitleDisplayMode = size.height == 96 ? .chinese : .original
+                model.subtitleDisplayMode = singleMode
+                try await Task.sleep(nanoseconds: 80_000_000)
+                // The trailing button occupies the old settings location. Send native mouse
+                // events to this window only, leaving the actual desktop pointer in place.
+                let buttonCenter = NSPoint(x: size.width - (size.height == 96 ? 21 : 18),
+                                           y: size.height == 96 ? size.height - 17 : size.height / 2)
+                try click(panel, at: buttonCenter)
+                try await Task.sleep(nanoseconds: 120_000_000)
+                try require(model.subtitleDisplayMode == .bilingual && controller.settingsWindow?.isVisible != true,
+                            "toggle_bilingual_in_place_\(Int(size.height))", &checks)
+                try click(panel, at: buttonCenter)
+                try await Task.sleep(nanoseconds: 120_000_000)
+                try require(model.subtitleDisplayMode == singleMode && model.captions == [caption],
+                            "toggle_restores_single_language_and_history_\(Int(size.height))", &checks)
+                model.subtitleDisplayMode = .bilingual
                 let shown = directory.appendingPathComponent("hover-\(Int(size.width))x\(Int(size.height)).png")
                 try snapshot(panel, to: shown)
                 tracking.mouseExited(with: event)
@@ -124,13 +140,12 @@ enum SubtitlePanelChecks {
             controller.updatePin()
 
             // State simulation only: there is no capture engine and no recording.
-            model.selectedAppBundleID = "com.apple.Safari"
-            model.selectedAppName = "Safari"
+            model.setSubtitleSource(id: AudioCaptureEngine.systemAudioID, name: "Mac 声音")
             model.isCapturing = true
             model.toggleSubtitlePlayback()
             try await Task.sleep(nanoseconds: 180_000_000)
             try require(!model.isCapturing && model.isSubtitlePaused && model.captions == [caption]
-                        && model.selectedAppBundleID == "com.apple.Safari", "pause_retains_captions_and_source_simulated", &checks)
+                        && model.selectedAppBundleID == AudioCaptureEngine.systemAudioID, "pause_retains_captions_and_source_simulated", &checks)
             model.asrInstalled = true
             model.translationInstalled = true
             try require(model.subtitlePlaybackIntent == .resume, "resume_reuses_selected_app_intent", &checks)
@@ -227,6 +242,16 @@ enum SubtitlePanelChecks {
         if let tracking = view as? SubtitlePointerTracking.TrackingView { return tracking }
         for child in view.subviews { if let result = findPointerTracking(child) { return result } }
         return nil
+    }
+
+    private static func click(_ panel: NSPanel, at point: NSPoint) throws {
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
+                context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)
+            else { throw CheckFailure("missing_panel_click_event") }
+            NSApp.postEvent(event, atStart: false)
+        }
     }
 
     private static func containsBubbleDragView(_ view: NSView?) -> Bool {

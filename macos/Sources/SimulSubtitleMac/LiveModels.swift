@@ -79,6 +79,53 @@ struct WatchedCreator: Identifiable, Codable, Equatable {
     }
 }
 
+enum RecordingQuality: String, Codable, CaseIterable, Identifiable {
+    case original, p2160, p1440, p1080_60, p1080, p720_60, p720, p480, p360
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .original: return "原画"
+        case .p2160: return "2160p · 4K"
+        case .p1440: return "1440p · 2K"
+        case .p1080_60: return "1080p · 60 fps"
+        case .p1080: return "1080p"
+        case .p720_60: return "720p · 60 fps"
+        case .p720: return "720p"
+        case .p480: return "480p"
+        case .p360: return "360p"
+        }
+    }
+    var height: Int? {
+        switch self {
+        case .original: return nil
+        case .p2160: return 2160
+        case .p1440: return 1440
+        case .p1080, .p1080_60: return 1080
+        case .p720, .p720_60: return 720
+        case .p480: return 480
+        case .p360: return 360
+        }
+    }
+    var fps: Int { self == .p1080_60 || self == .p720_60 || self == .p2160 || self == .p1440 || self == .original ? 60 : 30 }
+    var extractorFormat: String {
+        guard let height else { return "best/bestvideo+bestaudio" }
+        let limits = "[height<=\(height)][fps<=?\(fps)]"
+        return "best\(limits)/bestvideo\(limits)+bestaudio/worst[height>0]/worstvideo+bestaudio"
+    }
+    // Bilibili exposes named quality tiers, not an exact resolution/FPS contract.
+    // Tier identifiers follow yt-dlp's BiliLiveIE; the server chooses available variants.
+    var biliTier: Int {
+        switch self {
+        case .original, .p1440: return 10000
+        case .p2160: return 20000
+        case .p1080, .p1080_60: return 400
+        case .p720, .p720_60: return 250
+        case .p480: return 150
+        case .p360: return 80
+        }
+    }
+}
+
 enum RecordingContainer: String, Codable, CaseIterable, Identifiable {
     case mkv, mp4
     var id: String { rawValue }
@@ -149,9 +196,12 @@ struct LiveRecording: Identifiable, Codable, Equatable {
 }
 
 struct LiveMonitorSettings: Codable, Equatable {
-    var intervalSeconds = 180
+    var intervalSeconds = 15
+    var pollingRevision: Int? = 1
     var maximumRecordings = 2
     var container: RecordingContainer = .mkv
+    var recordingQuality: RecordingQuality? // Optional keeps older settings decodable.
+    var quality: RecordingQuality { get { recordingQuality ?? .original } set { recordingQuality = newValue } }
     var outputFolder: String = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("SimuSub/Recordings", isDirectory: true).path
 }

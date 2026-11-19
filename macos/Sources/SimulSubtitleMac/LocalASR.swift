@@ -32,6 +32,11 @@ final class LocalModelStore: @unchecked Sendable {
         )
     }
 
+    var managedSpeechFiles: ManagedModelFiles {
+        ManagedModelFiles(folder: root.appendingPathComponent("asr-ja"),
+                          filenames: files.map { URL(fileURLWithPath: $0.relativePath).lastPathComponent })
+    }
+
     var asrDownloadBytes: Int64 { files.reduce(0) { $0 + $1.byteCount } }
     var translationDownloadBytes: Int64 { translationModel.byteCount }
 
@@ -44,6 +49,18 @@ final class LocalModelStore: @unchecked Sendable {
     }
 
     var translationModelPath: String { root.appending(path: translationModel.relativePath).path }
+
+    func missingDownloadBytes(for purpose: ServicePurpose) throws -> Int64 {
+        let requested = purpose == .speechRecognition ? files : [translationModel]
+        return try requested.reduce(0) { count, file in
+            let path = root.appending(path: file.relativePath).path
+            guard FileManager.default.fileExists(atPath: path) else { return count + file.byteCount }
+            guard FileManager.default.isReadableFile(atPath: path), matches(file) else {
+                throw ModelStoreError.checksumFailed(file.relativePath)
+            }
+            return count
+        }
+    }
 
     func path(_ relative: String) -> String { root.appending(path: relative).path }
 
@@ -146,7 +163,7 @@ final class LocalModelStore: @unchecked Sendable {
         return Int64(size) == file.byteCount
     }
 
-    private static func sha256(of url: URL) throws -> String {
+    static func sha256(of url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hash = SHA256()
@@ -155,7 +172,7 @@ final class LocalModelStore: @unchecked Sendable {
     }
 }
 
-final class ReazonSpeechRecognizer: SpeechRecognizing, @unchecked Sendable {
+final class ReazonSpeechRecognizer: JapaneseWindowRecognizing, @unchecked Sendable {
     private let recognizer: SherpaOnnxOfflineRecognizer
     private let decodeLock = NSLock()
     let hotwordPlan: ASRHotwordPlan

@@ -26,17 +26,17 @@ struct ApplicationDockPicker: View {
         let _ = appThemeID
         VStack(spacing: 14) {
             HStack {
-                Text("选择应用音频").font(.headline)
+                Text(L10n.text("选择应用音频")).font(.headline)
                 Spacer()
                 Button(action: onRefresh) { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.plain).disabled(isRefreshing)
-                    .help("刷新应用").accessibilityLabel("刷新应用")
+                    .help(L10n.text("刷新应用")).accessibilityLabel(L10n.text("刷新应用"))
                 Button(action: onCancel) { Image(systemName: "xmark") }
                     .buttonStyle(.plain).keyboardShortcut(.cancelAction)
-                    .help("取消选择").accessibilityLabel("取消选择")
+                    .help(L10n.text("取消选择")).accessibilityLabel(L10n.text("取消选择"))
             }
 
-            TextField("搜索应用名称或标识…", text: $search).textFieldStyle(ClipFieldStyle()).accessibilityIdentifier("application.search")
+            TextField(L10n.text("搜索应用名称或标识…"), text: $search).textFieldStyle(ClipFieldStyle()).accessibilityIdentifier("application.search")
 
             if let app = focusedApp {
                 ZStack {
@@ -53,12 +53,12 @@ struct ApplicationDockPicker: View {
                 }
                 .frame(height: 176)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
-                .accessibilityLabel("\(app.name)的应用预览")
+                .accessibilityLabel(L10n.text("\(app.name)的应用预览"))
                 Text(app.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
             } else {
                 VStack(spacing: 12) {
                     Image(systemName: "app.dashed").font(.system(size: 36, weight: .light))
-                    Text(isRefreshing ? "正在读取应用…" : (search.isEmpty ? "请先打开 Safari 等应用，再刷新" : "没有匹配的应用"))
+                    Text(L10n.text(isRefreshing ? "正在读取应用…" : (search.isEmpty ? "请先打开 Safari 等应用，再刷新" : "没有匹配的应用")))
                         .font(.callout).foregroundStyle(ThemeColor.muted)
                 }.frame(maxWidth: .infinity).frame(height: 207)
             }
@@ -73,7 +73,7 @@ struct ApplicationDockPicker: View {
             }
             .frame(height: 116)
             .background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 22))
-            Text("点击图标选择声音来源 · 左右滑动查看更多应用")
+            Text(L10n.text("点击图标选择声音来源 · 左右滑动查看更多应用"))
                 .font(.caption).foregroundStyle(ThemeColor.muted)
         }
         .padding(22)
@@ -109,8 +109,8 @@ struct ApplicationDockPicker: View {
             else if hoveredID == app.id { hoveredID = nil }
         }
         .animation(reduceMotion ? nil : .interpolatingSpring(stiffness: 340, damping: 27), value: hoveredID)
-        .help("监听 \(app.name)")
-        .accessibilityLabel("监听 \(app.name)")
+        .help(L10n.text("监听 \(app.name)"))
+        .accessibilityLabel(L10n.text("监听 \(app.name)"))
         .accessibilityIdentifier("application.\(app.id)")
     }
 }

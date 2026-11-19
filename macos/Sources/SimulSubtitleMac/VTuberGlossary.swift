@@ -12,6 +12,12 @@ enum VTuberGlossary {
         .init(japanese: "初見", chinese: "第一次来看的观众"), .init(japanese: "同時視聴", chinese: "同步观看"),
         .init(japanese: "耐久配信", chinese: "耐久直播"), .init(japanese: "メンバーシップ", chinese: "频道会员")
     ]
+    /// Match the full English noun phrase in this utterance. A mention of crypto on its
+    /// own may refer to currency, even when the previous subtitle discussed keys.
+    static func englishTechnicalTerms(in text: String) -> [VTuberTerm] {
+        guard let range = text.range(of: #"\b(?:cryptographic|crypto)\s+keys?\b"#, options: [.regularExpression, .caseInsensitive]) else { return [] }
+        return [.init(japanese: String(text[range]), chinese: "加密密钥")]
+    }
     static func render(_ terms: [VTuberTerm]) -> String { terms.map { "\($0.japanese) = \($0.chinese)" }.joined(separator: "\n") }
     static func parse(_ text: String) throws -> [VTuberTerm] {
         guard text.utf8.count <= 32_768 else { throw ClipError.message("术语库过长，请保留最多 100 条术语。") }
@@ -48,7 +54,17 @@ struct GlossaryTranslator: TextTranslating {
         // Bound term retrieval to the current utterance and neighboring source text.
         // The complete personal dictionary is never sent to the cloud.
         let neighborhood = ([text] + context.previous.suffix(2).map(\.original) + context.following.prefix(1)).joined(separator: "\n")
-        enriched.terms = VTuberGlossary.matching(terms, text: base.requiresFullUtterance ? text : neighborhood)
+        if let targetLanguage = SubtitleLanguage.resolve(target), targetLanguage.isChinese {
+            let matched: [VTuberTerm]
+            switch SubtitleLanguage.resolve(source) {
+            case .japanese: matched = VTuberGlossary.matching(terms, text: base.requiresFullUtterance ? text : neighborhood)
+            case .english: matched = VTuberGlossary.englishTechnicalTerms(in: text)
+            default: matched = []
+            }
+            enriched.terms = matched.map { VTuberTerm(japanese: $0.japanese, chinese: targetLanguage.normalizeScript($0.chinese)) }
+        } else {
+            enriched.terms = []
+        }
         return try await base.translate(text, from: source, to: target, context: enriched)
     }
 }
@@ -60,19 +76,19 @@ struct VTuberGlossaryEditor: View {
     var body: some View {
         let _ = appThemeID
         VStack(alignment: .leading, spacing: 10) {
-            Text("本地 VTuber 术语库").font(.headline)
-            Text("每行「日语 = 中文」。可添加主播名、游戏名和常用梗。用于本地识别热词、翻译与核对。热词是识别提示，不强行替换原文；模型不支持的字会提示跳过。")
+            Text(L10n.text("本地 VTuber 术语库")).font(.headline)
+            Text(L10n.text("每行「日语 = 中文」。可添加主播名、游戏名和常用梗。用于本地识别热词、翻译与核对。热词是识别提示，不强行替换原文；模型不支持的字会提示跳过。"))
                 .font(.caption).foregroundStyle(ThemeColor.muted)
             TextEditor(text: $text).font(.system(.body, design: .monospaced)).frame(height: 145)
                 .accessibilityIdentifier("settings.glossary.editor")
             HStack {
-                Button("保存术语库") {
+                Button(L10n.text("保存术语库")) {
                     do { try model.saveGlossary(text); status = "已保存；下次启动字幕或核对时生效。" }
                     catch { status = error.localizedDescription }
                 }.disabled(model.isBusy)
-                Button("载入默认词条") { text = VTuberGlossary.render(VTuberGlossary.defaults); status = "默认词条已填入，点击保存后生效。" }.disabled(model.isBusy)
+                Button(L10n.text("载入默认词条")) { text = VTuberGlossary.render(VTuberGlossary.defaults); status = "默认词条已填入，点击保存后生效。" }.disabled(model.isBusy)
             }
-            if !status.isEmpty { Text(status).font(.caption).textSelection(.enabled) }
+            if !status.isEmpty { Text(L10n.text(status)).font(.caption).textSelection(.enabled) }
         }.padding(18).background(ThemeColor.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
             .onAppear { text = VTuberGlossary.render(model.glossary) }
     }

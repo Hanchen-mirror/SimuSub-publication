@@ -81,6 +81,8 @@ struct ClipJob: Identifiable, Codable, Equatable {
     var range: ClipRange?
     var ranges: [ClipRange] = []
     var configuredServices = false
+    var sourceLanguage: SubtitleLanguage? = nil
+    var targetLanguage: SubtitleLanguage? = nil
     var burnSubtitles = true
     var exportKind: ClipExportKind?
     var recommendationCount: Int?
@@ -97,6 +99,8 @@ enum ClipError: LocalizedError {
 struct ClipServices: Sendable {
     var recognizer: any SpeechRecognizing
     var translator: any TextTranslating
+    var sourceLanguage: SubtitleLanguage = .japanese
+    var targetLanguage: SubtitleLanguage = .simplifiedChinese
 }
 enum ClipTime {
     static func label(_ value: Double) -> String {

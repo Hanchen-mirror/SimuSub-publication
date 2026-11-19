@@ -52,7 +52,7 @@ enum UISmokeChecks {
             try await Task.sleep(nanoseconds: 500_000_000)
             guard NSApp.windows.contains(where: { $0.isVisible && $0.contentView != nil }) else { throw UIError.noWindow }
             checks.append("main_window_visible")
-            guard PermissionRecovery.allowedBundleIDs.contains(Bundle.main.bundleIdentifier ?? "") else { throw UIError.initialState }
+            guard PermissionRecovery.relaunchBundleIDs.contains(Bundle.main.bundleIdentifier ?? "") else { throw UIError.initialState }
             checks.append("fresh_application_identity")
             guard model.captions.isEmpty, model.readinessIssues.count == 2 else { throw UIError.initialState }
             checks.append("empty_state_and_missing_models_detected")
@@ -62,10 +62,23 @@ enum UISmokeChecks {
                 guard NSApp.windows.contains(where: { $0.isVisible }) else { throw UIError.noWindow }
                 checks.append("rendered_\(section.rawValue)")
             }
-            model.startCapture()
-            guard !model.isStarting, !model.isCapturing, model.errorMessage != nil, model.section == .services else { throw UIError.initialState }
-            checks.append("unconfigured_start_blocked_with_visible_error")
-            model.errorMessage = nil
+            for (source, catalogID) in [(SubtitleLanguage.english, "whisper-base"), (.simplifiedChinese, "sensevoice")] {
+                model.setSourceLanguage(source)
+                let selectedID = model.profiles.first(where: { $0.id == model.selectedASRProfileID })?.localModelID
+                guard selectedID == catalogID,
+                      let definition = LocalModelDefinition.catalog.first(where: { $0.id == catalogID }) else {
+                    throw UIError.unexpectedModel(source.rawValue, selectedID ?? "ReazonSpeech")
+                }
+                let expected = definition.bytes + model.modelStore.translationDownloadBytes
+                let actual = try model.subtitleModelDownloadBytes()
+                guard actual == expected else { throw UIError.unexpectedDownloadSize(source.rawValue, actual, expected) }
+                checks.append("automatic_plan_and_total_" + source.rawValue)
+            }
+            model.setSourceLanguage(.japanese)
+            guard model.profiles.first(where: { $0.id == model.selectedASRProfileID })?.localModelID == nil,
+                  try model.subtitleModelDownloadBytes() == model.modelStore.asrDownloadBytes + model.modelStore.translationDownloadBytes,
+                  !model.isStarting, !model.isCapturing, !model.isDownloadingModels else { throw UIError.initialState }
+            checks.append("automatic_plan_and_total_ja")
             let report: [String: Any] = ["passed": true, "checks": checks, "bundle": Bundle.main.bundleIdentifier ?? "", "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? ""]
             try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: reportURL)
             NSApp.terminate(nil)
@@ -78,6 +91,13 @@ enum UISmokeChecks {
 
     private enum UIError: LocalizedError {
         case noWindow, initialState
-        var errorDescription: String? { "应用窗口或初始配置检查失败" }
+        case unexpectedModel(String, String), unexpectedDownloadSize(String, Int64, Int64)
+        var errorDescription: String? {
+            switch self {
+            case .noWindow, .initialState: "应用窗口或初始配置检查失败"
+            case .unexpectedModel(let source, let selected): "Unexpected recognition model for \(source): \(selected)"
+            case .unexpectedDownloadSize(let source, let actual, let expected): "Unexpected download size for \(source): \(actual), expected \(expected)"
+            }
+        }
     }
 }

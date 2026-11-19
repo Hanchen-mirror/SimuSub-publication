@@ -58,7 +58,7 @@ final class OnboardingState: ObservableObject {
     private let connectionCheck: (ServiceProfile) async throws -> Void
 
     init(model: AppModel, permissions: CapturePermissionCenter? = nil,
-         downloadsAllowed: Bool = !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }),
+         downloadsAllowed: Bool = !AppLaunchOptions.isDiagnostic,
          connectionCheck: ((ServiceProfile) async throws -> Void)? = nil) {
         self.model = model
         self.permissions = permissions ?? model.permissions

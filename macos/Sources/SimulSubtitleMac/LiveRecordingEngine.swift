@@ -38,7 +38,9 @@ enum LiveRecordingEngine {
             guard ["http", "https"].contains(track.url.scheme ?? ""), track.url.user == nil, track.url.password == nil else {
                 throw LiveMonitorError.invalidInput("直播流地址无效。")
             }
-            arguments += ["-rw_timeout", "15000000"]
+            arguments += ["-rw_timeout", "8000000", "-reconnect", "1", "-reconnect_streamed", "1",
+                          "-reconnect_on_network_error", "1", "-reconnect_delay_max", "2",
+                          "-reconnect_max_retries", "2", "-reconnect_delay_total_max", "6"]
             let headers = track.headers.filter {
                 ["user-agent", "referer", "origin", "cookie", "authorization"].contains($0.key.lowercased())
                     && !$0.key.contains(where: \.isNewline) && !$0.value.contains(where: \.isNewline)

@@ -52,7 +52,12 @@ final class LiveMonitorStore: ObservableObject {
             return value
         }
         self.settings = settings
-        self.settings.intervalSeconds = min(900, max(60, settings.intervalSeconds))
+        self.settings.intervalSeconds = min(900, max(15, settings.intervalSeconds))
+        if settings.pollingRevision == nil {
+            if settings.intervalSeconds == 180 { self.settings.intervalSeconds = 15 }
+            self.settings.pollingRevision = 1
+            _ = try? storage.save(self.settings, name: "settings")
+        }
         self.settings.maximumRecordings = min(3, max(1, settings.maximumRecordings))
         notice = [a, b, c].compactMap { $0 }.joined(separator: "\n").nilIfEmpty
         credentialSubscription = self.credentials.$revision.dropFirst().sink { [weak self] _ in
@@ -71,6 +76,8 @@ final class LiveMonitorStore: ObservableObject {
         let generation = UUID(); searchGeneration = generation; isSearching = true; results = []; searchError = nil
         defer { if searchGeneration == generation { isSearching = false; searchRequest = nil } }
         do {
+            await credentials.refreshBrowserSession(platform)
+            guard generation == searchGeneration, !Task.isCancelled else { return }
             let access = try credentials.context(platform)
             let service = self.service
             let request = Task { try await service.search(query, platform: platform, access: access) }
@@ -143,9 +150,14 @@ final class LiveMonitorStore: ObservableObject {
     }
     func updateSettings(_ update: (inout LiveMonitorSettings) -> Void) {
         var value = settings; update(&value)
-        value.intervalSeconds = min(900, max(60, value.intervalSeconds))
+        value.intervalSeconds = min(900, max(15, value.intervalSeconds))
         value.maximumRecordings = min(3, max(1, value.maximumRecordings))
+        let changedInterval = settings.intervalSeconds != value.intervalSeconds
         settings = value; save(value, name: "settings")
+        if changedInterval {
+            for i in creators.indices { creators[i].nextCheckAt = nil }
+            if isMonitoring { refreshNow() }
+        }
     }
     func chooseFolder() {
         let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true
@@ -191,12 +203,25 @@ final class LiveMonitorStore: ObservableObject {
             if refreshAfterCurrent { refreshAfterCurrent = false; refreshNow() }
         }
         let ids = creators.filter { $0.monitoring && (force || ($0.nextCheckAt ?? .distantPast) <= Date()) }.map(\.id)
-        for id in ids {
-            guard !Task.isCancelled, !shutdownRequested, let creator = creators.first(where: { $0.id == id }) else { break }
+        // Bound concurrent checks; one slow platform must not block the other cards.
+        await withTaskGroup(of: Void.self) { group in
+            var iterator = ids.makeIterator()
+            for _ in 0..<3 {
+                if let id = iterator.next() { group.addTask { await self.refreshCreator(id) } }
+            }
+            while await group.next() != nil {
+                guard !Task.isCancelled, !shutdownRequested else { group.cancelAll(); break }
+                if let id = iterator.next() { group.addTask { await self.refreshCreator(id) } }
+            }
+        }
+    }
+    private func refreshCreator(_ id: UUID) async {
+        guard !Task.isCancelled, !shutdownRequested,
+              let creator = creators.first(where: { $0.id == id }) else { return }
             do {
                 let access = try credentials.context(creator.platform)
                 let snapshot = try await service.status(creator, access: access)
-                guard !Task.isCancelled, !shutdownRequested else { break }
+                guard !Task.isCancelled, !shutdownRequested else { return }
                 if snapshot.state == .offline { await service.invalidateRecordingInput(creator) }
                 let event = applySnapshot(snapshot, to: id)
                 if event, let current = creators.first(where: { $0.id == id }), current.notify {
@@ -213,14 +238,13 @@ final class LiveMonitorStore: ObservableObject {
                     }
                 }
             } catch {
-                guard !Task.isCancelled, let i = creators.firstIndex(where: { $0.id == id }) else { continue }
+                guard !Task.isCancelled, let i = creators.firstIndex(where: { $0.id == id }) else { return }
                 creators[i].failureCount += 1
                 creators[i].lastError = Self.message(error)
-                let backoff = min(1_800.0, Double(settings.intervalSeconds) * pow(2, Double(min(4, creators[i].failureCount))))
+                let backoff = min(120.0, Double(min(30, settings.intervalSeconds)) * pow(2, Double(min(3, creators[i].failureCount))))
                 creators[i].nextCheckAt = Date().addingTimeInterval(backoff)
                 persistCreators()
             }
-        }
     }
 
     /// Unknown/error responses never end a broadcast. Two explicit offline
@@ -245,6 +269,9 @@ final class LiveMonitorStore: ObservableObject {
             }
         } else if snapshot.state == .offline {
             creator.offlineConfirmations += 1
+            if creator.stableState == .live && creator.offlineConfirmations == 1 {
+                creator.nextCheckAt = Date().addingTimeInterval(5)
+            }
             if creator.offlineConfirmations >= 2 || creator.stableState != .live { creator.stableState = .offline }
         } else { creator.offlineConfirmations = 0; creator.stableState = .upcoming }
         creator.snapshot = snapshot
@@ -275,6 +302,7 @@ final class LiveMonitorStore: ObservableObject {
     private func runRecording(_ recording: LiveRecording, creator: WatchedCreator, output: URL) async {
         let id = recording.id
         let deadline = Date().addingTimeInterval(12 * 3_600)
+        let quality = settings.quality
         let folder = URL(fileURLWithPath: recording.segmentFolder!)
         let attemptBase = (recording.mediaURLs.compactMap { url -> Int? in
             let name = url.lastPathComponent
@@ -293,6 +321,7 @@ final class LiveMonitorStore: ObservableObject {
         defer { sizeTask.cancel(); jobs[id] = nil; recordingTasks[id] = nil; persistRecordings() }
         var finalError: Error?
         var cleanEnd = false
+        var twitchHadAdvertisement = false
         var attempts = 0
         for attempt in 1...4 {
             do {
@@ -307,7 +336,8 @@ final class LiveMonitorStore: ObservableObject {
                     updateRecording(id) { $0.state = .preparing; $0.message = (finalError.map { Self.message($0) } ?? "连接中断。") + " 正在重连（\(attempt - 1)/3）。" }
                     try await Task.sleep(nanoseconds: UInt64([0, 2, 5, 15][attempt - 1]) * 1_000_000_000)
                 }
-                let access = try credentials.context(creator.platform)
+                var access = try credentials.context(creator.platform)
+                access.recordingQuality = quality
                 attempts = attempt
                 let current = creators.first(where: { $0.id == creator.id }) ?? creator
                 let input = try await service.recordingInput(current, access: access)
@@ -331,11 +361,27 @@ final class LiveMonitorStore: ObservableObject {
                             }
                         }
                     } onCancel: { job.cancel() }
+                } else if input.twitchHLS {
+                    let job = TwitchRecordingJob(); jobs[id] = job
+                    defer { if jobs[id] === job { jobs[id] = nil } }
+                    updateRecording(id) { $0.title = input.title; $0.state = .preparing; $0.message = "正在检查 Twitch 直播内容。" }
+                    result = try await withTaskCancellationHandler {
+                        try await job.run(input, output: pattern, maximumSeconds: max(0, deadline.timeIntervalSinceNow)) { [weak self] state in
+                            guard let self, self.jobs[id] === job,
+                                  self.recordings.first(where: { $0.id == id })?.state != .stopping else { return }
+                            if state == .advertisement { twitchHadAdvertisement = true }
+                            self.updateRecording(id) {
+                                $0.state = state == .recording ? .recording : .preparing
+                                $0.message = state.message; $0.bytes = $0.savedBytes
+                            }
+                        }
+                    } onCancel: { job.cancel() }
                 } else {
                 let arguments = try LiveRecordingEngine.arguments(input: input, output: pattern, segmentSeconds: 300, progressURL: progressURL)
                 let job = LiveToolProcess(); jobs[id] = job
                 defer { if jobs[id] === job { jobs[id] = nil } }
                 let progress = LiveRecordingProgress()
+                let firstFrameDeadline = Date().addingTimeInterval(20)
                 updateRecording(id) { $0.title = input.title; $0.state = .preparing; $0.message = "直播地址已解析，正在连接并等待画面。" }
                 let progressTask = Task { [weak self] in
                     while !Task.isCancelled {
@@ -345,15 +391,23 @@ final class LiveMonitorStore: ObservableObject {
                             self.updateRecording(id) { $0.state = .recording; $0.bytes = $0.savedBytes; $0.message = "已收到直播画面，正在写入录像。" }
                             return
                         }
+                        if Date() >= firstFrameDeadline { job.cancel(); return }
                         do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return }
                     }
                 }
                 defer { progressTask.cancel(); try? FileManager.default.removeItem(at: progressURL) }
                 let remaining = deadline.timeIntervalSinceNow
                 guard remaining > 0 else { throw LiveMonitorError.unavailable("本场已达到 12 小时，请重新开始录制。") }
-                result = try await withTaskCancellationHandler {
-                    try await job.run("ffmpeg", arguments: arguments, timeout: remaining)
-                } onCancel: { job.cancel() }
+                do {
+                    result = try await withTaskCancellationHandler {
+                        try await job.run("ffmpeg", arguments: arguments, timeout: remaining)
+                    } onCancel: { job.cancel() }
+                } catch {
+                    if !Task.isCancelled, !progress.hasVideo, Date() >= firstFrameDeadline {
+                        throw LiveMonitorError.unavailable("20 秒内未收到直播画面，正在切换线路。")
+                    }
+                    throw error
+                }
                 }
                 if result.status == 0 {
                     if recordings.first(where: { $0.id == id })?.state != .stopping, !shutdownRequested,
@@ -399,6 +453,9 @@ final class LiveMonitorStore: ObservableObject {
                 $0.message = cause + (attempts > 1 ? " 已重试 \(attempts - 1) 次，仍未恢复。" : "")
                     + ($0.bytes > 0 ? " 已有录像保留。" : " 未生成录像。")
             }
+        }
+        if twitchHadAdvertisement {
+            updateRecording(id) { $0.message = ($0.message ?? "") + " Twitch 广告期间未取得主播内容，缺口见录像目录的 twitch.jsonl 记录。" }
         }
         pausingIDs.remove(id)
         if recordings.first(where: { $0.id == id })?.state == .paused { return }

@@ -36,10 +36,22 @@ struct ExtractedLiveMedia: Decodable, Sendable {
 
 protocol LiveExtracting: Sendable {
     func metadata(_ address: String, cookies: String?, flat: Bool) async throws -> ExtractedLiveMedia
+    func metadata(_ address: String, cookies: String?, quality: RecordingQuality) async throws -> ExtractedLiveMedia
+}
+extension LiveExtracting {
+    func metadata(_ address: String, cookies: String?, quality: RecordingQuality) async throws -> ExtractedLiveMedia {
+        try await metadata(address, cookies: cookies, flat: false)
+    }
 }
 
 struct YTDLPLiveExtractor: LiveExtracting {
     func metadata(_ address: String, cookies: String?, flat: Bool = false) async throws -> ExtractedLiveMedia {
+        try await extract(address, cookies: cookies, flat: flat, quality: .original)
+    }
+    func metadata(_ address: String, cookies: String?, quality: RecordingQuality) async throws -> ExtractedLiveMedia {
+        try await extract(address, cookies: cookies, flat: false, quality: quality)
+    }
+    private func extract(_ address: String, cookies: String?, flat: Bool, quality: RecordingQuality) async throws -> ExtractedLiveMedia {
         let lease = try cookies.map(LiveCookieLease.init)
         var arguments = ["--ignore-config", "--no-warnings", "--skip-download", "--dump-single-json",
             "--socket-timeout", "15", "--retries", "1", "--extractor-retries", "1", "--no-cache-dir",
@@ -47,7 +59,7 @@ struct YTDLPLiveExtractor: LiveExtracting {
             "--playlist-end", flat ? "8" : "1"]
         if flat { arguments.append("--flat-playlist") }
         else {
-            arguments += ["--no-playlist", "--format", "best[height<=1080]/bestvideo[height<=1080]+bestaudio/best"]
+            arguments += ["--no-playlist", "--format", quality.extractorFormat]
         }
         if let lease { arguments += ["--cookies", lease.file.path] }
         arguments += ["--", address]
@@ -107,6 +119,7 @@ struct ResolvedLiveInput: Sendable {
     let tracks: [Track]
     let title: String
     var browserCapture: BrowserCaptureRequest? = nil
+    var twitchHLS: Bool = false
 }
 
 protocol LivePlatformServing: Sendable {
@@ -126,6 +139,8 @@ actor LivePlatformService: LivePlatformServing {
     private let youtube: (any YouTubeDiscovering)?
     private let streamCache: BiliStreamCache
     private var biliGuestCookie: String?
+    private var failedBiliHosts: [String: Set<String>] = [:]
+    private var selectedBiliHost: [String: String] = [:]
     private var twitchValidatedToken: String?
     private var twitchValidatedClientID: String?
     private var twitchValidationUntil = Date.distantPast
@@ -159,7 +174,7 @@ actor LivePlatformService: LivePlatformServing {
                     name: plain(string(row["uname"])), avatarURL: imageURL(string(row["face"])), description: plain(string(row["title"])))
             }
         case .youtube:
-            if let youtube { return try await youtube.search(query, cookies: access.cookies) }
+            if let youtube { return try await youtube.search(query, cookies: access.cookies, allowBrowser: access.browserAllowed) }
             if let key = access.apiKey {
                 let json = try await get("https://www.googleapis.com/youtube/v3/search",
                     items: ["part": "snippet", "type": "channel", "maxResults": "10", "q": query, "key": key])
@@ -224,7 +239,7 @@ actor LivePlatformService: LivePlatformServing {
                 channelAddress = try LiveAddress.normalize(author, platform: .youtube)
                 publicName = info["author_name"] as? String
             }
-            if let youtube { return try await youtube.profile(channelAddress, cookies: access.cookies) }
+            if let youtube { return try await youtube.profile(channelAddress, cookies: access.cookies, allowBrowser: access.browserAllowed) }
             let media = try await extractor.metadata(channelAddress, cookies: nil, flat: true)
             let channelID = media.channel_id ?? (media.id?.hasPrefix("UC") == true ? media.id : nil)
             let channel = media.channel_url ?? channelID.map { "https://www.youtube.com/channel/" + $0 } ?? channelAddress
@@ -265,7 +280,7 @@ actor LivePlatformService: LivePlatformServing {
                                 coverURL: imageURL(string(data["user_cover"])) ?? imageURL(string(data["keyframe"])), category: data["area_name"] as? String)
         }
         if creator.platform == .youtube {
-            if let youtube { return try await youtube.status(creator.address, cookies: access.cookies) }
+            if let youtube { return try await youtube.status(creator.address, cookies: access.cookies, allowBrowser: access.browserAllowed) }
             let listing = try await extractor.metadata(creator.address + "/streams", cookies: nil, flat: true)
             return try Self.youtubeSnapshot(listing, channel: creator.address)
         }
@@ -279,6 +294,9 @@ actor LivePlatformService: LivePlatformServing {
             return LiveSnapshot(state: .live, title: plain(string(row["title"])), sessionID: string(row["id"]),
                 startedAt: ISO8601DateFormatter().date(from: string(row["started_at"])), liveURL: creator.address,
                 coverURL: imageURL(string(row["thumbnail_url"]).replacingOccurrences(of: "{width}", with: "640").replacingOccurrences(of: "{height}", with: "360")), category: row["game_name"] as? String)
+        }
+        if creator.platform == .twitch {
+            return try await twitchPublicStatus(login: URL(string: creator.address)!.lastPathComponent, cookies: access.cookies)
         }
         do {
             let media = try await extractor.metadata(LiveAddress.liveURL(creator.address, platform: creator.platform), cookies: access.cookies, flat: false)
@@ -296,7 +314,16 @@ actor LivePlatformService: LivePlatformServing {
     }
 
     func recordingInput(_ creator: WatchedCreator, access: LivePlatformAccess) async throws -> ResolvedLiveInput {
-        if creator.platform == .bilibili, let cached = streamCache.input(for: creator, cookies: access.cookies) { return cached }
+        if creator.platform == .bilibili {
+            if access.recordingQuality == .original, let cached = streamCache.input(for: creator, cookies: access.cookies) {
+                selectedBiliHost[creator.identity] = cached.tracks.first?.url.host
+                return cached
+            }
+            let input = try await biliRecordingInput(creator, access: access)
+            if access.recordingQuality == .original { streamCache.save(input, for: creator, cookies: access.cookies) }
+            return input
+        }
+        if creator.platform == .twitch { return try await twitchRecordingInput(creator, access: access) }
         let address: String
         if creator.platform == .youtube {
             if creator.snapshot.state == .live, let liveURL = creator.snapshot.liveURL,
@@ -311,11 +338,27 @@ actor LivePlatformService: LivePlatformServing {
             }
         } else { address = LiveAddress.liveURL(creator.address, platform: creator.platform) }
         let cookies = access.cookies
-        if creator.platform == .youtube, let browser = await youtube?.browserMedia(address) {
-            if let input = browser.input { return input }
+        if creator.platform == .youtube, access.browserAllowed, let browser = try await youtube?.browserMedia(address) {
+            if let input = browser.input {
+                if access.recordingQuality != .original {
+                    if input.browserCapture != nil { throw LiveMonitorError.unavailable("当前浏览器录制使用播放器画质，请将录制画质设为原画后重试。") }
+                    if let track = input.tracks.first, track.url.pathExtension == "m3u8" {
+                        var request = URLRequest(url: track.url, timeoutInterval: 15)
+                        for (key, value) in track.headers { request.setValue(value, forHTTPHeaderField: key) }
+                        let (data, response) = try await session.data(for: request)
+                        guard (response as? HTTPURLResponse)?.statusCode == 200, data.count < 1_048_576 else { throw LiveMonitorError.invalidResponse }
+                        let manifest = String(decoding: data, as: UTF8.self)
+                        if manifest.contains("#EXT-X-STREAM-INF:") {
+                            let stream = try Self.bestHLSVariant(manifest, base: track.url, quality: access.recordingQuality)
+                            return .init(tracks: [.init(url: stream, headers: track.headers, hasVideo: true, hasAudio: true)], title: input.title)
+                        }
+                    }
+                }
+                return input
+            }
             throw LiveMonitorError.unavailable("浏览器已连接，但网页尚未提供可录制的直播画面；请确认直播仍在播放。")
         }
-        let media = try await extractor.metadata(address, cookies: cookies, flat: false)
+        let media = try await extractor.metadata(address, cookies: cookies, quality: access.recordingQuality)
         guard media.is_live == true || media.live_status == "is_live" else { throw media.live_status == "is_upcoming" ? LiveExtractionError.upcoming : LiveExtractionError.offline }
         let sources = media.requested_formats ?? [media]
         let tracks = sources.compactMap { source -> ResolvedLiveInput.Track? in
@@ -337,7 +380,13 @@ actor LivePlatformService: LivePlatformServing {
         return input
     }
 
-    func invalidateRecordingInput(_ creator: WatchedCreator) async { streamCache.remove(creator) }
+    func invalidateRecordingInput(_ creator: WatchedCreator) async {
+        // Rotate away from a failed CDN, including addresses loaded from disk.
+        if let host = selectedBiliHost.removeValue(forKey: creator.identity) {
+            failedBiliHosts[creator.identity, default: []].insert(host)
+        }
+        streamCache.remove(creator)
+    }
 
     static func youtubeSnapshot(_ listing: ExtractedLiveMedia, channel: String) throws -> LiveSnapshot {
         let entries = listing.entries ?? [listing]
@@ -356,6 +405,132 @@ actor LivePlatformService: LivePlatformServing {
             throw LiveMonitorError.unavailable("YouTube 未返回明确直播状态，请稍后刷新。")
         }
         return LiveSnapshot(state: .offline, liveURL: channel)
+    }
+
+    private func biliRecordingInput(_ creator: WatchedCreator, access: LivePlatformAccess) async throws -> ResolvedLiveInput {
+        let json = try await bili("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo",
+            items: ["room_id": URL(string: creator.address)!.lastPathComponent, "protocol": "0,1",
+                    "format": "0,1,2", "codec": "0,1", "qn": String(access.recordingQuality.biliTier), "platform": "web", "mask": "0", "no_playurl": "0"], access: access)
+        guard let data = json["data"] as? [String: Any], let state = data["live_status"] as? Int else { throw LiveMonitorError.invalidResponse }
+        guard state == 1 else { throw LiveExtractionError.offline }
+        let play = (data["playurl_info"] as? [String: Any])?["playurl"] as? [String: Any]
+        let streams = play?["stream"] as? [[String: Any]] ?? []
+        var candidates: [(Int, ResolvedLiveInput.Track)] = []
+        for stream in streams {
+            for format in stream["format"] as? [[String: Any]] ?? [] {
+                for codec in format["codec"] as? [[String: Any]] ?? [] {
+                    guard let base = codec["base_url"] as? String else { continue }
+                    for info in codec["url_info"] as? [[String: Any]] ?? [] {
+                        guard let host = info["host"] as? String, let extra = info["extra"] as? String,
+                              let url = URL(string: host + base + extra), url.scheme == "https",
+                              url.host?.hasSuffix(".bilivideo.com") == true, url.user == nil, url.password == nil else { continue }
+                        var headers = ["Referer": creator.address, "User-Agent": Self.userAgent]
+                        if let cookie = LiveCookie.header(access.cookies, platform: .bilibili, url: url) { headers["Cookie"] = cookie }
+                        candidates.append((codec["current_qn"] as? Int ?? 0, .init(url: url, headers: headers, hasVideo: true, hasAudio: true)))
+                    }
+                }
+            }
+        }
+        guard let quality = candidates.map({ $0.0 }).max() else { throw LiveMonitorError.invalidResponse }
+        let tracks = candidates.filter { $0.0 == quality }.map { $0.1 }
+        let failed = failedBiliHosts[creator.identity] ?? []
+        let fresh = tracks.filter { !failed.contains($0.url.host ?? "") }
+        let eligible = fresh.isEmpty ? tracks : fresh
+        // Race at most six CDN headers. Requests have their own short deadline,
+        // and losing tasks are cancelled before returning the selected stream.
+        let selected = await withTaskGroup(of: ResolvedLiveInput.Track?.self, returning: ResolvedLiveInput.Track?.self) { group in
+            for track in eligible.prefix(6) {
+                group.addTask { [session] in
+                    var request = URLRequest(url: track.url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 4)
+                    request.httpMethod = "HEAD"
+                    for (key, value) in track.headers { request.setValue(value, forHTTPHeaderField: key) }
+                    guard let (_, response) = try? await session.data(for: request),
+                          let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return nil }
+                    return track
+                }
+            }
+            for await track in group { if let track { group.cancelAll(); return track } }
+            return nil
+        }
+        guard let selected else { throw LiveMonitorError.unavailable("Bilibili 直播线路均未连通，请检查代理的 bilivideo.com 分流后重试。") }
+        selectedBiliHost[creator.identity] = selected.url.host
+        return .init(tracks: [selected], title: creator.snapshot.title)
+    }
+
+    private func twitchRecordingInput(_ creator: WatchedCreator, access: LivePlatformAccess) async throws -> ResolvedLiveInput {
+        let login = URL(string: creator.address)!.lastPathComponent
+        let snapshot = try await twitchPublicStatus(login: login, cookies: access.cookies)
+        guard snapshot.state == .live else { throw LiveExtractionError.offline }
+        let url = URL(string: "https://gql.twitch.tv/gql")!
+        var request = URLRequest(url: url, timeoutInterval: 10); request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("kimne78kx3ncx6brgo4mv6wki5h1ko", forHTTPHeaderField: "Client-ID")
+        if let cookie = LiveCookie.header(access.cookies, platform: .twitch, url: url) { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+        if let text = access.cookies, let token = LiveCookie.parse(text, platform: .twitch).first(where: { $0.name == "auth-token" }) {
+            request.setValue("OAuth " + token.value, forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "query": "query SimuSubPlayback($login:String!){streamPlaybackAccessToken(channelName:$login,params:{platform:\"site\",playerBackend:\"mediaplayer\",playerType:\"embed\"}){value signature}}",
+            "variables": ["login": login]])
+        let (data, response) = try await session.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200, data.count < 1_048_576,
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any], json["errors"] == nil,
+              let fields = json["data"] as? [String: Any], let token = fields["streamPlaybackAccessToken"] as? [String: Any],
+              let value = token["value"] as? String, let signature = token["signature"] as? String else { throw LiveMonitorError.invalidResponse }
+        var playlist = URLComponents(string: "https://usher.ttvnw.net/api/v2/channel/hls/" + login + ".m3u8")!
+        playlist.queryItems = ["sig": signature, "token": value, "allow_source": "true", "allow_audio_only": "false",
+                              "supported_codecs": "h264", "platform": "web", "playlist_include_framerate": "true"].map { .init(name: $0.key, value: $0.value) }
+        let (manifest, manifestResponse) = try await session.data(for: URLRequest(url: playlist.url!, timeoutInterval: 10))
+        guard (manifestResponse as? HTTPURLResponse)?.statusCode == 200, manifest.count < 1_048_576 else { throw LiveMonitorError.unavailable("Twitch 播放列表读取失败，请检查网络或账号会话。") }
+        let stream = try Self.bestHLSVariant(String(decoding: manifest, as: UTF8.self), base: playlist.url!, quality: access.recordingQuality)
+        return .init(tracks: [.init(url: stream, headers: ["User-Agent": Self.userAgent], hasVideo: true, hasAudio: true)], title: snapshot.title, twitchHLS: true)
+    }
+
+    static func bestHLSVariant(_ manifest: String, base: URL, quality: RecordingQuality = .original) throws -> URL {
+        let lines = manifest.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        var variants: [(bandwidth: Int, height: Int, fps: Double, url: URL)] = []
+        for (index, line) in lines.enumerated() where line.hasPrefix("#EXT-X-STREAM-INF:") && index + 1 < lines.count {
+            func attribute(_ name: String) -> String? {
+                guard let range = line.range(of: "(?:^|[:,])" + name + "=([^,]+)", options: .regularExpression) else { return nil }
+                return line[range].split(separator: "=").last.map(String.init)
+            }
+            guard let resolution = attribute("RESOLUTION"), let height = Int(resolution.split(separator: "x").last ?? ""),
+                  let bandwidth = attribute("BANDWIDTH").flatMap(Int.init),
+                  let url = URL(string: lines[index + 1], relativeTo: base)?.absoluteURL,
+                  url.scheme == "https", url.user == nil, url.password == nil else { continue }
+            variants.append((bandwidth, height, attribute("FRAME-RATE").flatMap(Double.init) ?? 30, url))
+        }
+        let eligible = variants.filter { $0.height <= (quality.height ?? Int.max) && $0.fps <= Double(quality.fps) + 0.1 }
+        let selected = quality == .original ? variants.max { $0.bandwidth < $1.bandwidth }
+            : eligible.max { $0.height == $1.height ? $0.bandwidth < $1.bandwidth : $0.height < $1.height }
+                ?? variants.min { $0.height == $1.height ? $0.bandwidth < $1.bandwidth : $0.height < $1.height }
+        guard let selected else { throw LiveMonitorError.invalidResponse }
+        return selected.url
+    }
+
+    private func twitchPublicStatus(login: String, cookies: String?) async throws -> LiveSnapshot {
+        let url = URL(string: "https://gql.twitch.tv/gql")!
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("ue6666qo983tsx6so1t0vnawi233wa", forHTTPHeaderField: "Client-ID")
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        if let cookie = LiveCookie.header(cookies, platform: .twitch, url: url) { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "query": "query SimuSubStatus($login:String!){user(login:$login){stream{id title type createdAt}}}",
+            "variables": ["login": login]])
+        let (data, response) = try await session.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200, data.count < 1_048_576,
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any], json["errors"] == nil,
+              let fields = json["data"] as? [String: Any], let user = fields["user"] as? [String: Any] else {
+            throw LiveMonitorError.invalidResponse
+        }
+        if user["stream"] is NSNull { return .init(state: .offline) }
+        guard let stream = user["stream"] as? [String: Any], stream["type"] as? String == "live",
+              let id = stream["id"] as? String else { throw LiveMonitorError.invalidResponse }
+        return .init(state: .live, title: stream["title"] as? String ?? "", sessionID: id,
+                     startedAt: (stream["createdAt"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) },
+                     liveURL: "https://www.twitch.tv/" + login)
     }
 
     private func twitchPublicProfile(login: String, cookies: String?) async throws -> CreatorCandidate {

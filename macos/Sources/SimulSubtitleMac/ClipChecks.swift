@@ -50,6 +50,10 @@ enum ClipChecks {
             checks += try await ClipV121Checks.run(fixture: fixture, directory: directory)
             checks += try await ClipV122Checks.run(fixture: fixture, directory: directory)
             checks += try await ClipV123Checks.run(directory: directory)
+            checks += try EnglishClockNotationChecks.run()
+            checks += try EnglishContinuationChecks.run()
+            checks += try EnglishCaptionContinuityChecks.run()
+            checks += try await EnglishVocalChecks.run(directory: directory)
             checks += try await ClipV124Checks.run(directory: directory)
             checks += try await ClipV125Checks.run(directory: directory)
             checks += try ClipHighlightChecks.run(media: media)
@@ -105,6 +109,7 @@ enum ClipChecks {
             if let index = CommandLine.arguments.firstIndex(of: "--clip-real-models"), CommandLine.arguments.count > index + 1 {
                 let local = LocalModelStore(root: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
                 let engines = try await Task.detached(priority: .utility) { ClipServices(recognizer: try ReazonSpeechRecognizer(store: local, threads: 2), translator: try LocalLlamaTranslator(modelPath: local.translationModelPath)) }.value
+                checks += try await JapaneseWindowJoiningChecks.run(directory: directory, translator: engines.translator)
                 store.update(id) { $0.captions = []; $0.analysisCoverage = [] }
                 store.start(ClipJob(projectID: id, kind: .transcribe, range: ClipRange(title: "local", start: 0, end: 10)), model: nil, services: engines)
                 try await wait(store)

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 final class SubtitleFloatingPanel: NSPanel {
@@ -13,6 +14,8 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
     private(set) weak var homeWindow: NSWindow?
     private weak var model: AppModel?
     private weak var appearance: HomeAppearance?
+    private weak var monitor: LiveMonitorStore?
+    private var languageObserver: AnyCancellable?
     private var shouldReturnHome = true
     @Published private(set) var isBubble = false
     @Published var isResizeHover = false
@@ -29,9 +32,16 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
 
     init(defaults: UserDefaults = .standard) { self.defaults = defaults; super.init() }
 
-    func configure(model: AppModel, appearance: HomeAppearance) {
+    func configure(model: AppModel, appearance: HomeAppearance, monitor: LiveMonitorStore) {
         self.model = model
         self.appearance = appearance
+        self.monitor = monitor
+        if languageObserver == nil {
+            languageObserver = AppLocalization.shared.$language.sink { [weak self] language in
+                self?.panel?.title = "SimuSub " + L10n.text("字幕", language: language)
+                self?.settingsWindow?.title = L10n.text("字幕设置", language: language)
+            }
+        }
         guard spaceObserver == nil else { return }
         let center = NSWorkspace.shared.notificationCenter
         spaceObserver = center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -70,7 +80,7 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
                 styleMask: [.borderless, .resizable, .closable, .miniaturizable, .nonactivatingPanel],
                 backing: .buffered, defer: false)
             window.identifier = NSUserInterfaceItemIdentifier("subtitle.panel")
-            window.title = "SimuSub 字幕"
+            window.title = "SimuSub " + L10n.text("字幕")
             window.isReleasedWhenClosed = false
             window.isFloatingPanel = true
             window.hidesOnDeactivate = false
@@ -113,7 +123,7 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
                 if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
                 guard !Task.isCancelled, let self, self.model?.isSubtitleOnly == true,
                       self.model?.isSubtitlePinned == true, let panel = self.panel,
-                      panel.isVisible, !panel.isMiniaturized else { return }
+                      panel.isVisible, !panel.isMiniaturized, !SubtitleSavePanel.isPresented else { return }
                 self.updatePin()
                 panel.orderFrontRegardless()
             }
@@ -178,21 +188,23 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
         scheduleReassertion()
     }
 
-    func openSubtitleSettings() {
-        guard let model, let appearance else { return }
+    func openSubtitleSettings(initialCategory: String? = nil) {
+        guard let model, let appearance, let monitor else { return }
+        if initialCategory != nil { settingsWindow?.close(); settingsWindow = nil }
         if settingsWindow == nil {
             let height = min(700, ((panel?.screen ?? NSScreen.main)?.visibleFrame.height ?? 780) - 80)
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: height),
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: height),
                 styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-            window.title = "字幕设置"
+            window.title = L10n.text("字幕设置")
             window.titlebarAppearsTransparent = true
             window.backgroundColor = ThemePalette.color(appearance.theme, dark: appearance.isDark, role: .background)
             window.identifier = NSUserInterfaceItemIdentifier("subtitle.settings.window")
             window.isReleasedWhenClosed = false
-            window.contentMinSize = NSSize(width: 560, height: 440)
+            window.contentMinSize = NSSize(width: 760, height: 440)
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            window.contentView = NSHostingView(rootView: SubtitleQuickSettings()
-                .environmentObject(model).environmentObject(model.permissions).environmentObject(appearance)
+            window.contentView = NSHostingView(rootView: ZoomedWorkspace {
+                SettingsWindow(subtitleFontsFirst: true, initialCategory: initialCategory)
+            }.environmentObject(monitor).environmentObject(model).environmentObject(model.permissions).environmentObject(appearance)
                 .appTheme().environmentObject(appearance))
             window.center()
             settingsWindow = window
@@ -264,21 +276,42 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
 
 struct HomeWindowBridge: NSViewRepresentable {
     let controller: SubtitlePanelController
-    func makeNSView(context: Context) -> WindowReader { WindowReader(controller: controller) }
+    let onFullScreenChange: (Bool) -> Void
+    func makeNSView(context: Context) -> WindowReader {
+        WindowReader(controller: controller, onFullScreenChange: onFullScreenChange)
+    }
     func updateNSView(_ nsView: WindowReader, context: Context) { }
     final class WindowReader: NSView {
         let controller: SubtitlePanelController
-        init(controller: SubtitlePanelController) { self.controller = controller; super.init(frame: .zero) }
+        let onFullScreenChange: (Bool) -> Void
+        init(controller: SubtitlePanelController, onFullScreenChange: @escaping (Bool) -> Void) {
+            self.controller = controller
+            self.onFullScreenChange = onFullScreenChange
+            super.init(frame: .zero)
+        }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didEnterFullScreenNotification, object: nil)
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didExitFullScreenNotification, object: nil)
             if let window {
                 window.titlebarAppearsTransparent = true
                 window.titleVisibility = .hidden
                 window.styleMask.insert(.fullSizeContentView)
                 controller.attachHomeWindow(window)
+                for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+                    NotificationCenter.default.addObserver(self, selector: #selector(fullScreenChanged(_:)),
+                                                           name: name, object: window)
+                }
+                // A restored window may already be full screen when SwiftUI attaches.
+                DispatchQueue.main.async { [weak self] in self?.reportFullScreen() }
             }
+        }
+        @objc private func fullScreenChanged(_ notification: Notification) { reportFullScreen() }
+        private func reportFullScreen() {
+            guard let window else { return }
+            onFullScreenChange(window.styleMask.contains(.fullScreen))
         }
     }
 }
@@ -288,8 +321,17 @@ final class SimuSubAppDelegate: NSObject, NSApplicationDelegate {
     weak var subtitles: SubtitlePanelController?
     weak var liveMonitor: LiveMonitorStore?
     weak var clips: ClipStore?
+    weak var model: AppModel?
     private var terminating = false
     private var readyToTerminate = false
+    func applicationDidBecomeActive(_ notification: Notification) {
+        let titles = ["文件": "File", "檔案": "File", "ファイル": "File", "编辑": "Edit", "編輯": "Edit", "編集": "Edit",
+                      "显示": "View", "显示方式": "View", "顯示": "View", "表示": "View", "窗口": "Window", "視窗": "Window", "ウインドウ": "Window",
+                      "帮助": "Help", "輔助說明": "Help", "ヘルプ": "Help"]
+        for item in NSApp.mainMenu?.items ?? [] {
+            if let title = titles[item.title] { item.title = title; item.submenu?.title = title }
+        }
+    }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if readyToTerminate { return .terminateNow }
         guard let liveMonitor else { return .terminateNow }
@@ -301,6 +343,7 @@ final class SimuSubAppDelegate: NSObject, NSApplicationDelegate {
             clips?.cancel()
             await liveMonitor.shutdown()
             await clips?.shutdown()
+            await model?.shutdownLocalEngines()
             readyToTerminate = true
             sender.terminate(nil)
         }
@@ -332,17 +375,19 @@ private struct SubtitlePanelRoot: View {
                                   onTogglePin: { model.isSubtitlePinned.toggle(); controller.scheduleReassertion() },
                                   onExit: controller.returnHome, onZoom: controller.toggleZoom, onClose: controller.closeSubtitles,
                                   displayMode: model.subtitleDisplayMode,
-                                  onToggleDisplayMode: { model.subtitleDisplayMode = model.subtitleDisplayMode == .bilingual ? .chinese : .bilingual },
+                                  onToggleDisplayMode: model.toggleBilingualDisplay,
                                   onExport: { model.exportCaptions(format: $0) },
                                   onClear: { Task { await model.clearCaptions() } }, canClear: model.canClearCaptions,
                                   idleText: model.subtitleStatus, isCapturing: model.isCapturing,
                                   isBusy: model.isStarting || model.isStopping || model.isLoadingApplications || model.isClearingCaptions,
-                                  canStartStop: !(model.isDownloadingModels && !model.readinessIssues.isEmpty),
+                                  canStartStop: !model.isDownloadingModels && model.subtitlePreparationBytes == nil,
                                   onStartStop: { if model.subtitlePlaybackIntent == .chooseApplication { controller.prepareForPicker() }; model.toggleSubtitlePlayback() },
-                                  onSettings: controller.openSubtitleSettings,
                                   japaneseFont: appearance.japaneseFont, chineseFont: appearance.chineseFont,
-                                  japaneseSize: appearance.japaneseSize, chineseSize: appearance.chineseSize)
-                        .contextMenu { SubtitleWindowMenu(model: model); Button("收起为悬浮图标") { controller.collapseToBubble() } }
+                                  japaneseSize: appearance.japaneseSize, chineseSize: appearance.chineseSize, zoom: appearance.workspaceZoom)
+                        .contextMenu {
+                            SubtitleWindowMenu(model: model)
+                            Button(L10n.text("收起为悬浮图标")) { controller.collapseToBubble() }
+                        }
                 }
             }
             .overlay {
@@ -357,9 +402,13 @@ private struct SubtitlePanelRoot: View {
         .sheet(isPresented: $model.isChoosingApplication, onDismiss: controller.finishPicker) {
             CaptureApplicationPicker().environmentObject(model)
         }
-        .alert("需要处理", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
-            Button("知道了") { model.errorMessage = nil }
-            Button(model.errorSection.rawValue) {
+        .sheet(isPresented: Binding(get: { model.subtitlePreparationBytes != nil && model.isSubtitleOnly },
+                                    set: { if !$0 && model.isSubtitleOnly { model.cancelSubtitlePreparation() } })) {
+            SubtitlePreparationSheet()
+        }
+        .alert(L10n.text("需要处理"), isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
+            Button(L10n.text("知道了")) { model.errorMessage = nil }
+            Button(L10n.text(model.errorSection.rawValue)) {
                 model.section = model.errorSection
                 model.errorMessage = nil
                 controller.returnHome()
@@ -375,7 +424,7 @@ struct CaptureApplicationPicker: View {
         let _ = appThemeID
         ApplicationDockPicker(applications: model.availableApps, selectedBundleID: model.selectedAppBundleID,
                               isRefreshing: model.isLoadingApplications,
-                              onRefresh: model.selectApplication,
+                              onRefresh: { model.selectApplication() },
                               onSelect: model.chooseApplication,
                               onCancel: model.cancelApplicationSelection)
     }

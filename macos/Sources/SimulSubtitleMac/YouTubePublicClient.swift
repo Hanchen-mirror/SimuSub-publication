@@ -1,10 +1,10 @@
 import Foundation
 
 protocol YouTubeDiscovering: Sendable {
-    func search(_ query: String, cookies: String?) async throws -> [CreatorCandidate]
-    func profile(_ address: String, cookies: String?) async throws -> CreatorCandidate
-    func status(_ address: String, cookies: String?) async throws -> LiveSnapshot
-    func browserMedia(_ address: String) async -> (input: ResolvedLiveInput?, cookies: String?)?
+    func search(_ query: String, cookies: String?, allowBrowser: Bool) async throws -> [CreatorCandidate]
+    func profile(_ address: String, cookies: String?, allowBrowser: Bool) async throws -> CreatorCandidate
+    func status(_ address: String, cookies: String?, allowBrowser: Bool) async throws -> LiveSnapshot
+    func browserMedia(_ address: String) async throws -> (input: ResolvedLiveInput?, cookies: String?)?
 }
 
 actor YouTubePublicClient: YouTubeDiscovering {
@@ -18,8 +18,8 @@ actor YouTubePublicClient: YouTubeDiscovering {
         self.session = session ?? URLSession(configuration: config)
         self.browser = browser
     }
-    private func document(_ url: URL, cookies: String?) async throws -> [String: Any] {
-        if let connected = await browser.page(url, player: false), let data = connected["data"] as? [String: Any] { return data }
+    private func document(_ url: URL, cookies: String?, allowBrowser: Bool) async throws -> [String: Any] {
+        if allowBrowser, let connected = await browser.page(url, player: false), let data = connected["data"] as? [String: Any] { return data }
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         request.setValue("en-US,en;q=0.8", forHTTPHeaderField: "Accept-Language")
@@ -65,10 +65,10 @@ actor YouTubePublicClient: YouTubeDiscovering {
         guard let url = URL(string: address), url.scheme == "https", url.user == nil, url.password == nil else { return nil }
         return address
     }
-    func search(_ query: String, cookies: String?) async throws -> [CreatorCandidate] {
+    func search(_ query: String, cookies: String?, allowBrowser: Bool = true) async throws -> [CreatorCandidate] {
         var url = URLComponents(string: "https://www.youtube.com/results")!
         url.queryItems = [.init(name: "search_query", value: query), .init(name: "sp", value: "EgIQAg%3D%3D")]
-        let data = try await document(url.url!, cookies: cookies)
+        let data = try await document(url.url!, cookies: cookies, allowBrowser: allowBrowser)
         var seen = Set<String>()
         return Self.renderers("channelRenderer", in: data).compactMap { item in
             guard let id = item["channelId"] as? String, id.hasPrefix("UC"), seen.insert(id).inserted else { return nil }
@@ -76,13 +76,13 @@ actor YouTubePublicClient: YouTubeDiscovering {
                 name: Self.text(item["title"]), avatarURL: Self.avatar(item["thumbnail"]), description: Self.text(item["descriptionSnippet"]))
         }
     }
-    private func page(_ address: String, cookies: String?) async throws -> [String: Any] {
+    private func page(_ address: String, cookies: String?, allowBrowser: Bool) async throws -> [String: Any] {
         let url = URL(string: address + (address.contains("/watch?") ? "" : "/streams"))!
-        return try await document(url, cookies: cookies)
+        return try await document(url, cookies: cookies, allowBrowser: allowBrowser)
     }
-    func profile(_ address: String, cookies: String?) async throws -> CreatorCandidate {
+    func profile(_ address: String, cookies: String?, allowBrowser: Bool = true) async throws -> CreatorCandidate {
         if let (date, profile) = profiles[address], Date().timeIntervalSince(date) < 300 { return profile }
-        let data = try await page(address, cookies: cookies)
+        let data = try await page(address, cookies: cookies, allowBrowser: allowBrowser)
         guard let item = Self.renderers("channelMetadataRenderer", in: data).first,
               let id = item["externalId"] as? String, id.hasPrefix("UC"), let name = item["title"] as? String else {
             throw LiveMonitorError.invalidResponse
@@ -135,11 +135,24 @@ actor YouTubePublicClient: YouTubeDiscovering {
         if channel && selected != nil && (grid || empty) { return .init(state: .offline) }
         throw LiveMonitorError.unavailable("开播检查失败，请刷新或在官网确认频道状态。")
     }
-    func status(_ address: String, cookies: String?) async throws -> LiveSnapshot {
-        try Self.snapshot(try await page(address, cookies: cookies))
+    func status(_ address: String, cookies: String?, allowBrowser: Bool = true) async throws -> LiveSnapshot {
+        try Self.snapshot(try await page(address, cookies: cookies, allowBrowser: allowBrowser))
     }
-    func browserMedia(_ address: String) async -> (input: ResolvedLiveInput?, cookies: String?)? {
+    static func unavailablePlaybackState(_ player: [String: Any]) -> LiveState? {
+        let status = player["playabilityStatus"] as? [String: Any]
+        let micro = (player["microformat"] as? [String: Any])?["playerMicroformatRenderer"] as? [String: Any]
+        let details = micro?["liveBroadcastDetails"] as? [String: Any]
+        if details?["endTimestamp"] != nil && details?["isLiveNow"] as? Bool != true { return .offline }
+        guard status?["status"] as? String == "LIVE_STREAM_OFFLINE" else { return nil }
+        let slate = Self.renderers("liveStreamOfflineSlateRenderer", in: status ?? [:]).first
+        if let stamp = slate?["scheduledStartTime"] as? String, let value = Double(stamp), value > Date().timeIntervalSince1970 { return .upcoming }
+        return .offline
+    }
+    func browserMedia(_ address: String) async throws -> (input: ResolvedLiveInput?, cookies: String?)? {
         guard let url = URL(string: address), let result = await browser.page(url, player: true), let player = result["data"] as? [String: Any] else { return nil }
+        if let state = Self.unavailablePlaybackState(player) {
+            throw state == .upcoming ? LiveExtractionError.upcoming : LiveExtractionError.offline
+        }
         let rows = result["cookies"] as? [[String: Any]] ?? []
         let session = "# Netscape HTTP Cookie File\n" + rows.compactMap { row -> String? in
             guard let domain = row["domain"] as? String, let name = row["name"] as? String, let value = row["value"] as? String,

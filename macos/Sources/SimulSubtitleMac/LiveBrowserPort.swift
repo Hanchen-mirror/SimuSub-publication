@@ -27,6 +27,10 @@ actor LiveBrowserPort: LiveBrowserReading {
         ["http", "ws"].contains(url.scheme ?? "") && ["127.0.0.1", "localhost", "::1"].contains(url.host ?? "")
             && url.user == nil && url.password == nil
     }
+    static func supports(_ url: URL) -> Bool {
+        url.scheme == "https" && url.user == nil && url.password == nil
+            && (url.host == "www.youtube.com" || (url.path == "/" && ["www.bilibili.com", "www.twitch.tv"].contains(url.host ?? "")))
+    }
     private func endpoint() async -> URL? {
         if let cachedEndpoint { return cachedEndpoint }
         guard Date() > retryAfter else { return nil }
@@ -53,7 +57,7 @@ actor LiveBrowserPort: LiveBrowserReading {
     func captureSocket() async -> URL? { guard await endpoint() != nil else { return nil }; return cachedSocket }
     /// Reads a background, app-owned tab; existing tabs and the default browser remain untouched.
     func page(_ url: URL, player: Bool = false) async -> [String: Any]? {
-        guard url.scheme == "https", url.host == "www.youtube.com", let endpoint = await endpoint() else { return nil }
+        guard Self.supports(url), let endpoint = await endpoint() else { return nil }
         guard let socketURL = cachedSocket else { return nil }
         let socket = socketSession.webSocketTask(with: socketURL)
         socket.maximumMessageSize = 16 * 1024 * 1024
@@ -86,25 +90,31 @@ actor LiveBrowserPort: LiveBrowserReading {
             let attached = try await command("Target.attachToTarget", ["targetId": id, "flatten": true])
             guard let attachedSession = attached["sessionId"] as? String else { throw LiveMonitorError.invalidResponse }
             pageSession = attachedSession
-            _ = try await command("Page.enable")
-            _ = try await command("Page.addScriptToEvaluateOnNewDocument", ["source": "const p=HTMLMediaElement.prototype.play;HTMLMediaElement.prototype.play=function(){this.muted=true;return p.call(this)};"])
-            _ = try await command("Page.navigate", ["url": url.absoluteString])
-            var document: [String: Any]?
-            let urlJSON = String(decoding: try JSONSerialization.data(withJSONObject: url.absoluteString, options: .fragmentsAllowed), as: UTF8.self)
-            for _ in 0..<35 {
-                let expression = "(()=>{if(location.href!==\(urlJSON)&&!location.href.startsWith('https://www.youtube.com/'))return null;const d=\(player ? "document.getElementById('movie_player')?.getPlayerResponse?.() || window.ytInitialPlayerResponse" : "window.ytInitialData");return d?{data:d,userAgent:navigator.userAgent,capture:typeof document.querySelector('video')?.captureStream==='function',transport:'port'}:null})()"
-                let evaluated = try await command("Runtime.evaluate", ["expression": expression, "returnByValue": true])
-                if let value = (evaluated["result"] as? [String: Any])?["value"] as? [String: Any], value["data"] is [String: Any] { document = value; break }
-                try await Task.sleep(nanoseconds: 200_000_000)
-            }
-            if player {
-                var value = document ?? ["data": [String: Any]()]
+            if url.path == "/" && !player {
+                // Login probes read only the selected site's session, without navigating or playing media.
+                let cookies = try await command("Network.getCookies", ["urls": [url.absoluteString]])
+                result = ["cookies": cookies["cookies"] ?? [], "data": [String: Any]()]
+            } else {
+                _ = try await command("Page.enable")
+                _ = try await command("Page.addScriptToEvaluateOnNewDocument", ["source": "(()=>{const p=HTMLMediaElement.prototype.play;HTMLMediaElement.prototype.play=function(){this.muted=true;return p.call(this)}})();"])
+                _ = try await command("Page.navigate", ["url": url.absoluteString])
+                var document: [String: Any]?
+                let urlJSON = String(decoding: try JSONSerialization.data(withJSONObject: url.absoluteString, options: .fragmentsAllowed), as: UTF8.self)
+                for _ in 0..<35 {
+                    let expression = "(()=>{if(location.href!==\(urlJSON)&&!location.href.startsWith('https://www.youtube.com/'))return null;const d=\(player ? "document.getElementById('movie_player')?.getPlayerResponse?.() || window.ytInitialPlayerResponse" : "window.ytInitialData");return d?{data:d,userAgent:navigator.userAgent,capture:typeof document.querySelector('video')?.captureStream==='function',transport:'port'}:null})()"
+                    let evaluated = try await command("Runtime.evaluate", ["expression": expression, "returnByValue": true])
+                    if let value = (evaluated["result"] as? [String: Any])?["value"] as? [String: Any], value["data"] is [String: Any] { document = value; break }
+                    try await Task.sleep(nanoseconds: 200_000_000)
+                }
+                if player {
+                    var value = document ?? ["data": [String: Any]()]
 
-                let cookies = try await command("Network.getCookies", ["urls": ["https://www.youtube.com/"]])
-                value["cookies"] = cookies["cookies"]
-                document = value
+                    let cookies = try await command("Network.getCookies", ["urls": ["https://www.youtube.com/"]])
+                    value["cookies"] = cookies["cookies"]
+                    document = value
+                }
+                result = document
             }
-            result = document
         } catch { result = nil; cachedEndpoint = nil }
         if let targetID { _ = try? await command("Target.closeTarget", ["targetId": targetID]) }
         timeout.cancel()

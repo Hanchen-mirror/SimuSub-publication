@@ -70,6 +70,11 @@ enum YouTubeRoutingChecks {
         let found = try await connected.search("fixture", cookies: cookie)
         try require(found.first?.avatarURL == "https://yt3.googleusercontent.com/avatar.jpg", "youtube_search_contains_real_channel_avatar")
         try require(RoutingHTTPFixture.lock.withLock { RoutingHTTPFixture.requests.isEmpty }, "browser_port_precedes_cookie_and_guest_http")
+        let beforeGuest = await browser.calls
+        _ = try await connected.search("fixture", cookies: nil, allowBrowser: false)
+        let afterGuest = await browser.calls
+        try require(afterGuest == beforeGuest, "explicit_guest_skips_connected_browser")
+        try require(RoutingHTTPFixture.lock.withLock { RoutingHTTPFixture.requests.last?.value(forHTTPHeaderField: "Cookie") == nil }, "explicit_guest_sends_no_session")
         let absent = RoutingBrowserFixture(available: false)
         let fallback = YouTubePublicClient(session: session, browser: absent)
         _ = try await fallback.search("fixture", cookies: cookie)

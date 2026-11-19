@@ -12,12 +12,17 @@ struct Caption: Identifiable, Codable, Equatable {
     var recognitionNotice: String = ""
     var pendingOriginal: String? = nil
     var recognitionNeedsReview = false
+    var sourceLanguage: SubtitleLanguage = .japanese
+    var targetLanguage: SubtitleLanguage = .simplifiedChinese
+    /// Finalized recognition intentionally kept without a translation.
+    var isOriginalOnly: Bool { !isDraft && translated.isEmpty && !original.isEmpty }
 
-    init(id: UUID = UUID(), start: TimeInterval, end: TimeInterval, original: String, translated: String, isDraft: Bool = false) {
+    init(id: UUID = UUID(), start: TimeInterval, end: TimeInterval, original: String, translated: String, isDraft: Bool = false, sourceLanguage: SubtitleLanguage = .japanese, targetLanguage: SubtitleLanguage = .simplifiedChinese) {
         self.id = id; self.start = start; self.end = end
         self.original = original; self.translated = translated; self.isDraft = isDraft
+        self.sourceLanguage = sourceLanguage; self.targetLanguage = targetLanguage
     }
-    private enum CodingKeys: String, CodingKey { case id, start, end, original, translated, isDraft, confirmedPrefix, originalRevisions, recognitionNotice, pendingOriginal, recognitionNeedsReview }
+    private enum CodingKeys: String, CodingKey { case id, start, end, original, translated, isDraft, confirmedPrefix, originalRevisions, recognitionNotice, pendingOriginal, recognitionNeedsReview, sourceLanguage, targetLanguage }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(UUID.self, forKey: .id)
@@ -31,6 +36,8 @@ struct Caption: Identifiable, Codable, Equatable {
         recognitionNotice = try values.decodeIfPresent(String.self, forKey: .recognitionNotice) ?? ""
         pendingOriginal = try values.decodeIfPresent(String.self, forKey: .pendingOriginal)
         recognitionNeedsReview = try values.decodeIfPresent(Bool.self, forKey: .recognitionNeedsReview) ?? false
+        sourceLanguage = try values.decodeIfPresent(SubtitleLanguage.self, forKey: .sourceLanguage) ?? .japanese
+        targetLanguage = try values.decodeIfPresent(SubtitleLanguage.self, forKey: .targetLanguage) ?? .simplifiedChinese
     }
 }
 
@@ -60,19 +67,30 @@ struct ServiceProfile: Identifiable, Codable, Equatable, Sendable {
     var isEnabled: Bool = true
     // Optional for backward-compatible decoding of v1.23 saved profiles.
     var translationPrompt: String? = nil
+    var localModelID: String? = nil
+    var localModelPath: String? = nil
 
-    static let defaultTranslationPrompt = "这是日语 VTuber 直播。结合上下文翻译为自然的简体中文，保留否定、语气和人物关系。不总结、不遗漏、不补写。优先采用术语库译名，只输出当前内容的译文。"
+    static let defaultTranslationPrompt = "这是直播字幕。按当前请求指定的源语言和目标语言，结合上下文翻译为自然的字幕，保留否定、语气和人物关系。不总结、不遗漏、不补写。优先采用术语库译名，只输出当前内容的译文。"
+    private static let legacyJapanesePrompt = "这是日语 VTuber 直播。结合上下文翻译为自然的简体中文，保留否定、语气和人物关系。不总结、不遗漏、不补写。优先采用术语库译名，只输出当前内容的译文。"
+    var editableTranslationPrompt: String {
+        translationPrompt == Self.legacyJapanesePrompt ? Self.defaultTranslationPrompt : (translationPrompt ?? Self.defaultTranslationPrompt)
+    }
     var effectiveTranslationPrompt: String {
-        String((translationPrompt ?? Self.defaultTranslationPrompt).trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
+        String(editableTranslationPrompt.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
     }
 }
 
 protocol SpeechRecognizing: Sendable {
     func recognize(samples: [Float]) async throws -> String
     func recognizeDetailed(samples: [Float]) async throws -> RecognizedSpeech
+    func recognizeDraft(samples: [Float]) async throws -> RecognizedSpeech
 }
 
+/// Supplies timed Japanese tokens from the entire growing local acoustic window.
+protocol JapaneseWindowRecognizing: SpeechRecognizing {}
+
 extension SpeechRecognizing {
+    func recognizeDraft(samples: [Float]) async throws -> RecognizedSpeech { try await recognizeDetailed(samples: samples) }
     func recognizeDetailed(samples: [Float]) async throws -> RecognizedSpeech {
         RecognizedSpeech(text: try await recognize(samples: samples))
     }
@@ -137,9 +155,6 @@ extension String {
     var asrLanguageCode: String? {
         let lower = trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if lower.contains("自动") || lower.contains("auto") { return nil }
-        if ["日语", "日本語", "ja", "japanese"].contains(lower) { return "ja" }
-        if ["英语", "英文", "en", "english"].contains(lower) { return "en" }
-        if ["中文", "汉语", "zh", "chinese"].contains(lower) { return "zh" }
-        return nil
+        return SubtitleLanguage.resolve(lower)?.asrCode
     }
 }

@@ -19,7 +19,7 @@ struct OpenAICompatibleSpeechRecognizer: SpeechRecognizing {
             body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
         }
         field("model", profile.model)
-        field("language", "ja")
+        if let language = profile.sourceLanguage.asrLanguageCode { field("language", language) }
         body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"speech.wav\"\r\nContent-Type: audio/wav\r\n\r\n".utf8))
         body.append(WAVEncoder.wav(samples: samples, sampleRate: 16_000))
         body.append(Data("\r\n--\(boundary)--\r\n".utf8))
@@ -29,7 +29,8 @@ struct OpenAICompatibleSpeechRecognizer: SpeechRecognizing {
         guard let http = response as? HTTPURLResponse else { throw ServiceError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else { throw ServiceError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
         let decoded = try JSONDecoder().decode(TranscriptionResponse.self, from: data)
-        return decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return SubtitleLanguage.resolve(profile.sourceLanguage)?.normalizeScript(text) ?? text
     }
 }
 
@@ -49,7 +50,7 @@ struct OpenAICompatibleTranslator: TextTranslating {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        let prompt = context.prompt(for: text)
+        let prompt = context.prompt(for: text, source: source, target: target)
         var messages: [[String: String]] = []
         if !profile.effectiveTranslationPrompt.isEmpty {
             messages.append(["role": "system", "content": profile.effectiveTranslationPrompt])
@@ -62,7 +63,20 @@ struct OpenAICompatibleTranslator: TextTranslating {
         ]
         if profile.isDeepSeek { body["thinking"] = ["type": "disabled"] }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await session.data(for: request)
+        // URLRequest's interval measures inactivity. Also bound the whole response
+        // so a trickle of bytes cannot monopolize the live final-translation queue.
+        let completedRequest = request
+        let deadline = max(0.01, completedRequest.timeoutInterval)
+        let (data, response) = try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
+            group.addTask { try await session.data(for: completedRequest) }
+            group.addTask {
+                try await Task.sleep(for: .seconds(deadline))
+                throw URLError(.timedOut)
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else { throw CancellationError() }
+            return result
+        }
         guard let http = response as? HTTPURLResponse else { throw ServiceError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else { throw ServiceError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
         guard let decoded = try? JSONDecoder().decode(ChatCompletionResponse.self, from: data) else { throw ServiceError.invalidResponse }
@@ -108,8 +122,8 @@ enum ServiceError: Error, LocalizedError {
             default: "API 请求未完成，请检查模型配置后重试。［API-\(status)］"
             }
         case .missingAPIKey(let name): "请先在设置中保存 \(name) 的 API Key"
-        case .modelFilesMissing: "本地引擎文件尚未准备完成，请返回日中同传查看自动安装状态"
-        case .modelNotInstalled(let name): "\(name)尚未就绪，请返回日中同传重试自动准备"
+        case .modelFilesMissing: "本地引擎文件尚未准备完成，请返回字幕同传查看自动安装状态"
+        case .modelNotInstalled(let name): "\(name)尚未就绪，请返回字幕同传重试自动准备"
         }
     }
 }

@@ -39,8 +39,8 @@ actor BridgeCaptureSession: BrowserCaptureSession {
         _ = try await execute("""
         const task=await taskSpace(\(selector)); console.log('SIMUSUB_BROWSER_SPACE '+task.spaceId);
         const page=task.page('p1');
-        await page.cdp('Page.addScriptToEvaluateOnNewDocument',{source:'const p=HTMLMediaElement.prototype.play;HTMLMediaElement.prototype.play=function(){this.muted=true;return p.call(this)}'});
-        await page.goto(\(try browserJSON(address.absoluteString)));
+        await page.cdp('Page.addScriptToEvaluateOnNewDocument',{source:'(()=>{const p=HTMLMediaElement.prototype.play;HTMLMediaElement.prototype.play=function(){this.muted=true;return p.call(this)}})()'});
+        await page.goto(\(try browserJSON(address.absoluteString)), {waitUntil:"domcontentloaded",timeout:10000});
         await page.waitForFunction(()=>document.querySelector('video')?.readyState>=2,undefined,{timeout:12000});
         console.log('SIMUSUB_BROWSER_RESULT {}');
         """)
@@ -94,7 +94,7 @@ actor PortCaptureSession: BrowserCaptureSession {
         guard let target else { throw LiveMonitorError.invalidResponse }
         pageSession = try await command("Target.attachToTarget", ["targetId": target, "flatten": true])["sessionId"] as? String
         guard pageSession != nil else { throw LiveMonitorError.invalidResponse }
-        _ = try await command("Page.addScriptToEvaluateOnNewDocument", ["source": "const p=HTMLMediaElement.prototype.play;HTMLMediaElement.prototype.play=function(){this.muted=true;return p.call(this)}"])
+        _ = try await command("Page.addScriptToEvaluateOnNewDocument", ["source": "(()=>{const p=HTMLMediaElement.prototype.play;HTMLMediaElement.prototype.play=function(){this.muted=true;return p.call(this)}})()"])
         _ = try await command("Page.navigate", ["url": address.absoluteString])
         for _ in 0..<60 {
             if try await evaluate("({ready:document.querySelector('video')?.readyState>=2})")["ready"] as? Bool == true { return }

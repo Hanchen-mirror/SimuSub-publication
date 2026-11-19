@@ -28,6 +28,77 @@ private actor RepairTranslator: TextTranslating {
             .init(text: text, tokens: text.enumerated().map { .init(text: String($0.element), time: offset + Double($0.offset) * 0.2) })
         }
         let full = speech("今日はゲームをしていますとても楽しいです")
+        var changedBeginning = full
+        changedBeginning.tokens[0].text = "明"
+        changedBeginning.text = changedBeginning.tokens.map(\.text).joined()
+        var gap = full
+        gap.tokens.removeSubrange(5..<14)
+        gap.text = gap.tokens.map(\.text).joined()
+        var timedGap = ASRRevisionGuard()
+        _ = timedGap.reconcile(changedBeginning, start: 0, end: 5, recoverShortOmissions: true)
+        _ = timedGap.reconcile(full, start: 0, end: 6, recoverShortOmissions: true)
+        try require(timedGap.reconcile(gap, start: 0, end: 7, recoverShortOmissions: true).text == full.text,
+                    "japanese_independent_local_agreement_repairs_long_silent_hole")
+        var singlePass = ASRRevisionGuard()
+        _ = singlePass.reconcile(full, start: 0, end: 5, recoverShortOmissions: true)
+        try require(!singlePass.reconcile(gap, start: 0, end: 7, recoverShortOmissions: true).restored,
+                    "japanese_unconfirmed_single_pass_cannot_fill_hole")
+        var witnesses = JapaneseTimedAgreement()
+        witnesses.observe(previous: full.tokens, current: full.tokens, previousEnd: 5)
+        let missingHead = Array(full.tokens.dropFirst(14))
+        let hole = RecognizedSpeech(text: missingHead.map(\.text).joined(), tokens: missingHead)
+        var retries = 0
+        let verified = try await witnesses.verifyingAudio(in: hole, preliminary: hole,
+            samples: [Float](repeating: 0.1, count: 6 * 16000), start: 0) { _ in
+                retries += 1
+                return full
+            }
+        try require(retries == 1 && verified.text == full.text, "japanese_acoustic_gap_verified_from_real_samples")
+        let rejected = try await witnesses.verifyingAudio(in: hole, preliminary: hole,
+            samples: [Float](repeating: 0.1, count: 6 * 16000), start: 0) { _ in speech("完全別内容") }
+        try require(rejected.text == hole.text, "japanese_gap_rejects_unrelated_retry")
+        let blank = RecognizedSpeech(text: "", tokens: [])
+        let recoveredBlank = try await witnesses.verifyingAudio(in: blank, preliminary: blank,
+            samples: [Float](repeating: 0.1, count: 6 * 16000), start: 0) { _ in full }
+        try require(recoveredBlank.text == full.text,
+                    "japanese_empty_final_requires_matching_draft_and_acoustic_retry")
+        func timed(_ text: String, _ times: [Double]) -> RecognizedSpeech {
+            .init(text: text, tokens: zip(text, times).map { .init(text: String($0), time: $1) })
+        }
+        let acoustic = timed("前空色光後", [0.2, 0.65, 1.1, 1.45, 2.1])
+        let borders = timed("前後", [0.2, 2.1])
+        var gapEvidence = JapaneseTimedAgreement()
+        gapEvidence.observe(previous: acoustic.tokens, current: acoustic.tokens, previousEnd: 3)
+        let protected = timed("前旧後", [0.2, 1.1, 2.1])
+        let recheck = try await gapEvidence.verifyingAudio(in: borders, preliminary: protected,
+            samples: [Float](repeating: 0.1, count: 3 * 16000), start: 0) { _ in acoustic }
+        try require(recheck.text == protected.text, "japanese_short_retry_never_replaces_existing_timed_word")
+        let sparse = timed("前色後", [0.2, 1.1, 2.1])
+        let extended = try await gapEvidence.verifyingAudio(in: borders, preliminary: sparse,
+            samples: [Float](repeating: 0.1, count: 3 * 16000), start: 0) { _ in acoustic }
+        try require(extended.text == acoustic.text, "japanese_short_retry_adds_only_corroborated_timed_words")
+        let greeting = "ありがとう君のおかげで全部分かった"
+        var greetingSpeech = speech(greeting)
+        greetingSpeech.tokens = greeting.enumerated().map { i, char in
+            .init(text: String(char), time: i == 0 ? 0 : 12 + Double(i) * 0.25)
+        }
+        let sungGreeting = JapaneseCaptionPhrase.split(greetingSpeech, duration: 17, forTranslation: true)
+        try require(sungGreeting.count == 1 && sungGreeting.first?.text == greeting
+                    && (sungGreeting.first?.start ?? 0) > 10,
+                    "japanese_initial_timestamp_outlier_cannot_split_word_or_extend_caption_through_intro")
+        let farewell = speech("返事を読んだその一言ですべてを知った。外は明るくなった。")
+        let units = JapaneseCaptionPhrase.split(farewell, duration: 8, forTranslation: true)
+        try require(units.count == 2 && units[0].text == "返事を読んだその一言ですべてを知った。"
+                    && units.map(\.text).joined() == farewell.text,
+                    "japanese_translation_keeps_particle_and_its_predicate_until_sentence_boundary")
+        let repeated = speech(String(repeating: "また明日会いましょう", count: 7))
+        let phrases = JapaneseCaptionPhrase.split(repeated, duration: 15)
+        try require(phrases.count >= 3 && phrases.map(\.text).joined() == repeated.text
+                    && phrases.allSatisfy { $0.text.count <= 22 && $0.end - $0.start <= 7.1 }
+                    && zip(phrases, phrases.dropFirst()).allSatisfy { $0.end <= $1.start },
+                    "japanese_timed_phrases_preserve_repeats_and_order")
+        try require(JapaneseCaptionPhrase.split(.init(text: repeated.text), duration: 15).count == 1,
+                    "japanese_untimed_result_remains_whole")
         var omitted = full
         omitted.tokens.removeFirst(3); omitted.text = omitted.tokens.map(\.text).joined()
         var guardState = ASRRevisionGuard()
@@ -38,6 +109,21 @@ private actor RepairTranslator: TextTranslating {
         var middle = full; middle.tokens.removeSubrange(5..<8); middle.text = middle.tokens.map(\.text).joined()
         let middleRepair = guardState.reconcile(middle, start: 0, end: 8)
         try require(middleRepair.restored && middleRepair.text == full.text, "v125_confirmed_timed_middle_omission_restored")
+        for count in 1...2 {
+            var short = full
+            short.tokens.removeSubrange(5..<(5 + count))
+            short.text = short.tokens.map(\.text).joined()
+            var timed = ASRRevisionGuard()
+            _ = timed.reconcile(full, start: 0, end: 5)
+            _ = timed.reconcile(full, start: 0, end: 6)
+            try require(timed.reconcile(short, start: 0, end: 7, recoverShortOmissions: true).text == full.text,
+                        "japanese_short_timed_gap_restored_\(count)")
+            var prefix = full
+            prefix.tokens.removeFirst(count)
+            prefix.text = prefix.tokens.map(\.text).joined()
+            try require(!timed.reconcile(prefix, start: 0, end: 8, recoverShortOmissions: true).restored,
+                        "japanese_short_unanchored_gap_stays_revisable_\(count)")
+        }
         var fresh = ASRRevisionGuard()
         _ = fresh.reconcile(full, start: 0, end: 5)
         try require(!fresh.reconcile(omitted, start: 0, end: 6).restored, "v125_single_hypothesis_not_locked")

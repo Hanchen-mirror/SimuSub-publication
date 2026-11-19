@@ -33,6 +33,19 @@ enum SubtitleV105Checks {
         }
         checks.append("responsive_layout_preserves_all_characters_and_punctuation")
         let caption = Caption(start: 0, end: 2, original: cases[1].1, translated: cases[7].1)
+        let english = "The server hosts an open source project and we are setting up its own infrastructure."
+        let echoed = Caption(start: 0, end: 2, original: english, translated: "（笑）\n原文：上一个片段")
+        let live = SubtitleDocument.liveCaption(echoed)
+        try require(live.original == english && live.translated.isEmpty &&
+                    !SubtitleDocument.render([live], format: .srt, mode: .bilingual).contains("原文："),
+                    "live_projection_hides_model_history_echo_preserves_source", &checks)
+        let quoted = Caption(start: 0, end: 2, original: "I am editing the original sentence.", translated: "正在修改。\n原句：你好。")
+        try require(SubtitleDocument.liveCaption(quoted) == quoted &&
+                    SubtitleDocument.render([quoted], format: .srt, mode: .bilingual).contains(quoted.translated),
+                    "spoken_editing_labels_survive_display_and_export", &checks)
+        try require(SubtitleDocument.isTranslationArtifact("*笑了*", original: english + " Can you help me?") &&
+                    !SubtitleDocument.isTranslationArtifact("*笑了*", original: "*laughs*"),
+                    "reaction_echo_rejected_literal_laugh_kept", &checks)
         let before = SubtitleDocument.render([caption], format: .srt, mode: .bilingual)
         _ = SubtitleLineLayout.format(caption.original, language: .japanese, width: 96, font: .systemFont(ofSize: 16))
         try require(before == SubtitleDocument.render([caption], format: .srt, mode: .bilingual), "display_layout_does_not_change_export_or_source", &checks)

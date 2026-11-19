@@ -43,9 +43,10 @@ final class BudouXModel {
 
 /// Display only: never modifies the ASR source, translation context, or exports.
 enum SubtitleLineLayout {
-    enum Language: String { case japanese = "ja", chinese = "zh-hans" }
+    enum Language: String { case japanese = "ja", chinese = "zh-hans", traditionalChinese = "zh-hant", english = "en" }
     private static let japanese = load(.japanese)
     private static let chinese = load(.chinese)
+    private static let traditionalChinese = load(.traditionalChinese)
     private static let cache: NSCache<NSString, NSString> = {
         let value = NSCache<NSString, NSString>(); value.countLimit = 256; return value
     }()
@@ -56,7 +57,12 @@ enum SubtitleLineLayout {
 
     static var modelsAvailable: Bool { japanese != nil && chinese != nil }
     static func chunks(_ text: String, language: Language) -> [String] {
-        (language == .japanese ? japanese : chinese)?.parse(text) ?? text.map(String.init)
+        switch language {
+        case .japanese: return japanese?.parse(text) ?? text.map(String.init)
+        case .chinese: return chinese?.parse(text) ?? text.map(String.init)
+        case .traditionalChinese: return traditionalChinese?.parse(text) ?? text.map(String.init)
+        case .english: return text.split(separator: " ", omittingEmptySubsequences: false).enumerated().map { ($0.offset == 0 ? "" : " ") + $0.element }
+        }
     }
 
     static func format(_ text: String, language: Language, width: CGFloat, font: NSFont) -> String {

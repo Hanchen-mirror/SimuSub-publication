@@ -3,6 +3,8 @@ import Foundation
 
 enum PermissionRecovery {
     static let allowedBundleIDs = ["com.mirror.simusub", "com.mirror.simusub.v2preview"]
+    static let localCandidateBundleID = "com.mirror.simusub.localcandidate"
+    static let relaunchBundleIDs = allowedBundleIDs + [localCandidateBundleID]
     static func resetApplicationAudio() async throws {
         guard let identifier = Bundle.main.bundleIdentifier, allowedBundleIDs.contains(identifier) else { throw RecoveryError.invalidIdentity }
         _ = try relaunchHelper()
@@ -37,7 +39,7 @@ enum PermissionRecovery {
 
     private static func relaunchHelper() throws -> URL {
         let app = Bundle.main.bundleURL
-        guard app.pathExtension == "app", allowedBundleIDs.contains(Bundle.main.bundleIdentifier ?? "") else { throw RecoveryError.invalidIdentity }
+        guard app.pathExtension == "app", relaunchBundleIDs.contains(Bundle.main.bundleIdentifier ?? "") else { throw RecoveryError.invalidIdentity }
         let helper = app.appendingPathComponent("Contents/Helpers/SimuSubRelaunch")
         guard FileManager.default.isExecutableFile(atPath: helper.path) else { throw RecoveryError.helperMissing }
         return helper

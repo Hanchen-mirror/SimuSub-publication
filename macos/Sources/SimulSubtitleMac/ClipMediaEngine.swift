@@ -64,7 +64,7 @@ enum ClipMediaEngine {
             let time = request.compositionTime.seconds
             let image = request.sourceImage
             if let overlay = cache.image(at: time) {
-                let origin = ClipSubtitleRenderer.origin(size: image.extent.size, overlay: overlay.extent.size, style: style)
+                let origin = CGPoint.zero
                 let shifted = overlay.transformed(by: CGAffineTransform(translationX: origin.x + image.extent.minX, y: origin.y + image.extent.minY))
                 request.finish(with: shifted.composited(over: image).cropped(to: image.extent), context: nil)
             } else { request.finish(with: image, context: nil) }
@@ -99,12 +99,13 @@ private final class ClipOverlayCache: @unchecked Sendable {
     private var images: [UUID: CIImage] = [:]
     init(captions: [Caption], size: CGSize, style: ClipSubtitleStyle) { self.captions = captions; self.size = size; self.style = style }
     func image(at time: Double) -> CIImage? {
-        guard let cue = captions.first(where: { $0.start <= time && time < $0.end }) else { return nil }
+        let cue = captions.first(where: { $0.start <= time && time < $0.end })
+        let key = cue?.id ?? UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
         return lock.withLock {
-            if let cached = images[cue.id] { return cached }
-            guard let rendered = ClipSubtitleRenderer.overlay(cue, size: size, style: style) else { return nil }
+            if let cached = images[key] { return cached }
+            guard let rendered = ClipSubtitleRenderer.frame(cue, size: size, style: style) else { return nil }
             if images.count >= 8 { images.removeAll() }
-            let image = CIImage(cgImage: rendered); images[cue.id] = image; return image
+            let image = CIImage(cgImage: rendered); images[key] = image; return image
         }
     }
 }

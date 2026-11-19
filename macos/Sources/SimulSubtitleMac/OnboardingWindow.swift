@@ -3,10 +3,9 @@ import SwiftUI
 
 struct LaunchContent: View {
     @ObservedObject var model: AppModel
-    private var diagnostic: Bool { CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) }
     var body: some View {
         Group {
-            if !model.onboardingCompleted && (!diagnostic || CommandLine.arguments.contains("--onboarding-check")) {
+            if !model.onboardingCompleted && CommandLine.arguments.contains("--onboarding-check") {
                 OnboardingHost(model: model)
             } else { MainWindow() }
         }
@@ -40,7 +39,7 @@ struct OnboardingWindow: View {
         HStack(spacing: 0) {
             sidebar.frame(width: 204)
             VStack(alignment: .leading, spacing: 0) {
-                Text(setup.step == .permissions ? "开启权限" : "选择模型")
+                Text(L10n.text(setup.step == .permissions ? "开启权限" : "选择模型"))
                     .font(.system(size: 30, weight: .semibold)).padding(.bottom, 48)
                 if setup.step == .permissions { permissionCard }
                 else {
@@ -52,13 +51,13 @@ struct OnboardingWindow: View {
                 Spacer(minLength: 32)
                 Rectangle().fill(ThemeColor.line).frame(height: 1)
                 HStack {
-                    if setup.step == .models { Button("上一步") { setup.step = .permissions }.frame(minWidth: 100) }
+                    if setup.step == .models { Button(L10n.text("上一步")) { setup.step = .permissions }.frame(minWidth: 100) }
                     Spacer()
                     if setup.step == .permissions {
-                        Button { setup.advance() } label: { HStack(spacing: 24) { Text("下一步"); Image(systemName: "arrow.right") }.frame(width: 144, height: 24) }
+                        Button { setup.advance() } label: { HStack(spacing: 24) { Text(L10n.text("下一步")); Image(systemName: "arrow.right") }.frame(width: 144, height: 24) }
                             .buttonStyle(SetupContinueButtonStyle()).disabled(!setup.permissions.screenGranted)
                     } else {
-                        Button { setup.finish() } label: { HStack(spacing: 18) { Text("进入主界面"); Image(systemName: "arrow.right") }.frame(width: 150, height: 24) }
+                        Button { setup.finish() } label: { HStack(spacing: 18) { Text(L10n.text("进入主界面")); Image(systemName: "arrow.right") }.frame(width: 150, height: 24) }
                             .buttonStyle(SetupContinueButtonStyle()).disabled(!setup.canFinish)
                     }
                 }.padding(.top, 24)
@@ -82,7 +81,7 @@ struct OnboardingWindow: View {
                 .disabled(!setup.permissions.screenGranted)
             Spacer()
             VStack(alignment: .leading, spacing: 16) {
-                Text("主题").font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
+                Text(L10n.text("主题")).font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
                 HStack(spacing: 10) {
                     ForEach(AppTheme.allCases) { theme in
                         Button { appearance.theme = theme } label: {
@@ -90,7 +89,7 @@ struct OnboardingWindow: View {
                                 .frame(width: 28, height: 28)
                                 .padding(3)
                                 .overlay(Circle().strokeBorder(appearance.theme == theme ? ThemeColor.primary : .clear, lineWidth: 1))
-                        }.buttonStyle(.plain).help(theme.title).accessibilityLabel("主题：\(theme.title)")
+                        }.buttonStyle(.plain).help(theme.title).accessibilityLabel(L10n.text("主题：\(theme.title)"))
                             .accessibilityAddTraits(appearance.theme == theme ? .isSelected : [])
                     }
                 }
@@ -108,7 +107,7 @@ struct OnboardingWindow: View {
                 }.frame(width: 25, height: 25)
                     .foregroundStyle(setup.step == step ? ThemeColor.surface : ThemeColor.primary)
                     .background(setup.step == step ? ThemeColor.primary : ThemeColor.surface, in: Circle())
-                Text(title).font(.system(size: 14, weight: setup.step == step ? .semibold : .regular))
+                Text(L10n.text(title)).font(.system(size: 14, weight: setup.step == step ? .semibold : .regular))
                 Spacer(minLength: 0)
             }.padding(12).frame(height: 50)
                 .background(setup.step == step ? ThemeColor.selection : .clear, in: RoundedRectangle(cornerRadius: 12))
@@ -118,18 +117,18 @@ struct OnboardingWindow: View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(spacing: 20) {
                 setupIcon("display")
-                Text("屏幕与系统音频录制").font(.system(size: 20, weight: .semibold))
+                Text(L10n.text("屏幕与系统音频录制")).font(.system(size: 20, weight: .semibold))
                 Spacer()
-                Text(setup.permissions.screenGranted ? "✓ 已开启" : "待开启")
+                Text(L10n.text(setup.permissions.screenGranted ? "✓ 已开启" : "待开启"))
                     .font(.system(size: 12, weight: .medium)).foregroundStyle(ThemeColor.primary)
                     .frame(width: 86, height: 30).background(ThemeColor.soft, in: Capsule())
             }
             Rectangle().fill(ThemeColor.line).frame(height: 1)
             HStack {
-                Text("系统设置  ›  隐私与安全性  ›  屏幕与系统音频录制")
+                Text(L10n.text("系统设置  ›  隐私与安全性  ›  屏幕与系统音频录制"))
                     .font(.system(size: 13)).foregroundStyle(ThemeColor.muted)
                 Spacer()
-                Button { setup.permissions.openSetupSettings() } label: { Label("打开设置", systemImage: "arrow.up.right") }
+                Button { setup.permissions.openSetupSettings() } label: { Label(L10n.text("打开设置"), systemImage: "arrow.up.right") }
                     .buttonStyle(ThemeActionButtonStyle(prominent: true))
             }
         }.padding(28).frame(maxWidth: .infinity, minHeight: 224)
@@ -160,22 +159,22 @@ private struct SetupModelCard: View {
                 setupIcon(asr ? "waveform" : "character.bubble")
                 VStack(alignment: .leading, spacing: 6) {
                     Text(asr ? "ASR" : "Translation").font(.system(size: 12, weight: .medium)).foregroundStyle(ThemeColor.muted)
-                    Text(purpose.rawValue).font(.system(size: 18, weight: .semibold))
+                    Text(L10n.text(purpose.rawValue)).font(.system(size: 18, weight: .semibold))
                 }
                 Spacer()
-                Menu(local ? "本地" : "云端") {
-                    Button("本地") { setup.select(.local, for: purpose); key = "" }
-                    Button("云端") { setup.select(.openAICompatible, for: purpose); key = "" }
+                Menu(L10n.text(local ? "本地" : "云端")) {
+                    Button(L10n.text("本地")) { setup.select(.local, for: purpose); key = "" }
+                    Button(L10n.text("云端")) { setup.select(.openAICompatible, for: purpose); key = "" }
                 }.menuStyle(.borderlessButton).menuIndicator(.hidden)
                     .frame(width: 88, height: 32)
                     .overlay {
                         HStack {
-                            Text(local ? "本地" : "云端").font(.system(size: 12))
+                            Text(L10n.text(local ? "本地" : "云端")).font(.system(size: 12))
                             Spacer()
                             Image(systemName: "chevron.down").font(.system(size: 9))
                         }.padding(.horizontal, 14).frame(width: 88, height: 32)
                             .setupField().allowsHitTesting(false)
-                    }.accessibilityLabel("\(purpose.rawValue)模型位置")
+                    }.accessibilityLabel(L10n.text("\(purpose.rawValue)模型位置"))
             }.frame(height: 42)
             line.padding(.vertical, 22)
             if local { localFields }
@@ -187,7 +186,7 @@ private struct SetupModelCard: View {
         .onChange(of: profile?.id) { _ in key = "" }
     }
     private var line: some View { Rectangle().fill(ThemeColor.line).frame(height: 1) }
-    private func label(_ text: String) -> some View { Text(text).font(.system(size: 12)).foregroundStyle(ThemeColor.muted) }
+    private func label(_ text: String) -> some View { Text(L10n.text(text)).font(.system(size: 12)).foregroundStyle(ThemeColor.muted) }
     private var localFields: some View {
         VStack(alignment: .leading, spacing: 0) {
             label("模型").padding(.bottom, 10)
@@ -196,22 +195,22 @@ private struct SetupModelCard: View {
                 Spacer()
                 Image(systemName: "checkmark").font(.system(size: 11)).foregroundStyle(ThemeColor.muted)
             }.padding(.horizontal, 12).frame(height: 44).setupField()
-                .accessibilityLabel(asr ? "本地模型 ReazonSpeech k2 v2" : "本地模型 Index Translate 2B")
+                .accessibilityLabel(L10n.text(asr ? "本地模型 ReazonSpeech k2 v2" : "本地模型 Index Translate 2B"))
             HStack {
-                Text(asr ? "日语 · INT8 · 169 MB" : "Q4_K_M · 1.31 GB").font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
+                Text(L10n.text(asr ? "日语 · INT8 · 169 MB" : "Q4_K_M · 1.31 GB")).font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
                 Spacer(minLength: 8)
                 if state.phase == .pending || (state.phase == .failed && state.canRetry) {
-                    Button { setup.startDownload(purpose) } label: { Label(state.phase == .failed ? "重试" : "下载", systemImage: "arrow.down.to.line") }
-                        .accessibilityLabel("下载\(purpose.rawValue)模型")
+                    Button { setup.startDownload(purpose) } label: { Label(L10n.text(state.phase == .failed ? "重试" : "下载"), systemImage: "arrow.down.to.line") }
+                        .accessibilityLabel(L10n.text("下载\(purpose.rawValue)模型"))
                 } else if state.phase == .downloading || state.phase == .paused {
-                    Button { setup.togglePause(purpose) } label: { Label(state.phase == .paused ? "继续" : "暂停", systemImage: state.phase == .paused ? "play" : "pause") }
+                    Button { setup.togglePause(purpose) } label: { Label(L10n.text(state.phase == .paused ? "继续" : "暂停"), systemImage: state.phase == .paused ? "play" : "pause") }
                 }
             }.frame(height: 48)
             HStack {
                 label("存储位置")
                 Spacer()
                 Button { setup.revealModels(purpose) } label: { Image(systemName: "folder").font(.system(size: 16)) }
-                    .buttonStyle(.plain).help("在访达中显示模型目录").accessibilityLabel("显示\(purpose.rawValue)模型目录")
+                    .buttonStyle(.plain).help(L10n.text("在访达中显示模型目录")).accessibilityLabel(L10n.text("显示\(purpose.rawValue)模型目录"))
             }.padding(.bottom, 10)
             Text(displayPath).font(.system(size: 12)).lineSpacing(8)
                 .textSelection(.enabled).frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
@@ -232,23 +231,23 @@ private struct SetupModelCard: View {
             line.padding(.bottom, 6)
             HStack {
                 if state.phase == .complete { Image(systemName: "checkmark").font(.system(size: 11)) }
-                Text(state.label).font(.system(size: 12, weight: .medium))
+                Text(L10n.text(state.label)).font(.system(size: 12, weight: .medium))
                 Spacer()
                 if state.phase != .complete {
                     Text("\(Int(state.fraction * 100))%").font(.system(size: 12)).monospacedDigit()
                 }
                 if state.phase == .downloading || state.phase == .paused {
                     Button { setup.cancel(purpose) } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
-                        .help("取消下载").accessibilityLabel("取消\(purpose.rawValue)模型下载")
+                        .help(L10n.text("取消下载")).accessibilityLabel(L10n.text("取消\(purpose.rawValue)模型下载"))
                 }
             }.foregroundStyle(ThemeColor.primary)
             GeometryReader { g in
                 Capsule().fill(ThemeColor.soft)
                     .overlay(alignment: .leading) { Capsule().fill(ThemeColor.primary).frame(width: g.size.width * state.fraction) }
             }.frame(height: 5).accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(purpose.rawValue)下载进度").accessibilityValue("\(Int(state.fraction * 100))% \(state.label)")
+                .accessibilityLabel(L10n.text("\(purpose.rawValue)下载进度")).accessibilityValue("\(Int(state.fraction * 100))% \(state.label)")
             if !state.error.isEmpty {
-                Text(state.error).font(.system(size: 11)).foregroundStyle(ThemeColor.muted).lineLimit(2).help(state.error)
+                Text(L10n.text(state.error)).font(.system(size: 11)).foregroundStyle(ThemeColor.muted).lineLimit(2).help(state.error)
             } else if state.phase == .downloading || state.phase == .paused {
                 let total = asr ? model.modelStore.asrDownloadBytes : model.modelStore.translationDownloadBytes
                 Text("\(ByteCountFormatter.string(fromByteCount: Int64(Double(total) * state.fraction), countStyle: .decimal)) / \(ByteCountFormatter.string(fromByteCount: total, countStyle: .decimal))")
@@ -263,27 +262,27 @@ private struct SetupModelCard: View {
             label("API Key").padding(.top, 4)
             HStack {
                 Group {
-                    if showKey { TextField(model.savedCredentialIDs.contains(profile.id) ? "已保存密钥" : "输入密钥", text: $key) }
-                    else { SecureField(model.savedCredentialIDs.contains(profile.id) ? "已保存密钥" : "输入密钥", text: $key) }
+                    if showKey { TextField(L10n.text(model.savedCredentialIDs.contains(profile.id) ? "已保存密钥" : "输入密钥"), text: $key) }
+                    else { SecureField(L10n.text(model.savedCredentialIDs.contains(profile.id) ? "已保存密钥" : "输入密钥"), text: $key) }
                 }.textFieldStyle(.plain)
                 Button { showKey.toggle() } label: { Image(systemName: showKey ? "eye.slash" : "eye") }.buttonStyle(.plain)
-                    .accessibilityLabel(showKey ? "隐藏密钥" : "显示密钥")
+                    .accessibilityLabel(L10n.text(showKey ? "隐藏密钥" : "显示密钥"))
             }.padding(12).frame(height: 44).setupField()
                 .onChange(of: key) { _ in setup.invalidate(profile.id) }
                 .disabled(setup.testing.contains(profile.id))
             label("模型").padding(.top, 4)
-            TextField("输入模型名称", text: binding.model).textFieldStyle(.plain).padding(12).frame(height: 44).setupField()
+            TextField(L10n.text("输入模型名称"), text: binding.model).textFieldStyle(.plain).padding(12).frame(height: 44).setupField()
             Spacer(minLength: 8)
             line
             HStack {
-                Text(setup.testing.contains(profile.id) ? "测试中" : setup.ready(purpose) ? "✓ 已连接" : "待配置")
+                Text(L10n.text(setup.testing.contains(profile.id) ? "测试中" : setup.ready(purpose) ? "✓ 已连接" : "待配置"))
                     .font(.system(size: 12)).foregroundStyle(ThemeColor.primary)
                 Spacer()
-                Button("测试连接") { Task { await setup.test(profile, key: key) } }
+                Button(L10n.text("测试连接")) { Task { await setup.test(profile, key: key) } }
                     .disabled(setup.testing.contains(profile.id) || profile.baseURL.isEmpty || profile.model.isEmpty || (key.isEmpty && !model.savedCredentialIDs.contains(profile.id)))
             }.frame(height: 36)
             if let error = setup.connectionErrors[profile.id] {
-                Text(error).font(.system(size: 11)).foregroundStyle(ThemeColor.muted).lineLimit(2).help(error)
+                Text(L10n.text(error)).font(.system(size: 11)).foregroundStyle(ThemeColor.muted).lineLimit(2).help(error)
             }
         }.font(.system(size: 13))
     }

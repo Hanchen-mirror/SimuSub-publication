@@ -13,6 +13,7 @@ enum SpeechBenchmark {
         let hotwords: [String]?
         let hotwordScore: Float?
         let stablePrefixes: Bool?
+        let japanesePhraseBoundaries: Bool?
         let translationTerms: [VTuberTerm]?
         let cases: [Case]
         struct Case: Decodable { let name: String; let path: String; let reference: String? }
@@ -27,7 +28,8 @@ enum SpeechBenchmark {
         for item in plan.cases {
             let samples = try AudioFileReader.read(URL(fileURLWithPath: item.path))
             let started = Date()
-            let frontend = try SpeechAudioFrontend(options: .init(suppressMusic: plan.enhance, showDrafts: plan.drafts, preserveOriginal: plan.preserveOriginal ?? true, stableCadence: plan.stablePrefixes ?? false))
+            let frontend = try SpeechAudioFrontend(options: .init(suppressMusic: plan.enhance, showDrafts: plan.drafts,
+                preserveOriginal: plan.preserveOriginal ?? true, stableCadence: plan.stablePrefixes ?? false))
             var segments: [AudioSegment] = []
             var emittedAt: [Double] = [], inputClock = 0.0
             frontend.onSegment = { segments.append($0); emittedAt.append(inputClock) }
@@ -49,11 +51,14 @@ enum SpeechBenchmark {
                 var revisionGuard = revisionGuards[segment.id] ?? ASRRevisionGuard()
                 let recognized = try await engine.recognizeDetailed(samples: segment.samples)
                 let resolved = revisionGuard.reconcile(recognized, start: segment.timestamp.timeIntervalSince1970,
-                    end: segment.timestamp.timeIntervalSince1970 + Double(segment.samples.count) / 16000)
+                    end: segment.timestamp.timeIntervalSince1970 + Double(segment.samples.count) / 16000,
+                    recoverShortOmissions: plan.japanesePhraseBoundaries ?? true)
                 let protected = revisionGuard.protectRollback(resolved.text, start: segment.timestamp.timeIntervalSince1970,
                     end: segment.timestamp.timeIntervalSince1970 + Double(segment.samples.count) / 16000)
                 revisionGuards[segment.id] = segment.isFinal ? nil : revisionGuard
-                let text = protected.text
+                let text = plan.japanesePhraseBoundaries == true ? resolved.text : protected.text
+                let duration = Double(segment.samples.count) / 16000
+                let timedPhrases = JapaneseCaptionPhrase.split(.init(text: resolved.text, tokens: resolved.tokens), duration: duration)
                 let elapsed = Date().timeIntervalSince(start)
                 asrTime += elapsed
                 if segment.isFinal { finalText += text; finalTime += elapsed }
@@ -86,7 +91,7 @@ enum SpeechBenchmark {
                     mtTime = Date().timeIntervalSince(mtStart)
                     previous.append(.init(original: text, translated: chinese))
                 }
-                texts.append(["rollbackBlocked": protected.pending != nil, "pendingCandidate": protected.pending ?? "", "rawText": recognized.text, "restoredOmission": resolved.restored, "timedTokens": recognized.tokens.map { ["text": $0.text, "time": $0.time] as [String: Any] }, "utterance": segment.id.uuidString, "revision": segment.revision, "chinese": chinese, "translationSeconds": mtTime, "start": segment.timestamp.timeIntervalSince1970, "duration": Double(segment.samples.count)/16000,
+                texts.append(["japanesePhrases": timedPhrases.map { ["start": $0.start, "end": $0.end, "text": $0.text] as [String: Any] }, "rollbackBlocked": protected.pending != nil, "pendingCandidate": protected.pending ?? "", "rawText": recognized.text, "restoredOmission": resolved.restored, "timedTokens": recognized.tokens.map { ["text": $0.text, "time": $0.time] as [String: Any] }, "utterance": segment.id.uuidString, "revision": segment.revision, "chinese": chinese, "translationSeconds": mtTime, "start": segment.timestamp.timeIntervalSince1970, "duration": Double(segment.samples.count)/16000,
                               "emittedAt": emittedAt[segmentIndex], "final": segment.isFinal, "text": text, "seconds": elapsed])
             }
             var row: [String: Any] = ["name": item.name, "audioSeconds": Double(samples.count)/16000,

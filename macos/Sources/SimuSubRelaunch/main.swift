@@ -8,7 +8,7 @@ guard arguments.count >= 2, let parentPID = Int32(arguments[0]), parentPID > 1 e
 let appURL = URL(fileURLWithPath: arguments[1]).standardizedFileURL
 guard appURL.pathExtension == "app",
       let info = NSDictionary(contentsOf: appURL.appendingPathComponent("Contents/Info.plist")),
-      ["com.mirror.simusub", "com.mirror.simusub.v2preview"].contains(info["CFBundleIdentifier"] as? String ?? "") else { exit(2) }
+      ["com.mirror.simusub", "com.mirror.simusub.v2preview", "com.mirror.simusub.localcandidate"].contains(info["CFBundleIdentifier"] as? String ?? "") else { exit(2) }
 let deadline = Date().addingTimeInterval(30)
 while kill(parentPID, 0) == 0 || errno == EPERM {
     guard Date() < deadline else { exit(3) }

@@ -25,7 +25,44 @@ enum ClipV124Checks {
         try require(SpeechAudioFrontend.finalRange(vad: 400..<600, draft: nil) == 400..<600, "v124_new_utterance_does_not_reuse_old_range")
         try require(SpeechAudioFrontend.originalSamples(fallback: [1,2,3,4,5], start: 10, raw: [30,40,50], rawStart: 12) == [1,2,30,40,50], "v124_missing_raw_prefix_does_not_shift_or_shorten_audio")
         try require(SpeechAudioFrontend.originalSamples(fallback: [1,2,3,4,5], start: 10, raw: [0,10,20], rawStart: 9) == [10,20,3,4,5], "v124_missing_raw_tail_keeps_fallback")
+        let voiced = [Float](repeating: 0.15, count: EnglishAudioEndpoint.frame)
+        let gap = [Float](repeating: 0.008, count: EnglishAudioEndpoint.frame)
+        var englishBoundary = EnglishAudioEndpoint()
+        _ = englishBoundary.pause(in: voiced, duration: 63_000)
+        try require(englishBoundary.pause(in: gap, duration: 64_000) == nil &&
+                    englishBoundary.pause(in: gap, duration: 64_512) == nil &&
+                    englishBoundary.pause(in: gap, duration: 65_024) == .afterFrame, "english_audio_prefers_sustained_gap_after_four_seconds")
+        let silence = [Float](repeating: 0.0001, count: 512)
+        var shortPause = EnglishAudioEndpoint()
+        _ = shortPause.pause(in: voiced, duration: 47_000)
+        try require(shortPause.pause(in: silence, duration: 47_512) == nil &&
+                    shortPause.pause(in: Array(silence.prefix(384)) + Array(voiced.prefix(128)), duration: 48_024) == .beforeFrame,
+                    "english_deep_inter_sentence_pause_at_three_seconds_keeps_next_onset")
+        var continuousSpeech = EnglishAudioEndpoint()
+        try require((1...170).allSatisfy { continuousSpeech.pause(in: voiced, duration: $0 * 512) == nil },
+                    "english_continuous_speech_does_not_cut_at_three_seconds")
+        var lookahead = [Float](repeating: 0.15, count: EnglishAudioEndpoint.lookahead)
+        let quietRange = (7 * 512)..<(9 * 512)
+        lookahead.replaceSubrange(quietRange, with: Array(repeating: 0.001, count: quietRange.count))
+        let boundary = EnglishAudioEndpoint.quietestOffset(in: lookahead[...])
+        try require(boundary == 8 * 512 && lookahead.count - boundary >= 6 * 512,
+                    "english_audio_hard_limit_chooses_quietest_boundary_with_following_context")
+        try require(!SubtitleProcessingOptions().liveEnglishToChinese, "file_and_other_language_endpoints_remain_opt_in")
         var profile = ServiceProfile.deepSeek
+        let cue = [Float](repeating: 0.01, count: 8_000)
+        let room = [Float](repeating: 0.0003, count: 5_120)
+        let end = cue.count, observedEnd = end + room.count
+        let quietTail = SpeechAudioFrontend.quietTail(in: cue + room, endingAt: end, processed: observedEnd, cueLength: end)
+        try require(quietTail == room, "quiet_asr_context_uses_the_observed_samples")
+        try require(SpeechAudioFrontend.quietTail(in: cue + room, endingAt: end, processed: end + 480, cueLength: end).isEmpty,
+                    "quiet_asr_context_cannot_read_unobserved_frames")
+        var nextVoice = room
+        nextVoice.replaceSubrange(4_096..<4_608, with: [Float](repeating: 0.01, count: 512))
+        try require(SpeechAudioFrontend.quietTail(in: cue + nextVoice, endingAt: end, processed: observedEnd, cueLength: end).isEmpty,
+                    "quiet_asr_context_rejects_the_next_voice")
+        let segment = AudioSegment(id: UUID(), revision: 1, isFinal: true, samples: cue, timestamp: Date(), quietRecognitionTail: quietTail)
+        try require(segment.samples.count == end && segment.quietRecognitionTail.count == room.count,
+                    "quiet_asr_context_preserves_the_caption_sample_clock")
         let oldData = try JSONEncoder().encode(profile)
         let legacy = try JSONDecoder().decode(ServiceProfile.self, from: oldData)
         try require(legacy.effectiveTranslationPrompt == ServiceProfile.defaultTranslationPrompt, "v124_old_profiles_get_default_prompt")

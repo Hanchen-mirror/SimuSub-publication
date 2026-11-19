@@ -3,6 +3,8 @@ import Foundation
 
 struct LivePlatformAccess: Sendable {
     var cookies: String?
+    var browserAllowed = true
+    var recordingQuality: RecordingQuality = .original
     var apiKey: String?
     var clientID: String?
     var accessToken: String?
@@ -38,6 +40,18 @@ struct LiveCookie: Sendable {
         }.map { $0.name + "=" + $0.value }
         return values.isEmpty ? nil : values.joined(separator: "; ")
     }
+    static func browserSession(_ result: [String: Any]?, platform: LivePlatform) -> String? {
+        let rows = result?["cookies"] as? [[String: Any]] ?? []
+        let text = "# Netscape HTTP Cookie File\n" + rows.compactMap { row -> String? in
+            guard let domain = row["domain"] as? String, let name = row["name"] as? String,
+                  let value = row["value"] as? String, let path = row["path"] as? String,
+                  ![domain, name, value, path].contains(where: { $0.contains(where: { $0 == "\t" || $0.isNewline }) }) else { return nil }
+            return [domain, domain.hasPrefix(".") ? "TRUE" : "FALSE", path, row["secure"] as? Bool == true ? "TRUE" : "FALSE",
+                    String(max(0, Int(row["expires"] as? Double ?? 0))), name, value].joined(separator: "\t")
+        }.joined(separator: "\n") + "\n"
+        let filtered = "# Netscape HTTP Cookie File\n" + parse(text, platform: platform).map(\.original).joined(separator: "\n") + "\n"
+        return hasLoginSession(filtered, platform: platform) ? filtered : nil
+    }
     static func hasLoginSession(_ text: String, platform: LivePlatform) -> Bool {
         let names: Set<String>
         switch platform {
@@ -64,13 +78,49 @@ final class LiveCookieLease {
     deinit { try? FileManager.default.removeItem(at: directory) }
 }
 
+enum LiveAccountSource { case guest, browser, cookies }
+
 @MainActor
 final class LiveCredentials: ObservableObject {
     @Published private(set) var revision = 0
     private let store = SecureCredentialStore()
     private let defaults: UserDefaults
     private let enabled: Bool
-    init(defaults: UserDefaults = .standard, enabled: Bool = true) { self.defaults = defaults; self.enabled = enabled }
+    private let browser: any LiveBrowserReading
+    @Published private var browserSessions: [LivePlatform: String] = [:]
+    private var probes: [LivePlatform: Task<[String: Any]?, Never>] = [:]
+    init(defaults: UserDefaults = .standard, enabled: Bool = true, browser: any LiveBrowserReading = LiveBrowserConnection()) {
+        self.defaults = defaults; self.enabled = enabled; self.browser = browser
+    }
+    func allowsBrowser(_ platform: LivePlatform) -> Bool { !defaults.bool(forKey: key(platform.rawValue + ".browserDisabled")) }
+    func selectedSource(_ platform: LivePlatform) -> LiveAccountSource {
+        if allowsBrowser(platform), let session = browserSessions[platform], LiveCookie.hasLoginSession(session, platform: platform) { return .browser }
+        return usesAccount(platform) ? .cookies : .guest
+    }
+    func refreshBrowserSession(_ platform: LivePlatform) async {
+        guard enabled else { return }
+        if let existing = probes[platform] {
+            let result = await existing.value
+            guard !Task.isCancelled else { return }
+            browserSessions[platform] = LiveCookie.browserSession(result, platform: platform)
+            return
+        }
+        let browser = self.browser
+        let url = URL(string: "https://www." + platform.cookieDomain + "/")!
+        let task = Task { await browser.page(url, player: false) }
+        probes[platform] = task
+        let result = await task.value
+        probes[platform] = nil
+        guard !Task.isCancelled else { return }
+        browserSessions[platform] = LiveCookie.browserSession(result, platform: platform)
+    }
+    func openLogin(_ platform: LivePlatform) {
+        defaults.set(false, forKey: key(platform.rawValue + ".browserDisabled")); revision += 1
+        // Open the browser whose local bridge can supply the session when it is running.
+        if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.citrolabs.ego.lite" })?.bundleURL {
+            NSWorkspace.shared.open([platform.loginURL], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+        } else { NSWorkspace.shared.open(platform.loginURL) }
+    }
     private func key(_ name: String) -> String { "liveMonitor.v106." + name }
     func usesAccount(_ platform: LivePlatform) -> Bool { defaults.bool(forKey: key(platform.rawValue + ".useAccount")) }
     func hasCookies(_ platform: LivePlatform) -> Bool { enabled && store.contains(account: key(platform.rawValue + ".cookies")) }
@@ -79,9 +129,10 @@ final class LiveCredentials: ObservableObject {
         return platform == .youtube ? store.contains(account: key("youtube.apiKey"))
             : platform == .twitch && store.contains(account: key("twitch.token")) && store.contains(account: key("twitch.clientID"))
     }
-    func useGuest(_ platform: LivePlatform) { defaults.set(false, forKey: key(platform.rawValue + ".useAccount")); revision += 1 }
+    func useGuest(_ platform: LivePlatform) { defaults.set(true, forKey: key(platform.rawValue + ".browserDisabled")); defaults.set(false, forKey: key(platform.rawValue + ".useAccount")); revision += 1 }
     func useSavedAccount(_ platform: LivePlatform) throws {
         guard hasCookies(platform) else { throw LiveMonitorError.unavailable("请先导入该平台的 Cookies 会话文件。") }
+        defaults.set(true, forKey: key(platform.rawValue + ".browserDisabled"))
         defaults.set(true, forKey: key(platform.rawValue + ".useAccount")); revision += 1
     }
     func importCookies(_ url: URL, platform: LivePlatform) throws {
@@ -92,6 +143,7 @@ final class LiveCredentials: ObservableObject {
         guard !entries.isEmpty else { throw LiveMonitorError.invalidInput("文件中没有该平台有效的 Netscape Cookies；请重新导出自己的会话。") }
         let filtered = "# Netscape HTTP Cookie File\n" + entries.map(\.original).joined(separator: "\n") + "\n"
         try store.save(filtered, account: key(platform.rawValue + ".cookies"))
+        defaults.set(true, forKey: key(platform.rawValue + ".browserDisabled"))
         defaults.set(true, forKey: key(platform.rawValue + ".useAccount")); revision += 1
     }
     func disconnect(_ platform: LivePlatform) throws {
@@ -123,12 +175,13 @@ final class LiveCredentials: ObservableObject {
     }
     func context(_ platform: LivePlatform) throws -> LivePlatformAccess {
         guard enabled else { return .init() }
-        var result = LivePlatformAccess()
+        var result = LivePlatformAccess(browserAllowed: allowsBrowser(platform))
         if usesAccount(platform) {
             if let text = try? store.read(account: key(platform.rawValue + ".cookies"), allowInteraction: false), LiveCookie.hasLoginSession(text, platform: platform) {
                 result.cookies = text
             } // An expired optional session must not disable public access.
         }
+        if selectedSource(platform) == .browser { result.cookies = browserSessions[platform] }
         if hasAPIKey(platform) {
             if platform == .youtube { result.apiKey = try? store.read(account: key("youtube.apiKey"), allowInteraction: false) }
             if platform == .twitch {

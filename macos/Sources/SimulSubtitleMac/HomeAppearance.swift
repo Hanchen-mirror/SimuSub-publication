@@ -17,6 +17,21 @@ final class HomeAppearance: ObservableObject {
     @Published var chineseSize: Double { didSet { defaults.set(chineseSize, forKey: "subtitle.chineseSize.v129") } }
     @Published var reduceMotion: Bool { didSet { defaults.set(reduceMotion, forKey: "appearance.reduceMotion.v129") } }
     @Published var restorePage: Bool { didSet { defaults.set(restorePage, forKey: "appearance.restorePage.v129") } }
+    @Published var workspaceZoom: WorkspaceZoom { didSet { defaults.set(workspaceZoom.rawValue, forKey: "appearance.workspaceZoom.v144") } }
+    @Published var interfaceFontSize: Double { didSet { defaults.set(interfaceFontSize, forKey: "appearance.interfaceFontSize.v148") } }
+    @Published var sourceOrder: [String] { didSet { defaults.set(sourceOrder, forKey: "subtitle.sourceOrder.v148") } }
+    @Published private(set) var pinnedSubtitleSources: [String] {
+        didSet { defaults.set(pinnedSubtitleSources, forKey: "subtitle.pinnedSources.v156") }
+    }
+
+    func pinSubtitleSource(_ id: String) {
+        let pins = [id] + pinnedSubtitleSources.filter { $0 != id }
+        if pins != pinnedSubtitleSources { pinnedSubtitleSources = pins }
+    }
+
+    func unpinSubtitleSource(_ id: String) {
+        if pinnedSubtitleSources.contains(id) { pinnedSubtitleSources.removeAll { $0 == id } }
+    }
     var lastPage: String { get { defaults.string(forKey: "appearance.lastPage.v129") ?? "subtitle" } set { defaults.set(newValue, forKey: "appearance.lastPage.v129") } }
     private var systemObserver: NSObjectProtocol?
     private var effectiveAppearanceObserver: NSKeyValueObservation?
@@ -37,6 +52,13 @@ final class HomeAppearance: ObservableObject {
         chineseSize = (defaults.object(forKey: "subtitle.chineseSize.v129") as? Double).map { min(32, max(12, $0)) } ?? 20
         reduceMotion = defaults.bool(forKey: "appearance.reduceMotion.v129")
         restorePage = defaults.object(forKey: "appearance.restorePage.v129") as? Bool ?? true
+        workspaceZoom = WorkspaceZoom(rawValue: defaults.integer(forKey: "appearance.workspaceZoom.v144")) ?? .normal
+        interfaceFontSize = (defaults.object(forKey: "appearance.interfaceFontSize.v148") as? Double).map { min(24, max(11, $0)) } ?? 13
+        let defaultOrder = ["com.colliderli.iina", "com.apple.Safari", AudioCaptureEngine.systemAudioID, "com.google.Chrome", "com.apple.iBooksX"]
+        let legacyOrder = defaults.stringArray(forKey: "subtitle.sourceOrder.v148")
+        sourceOrder = legacyOrder ?? defaultOrder
+        pinnedSubtitleSources = defaults.stringArray(forKey: "subtitle.pinnedSources.v156")
+            ?? (legacyOrder == defaultOrder ? [] : legacyOrder ?? [])
         isDark = false
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         backgroundURL = backgroundFile ?? support.appendingPathComponent("SimuSub/Appearance/background.png")
