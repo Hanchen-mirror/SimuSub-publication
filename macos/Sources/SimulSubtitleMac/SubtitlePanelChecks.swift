@@ -553,17 +553,37 @@ enum SubtitlePanelChecks {
         appearance.captionStyle = split
         try await Task.sleep(nanoseconds: 250_000_000)
         let separate = try snapshot(panel, to: directory.appendingPathComponent("caption-style-independent.png"))
-        var topGreen = 0, bottomPink = 0
-        for y in 0..<separate.pixelsHigh {
-            for x in stride(from: separate.pixelsWide / 4, to: 3 * separate.pixelsWide / 4, by: 2) {
-                guard let c = separate.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                if c.greenComponent > 0.7 && c.redComponent < 0.4 && c.blueComponent < 0.45
-                    && y < (standardRows[0].upperBound + standardRows[1].lowerBound) / 2 { topGreen += 1 }
-                if c.redComponent > 0.7 && c.greenComponent < 0.4 && c.blueComponent > 0.32
-                    && y > (standardRows[0].upperBound + standardRows[1].lowerBound) / 2 { bottomPink += 1 }
-            }
+        // Compare the same glyph pixels in two reference renders. The floating panel's
+        // translucency and display profile both affect the resulting RGB components.
+        var greenPair = split, pinkPair = split
+        greenPair.translation.fill = split.original.fill
+        pinkPair.original.fill = split.translation.fill
+        appearance.captionStyle = greenPair
+        try await Task.sleep(nanoseconds: 250_000_000)
+        let green = try snapshot(panel, to: directory.appendingPathComponent("caption-reference-green.png"))
+        appearance.captionStyle = pinkPair
+        try await Task.sleep(nanoseconds: 250_000_000)
+        let pink = try snapshot(panel, to: directory.appendingPathComponent("caption-reference-pink.png"))
+        func distance(_ lhs: NSColor, _ rhs: NSColor) -> CGFloat {
+            max(abs(lhs.redComponent - rhs.redComponent), abs(lhs.greenComponent - rhs.greenComponent),
+                abs(lhs.blueComponent - rhs.blueComponent))
         }
-        try require(topGreen > 40 && bottomPink > 40, "live_bilingual_panel_paints_original_and_translation_separately", &checks)
+        for (index, row) in standardRows.enumerated() {
+            var compared = 0, matched = 0
+            for y in row {
+                for x in stride(from: separate.pixelsWide / 4, to: 3 * separate.pixelsWide / 4, by: 2) {
+                    guard let original = green.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                          let translation = pink.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                          let actual = separate.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                          distance(original, translation) > 0.3 else { continue }
+                    compared += 1
+                    if distance(actual, index == 0 ? original : translation) < 0.03 { matched += 1 }
+                }
+            }
+            try require(compared > 40 && matched * 100 >= compared * 95,
+                        index == 0 ? "live_panel_original_matches_green_reference" : "live_panel_translation_matches_pink_reference", &checks)
+        }
+        checks.append("live_bilingual_panel_paints_original_and_translation_separately")
     }
 
     private static func checkPendingPair(_ model: AppModel, panel: NSPanel, directory: URL,

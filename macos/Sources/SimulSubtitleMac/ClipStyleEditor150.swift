@@ -521,6 +521,8 @@ private struct ClipColorPalette150: View {
     @Binding var value: String
     let title: String
     @AppStorage private var storedColors: String
+    @AppStorage private var hiddenColors: String
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @EnvironmentObject private var appearance: HomeAppearance
     @State private var editingColor: String?
     @State private var adding = false
@@ -541,37 +543,41 @@ private struct ClipColorPalette150: View {
         default: fallback = textColors[0]; presets = textColors
         }
         _storedColors = AppStorage(wrappedValue: "", "clip.style.colors.v150." + role)
+        _hiddenColors = AppStorage(wrappedValue: "", "clip.style.colors.hidden." + role)
     }
     private var customColors: [String] {
         var seen = Set(presets)
         return storedColors.split(separator: "|").map { String($0).uppercased() }.filter { ClipSubtitleStyle.isColor($0) && seen.insert($0).inserted }
     }
+    private var hidden: [String] {
+        hiddenColors.split(separator: "|").map(String.init)
+    }
     private var colors: [String] {
-        let all = presets + customColors, current = value.uppercased()
-        return all.contains(current) || !ClipSubtitleStyle.isColor(current) ? all : all + [current]
+        let excluded = Set(hidden)
+        let all = (presets + customColors).filter { !excluded.contains($0) }
+        let current = value.uppercased()
+        guard !all.contains(current), !excluded.contains(current), ClipSubtitleStyle.isColor(current) else { return all }
+        return all + [current]
     }
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 26, maximum: 26), spacing: 8)], alignment: .leading, spacing: 8) {
             ForEach(colors, id: \.self) { color in
                 ZStack(alignment: .topTrailing) {
-                    if presets.contains(color) {
-                        swatch(color)
-                    } else {
-                        swatch(color)
-                            .simultaneousGesture(LongPressGesture(minimumDuration: 0.55).onEnded { _ in
-                                editingColor = color
-                            })
-                            .contextMenu {
-                                Button(L10n.text("删除自定义颜色"), role: .destructive) { remove(color) }
-                            }
-                    }
+                    swatch(color)
+                        .simultaneousGesture(LongPressGesture(minimumDuration: 0.55).onEnded { _ in
+                            editingColor = color
+                        })
+                        .contextMenu {
+                            Button(L10n.text("删除颜色"), role: .destructive) { remove(color) }
+                        }
+                        .accessibilityAction(named: Text(L10n.text("删除颜色"))) { editingColor = color }
                     if editingColor == color {
                         Button { remove(color) } label: {
                             Image(systemName: "xmark").font(.system(size: 6, weight: .semibold)).frame(width: 12, height: 12)
                                 .foregroundStyle(ThemeColor.ink).background(ThemeColor.control, in: Circle())
                                 .overlay(Circle().strokeBorder(ThemeColor.line))
                         }.buttonStyle(.plain).offset(x: 2, y: -2)
-                            .accessibilityLabel(L10n.text("删除自定义颜色"))
+                            .accessibilityLabel(L10n.text("删除颜色"))
                             .accessibilityIdentifier("clip.color." + role + ".remove." + color)
                     }
                 }
@@ -583,10 +589,27 @@ private struct ClipColorPalette150: View {
                 .popover(isPresented: $adding, arrowEdge: .bottom) {
                     VStack(alignment: .leading, spacing: 16) {
                         ColorPicker(L10n.text("自定义颜色"), selection: $pendingColor, supportsOpacity: false).font(.system(size: 12))
+                        if !hidden.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(L10n.text("恢复颜色")).font(.caption).foregroundStyle(ThemeColor.muted)
+                                ScrollView {
+                                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 26, maximum: 26), spacing: 8)], alignment: .leading, spacing: 8) {
+                                        ForEach(hidden, id: \.self) { color in
+                                            Button { addColor(color) } label: {
+                                                Circle().fill(Color(nsColor: .clipHex(color))).frame(width: 18, height: 18)
+                                                    .frame(width: 26, height: 26).contentShape(Rectangle())
+                                            }.buttonStyle(.plain)
+                                                .accessibilityLabel(L10n.text("恢复颜色") + " " + L10n.text(colorName(color)))
+                                                .accessibilityIdentifier("clip.color." + role + ".restore." + color)
+                                        }
+                                    }
+                                }.frame(height: min(94, CGFloat((hidden.count + 4) / 5) * 34 - 8))
+                            }
+                        }
                         HStack {
                             Button(L10n.text("取消")) { adding = false }.buttonStyle(ThemeActionButtonStyle())
                             Spacer()
-                            Button(L10n.text("添加")) { addColor() }.buttonStyle(ThemeActionButtonStyle(prominent: true))
+                            Button(L10n.text("添加")) { addColor(NSColor(pendingColor).clipHex) }.buttonStyle(ThemeActionButtonStyle(prominent: true))
                         }
                     }.padding(16).frame(width: 220).background(ThemeColor.surface).foregroundStyle(ThemeColor.ink)
                 }
@@ -605,22 +628,26 @@ private struct ClipColorPalette150: View {
                 .overlay(Circle().strokeBorder(value.uppercased() == color ? ThemeColor.primary : .clear, lineWidth: 1))
                 .contentShape(Rectangle())
         }.buttonStyle(.plain)
-            .modifier(ClipColorJiggle150(enabled: editingColor == color && !appearance.reduceMotion))
+            .modifier(ClipColorJiggle150(enabled: editingColor == color && !appearance.reduceMotion && !systemReduceMotion))
             .accessibilityLabel(L10n.text(colorName(color)))
             .accessibilityIdentifier("clip.color." + role + "." + color)
             .accessibilityAddTraits(value.uppercased() == color ? .isSelected : [])
     }
-    private var motion: Animation? { appearance.reduceMotion ? nil : .easeInOut(duration: 0.16) }
-    private func addColor() {
-        let color = NSColor(pendingColor).clipHex.uppercased()
+    private var motion: Animation? { appearance.reduceMotion || systemReduceMotion ? nil : .easeInOut(duration: 0.16) }
+    private func addColor(_ color: String) {
+        let color = color.uppercased()
+        hiddenColors = hidden.filter { $0 != color }.joined(separator: "|")
         if !presets.contains(color), !customColors.contains(color) { storedColors = (customColors + [color]).joined(separator: "|") }
         withAnimation(motion) { value = color; adding = false }
     }
     private func remove(_ color: String) {
-        guard !presets.contains(color) else { return }
+        let remaining = colors.filter { $0 != color }
         editingColor = nil
-        if value.uppercased() == color { value = fallback }
-        storedColors = customColors.filter { $0 != color }.joined(separator: "|")
+        if value.uppercased() == color, let next = remaining.first {
+            value = remaining.contains(fallback) ? fallback : next
+        }
+        if !hidden.contains(color) { hiddenColors = (hidden + [color]).joined(separator: "|") }
+        if customColors.contains(color) { storedColors = customColors.filter { $0 != color }.joined(separator: "|") }
     }
     private func colorName(_ color: String) -> String {
         switch color { case "#FFFFFF": "白色"; case "#F6E4B5": "淡黄色"; case "#BEDDF4": "淡蓝色"; case "#17151C": "深色"; case "#000000": "黑色"; default: "自定义颜色" }
@@ -631,7 +658,7 @@ private struct ClipColorJiggle150: ViewModifier {
     let enabled: Bool
     @State private var phase = false
     func body(content: Content) -> some View {
-        content.rotationEffect(.degrees(enabled ? (phase ? 3 : -3) : 0))
+        content.offset(x: enabled ? (phase ? 1.4 : -1.4) : 0)
             .animation(enabled ? .easeInOut(duration: 0.13).repeatForever(autoreverses: true) : .easeOut(duration: 0.12), value: phase)
             .onChange(of: enabled) { phase = $0 }.onAppear { phase = enabled }
     }
