@@ -48,6 +48,9 @@ struct AppearanceSettings: View {
                     }.buttonStyle(.plain).accessibilityIdentifier("appearance.theme." + theme.rawValue)
                 }
             }
+            Toggle(L10n.text("SimuSub 字标扫光"), isOn: $appearance.wordmarkSheen)
+                .toggleStyle(DesignToggleStyle()).frame(height: 32)
+                .accessibilityIdentifier("appearance.wordmarkSheen")
             Toggle(L10n.text("减少动态效果"), isOn: $appearance.reduceMotion).toggleStyle(DesignToggleStyle()).frame(height: 32)
             Toggle(L10n.text("恢复上次窗口"), isOn: $appearance.restorePage).toggleStyle(DesignToggleStyle()).frame(height: 32)
         }.designPanel(inset: inset)

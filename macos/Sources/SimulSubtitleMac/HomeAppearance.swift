@@ -22,6 +22,8 @@ final class HomeAppearance: ObservableObject {
     @Published var chineseFont: String { didSet { defaults.set(chineseFont, forKey: "subtitle.chineseFont.v128") } }
     @Published var japaneseSize: Double { didSet { defaults.set(japaneseSize, forKey: "subtitle.japaneseSize.v129") } }
     @Published var chineseSize: Double { didSet { defaults.set(chineseSize, forKey: "subtitle.chineseSize.v129") } }
+    static let wordmarkSheenKey = "appearance.wordmarkSheen.v224"
+    @Published var wordmarkSheen: Bool { didSet { defaults.set(wordmarkSheen, forKey: Self.wordmarkSheenKey) } }
     @Published var reduceMotion: Bool { didSet { defaults.set(reduceMotion, forKey: "appearance.reduceMotion.v129") } }
     @Published var restorePage: Bool { didSet { defaults.set(restorePage, forKey: "appearance.restorePage.v129") } }
     @Published var workspaceZoom: WorkspaceZoom { didSet { defaults.set(workspaceZoom.rawValue, forKey: "appearance.workspaceZoom.v144") } }
@@ -60,6 +62,7 @@ final class HomeAppearance: ObservableObject {
         chineseFont = defaults.string(forKey: "subtitle.chineseFont.v128") ?? ""
         japaneseSize = (defaults.object(forKey: "subtitle.japaneseSize.v129") as? Double).map { min(32, max(12, $0)) } ?? 16
         chineseSize = (defaults.object(forKey: "subtitle.chineseSize.v129") as? Double).map { min(32, max(12, $0)) } ?? 20
+        wordmarkSheen = defaults.bool(forKey: Self.wordmarkSheenKey)
         reduceMotion = defaults.bool(forKey: "appearance.reduceMotion.v129")
         restorePage = defaults.object(forKey: "appearance.restorePage.v129") as? Bool ?? true
         workspaceZoom = WorkspaceZoom(rawValue: defaults.integer(forKey: "appearance.workspaceZoom.v144")) ?? .normal

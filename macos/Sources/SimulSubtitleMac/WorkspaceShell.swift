@@ -6,6 +6,7 @@ enum WorkspaceDestination: String, CaseIterable, Identifiable {
     var title: String { switch self { case .home: "工作空间"; case .subtitle: "字幕同传"; case .recording: "直播录制"; case .clips: "剪辑工作台"; case .services: "模型与服务"; case .settings: "设置" } }
 }
 struct WorkspaceSidebar: View {
+    @EnvironmentObject private var appearance: HomeAppearance
     @Namespace private var selection
     var selected: WorkspaceDestination
     var mode: WorkspaceNavigation = .sidebar
@@ -47,7 +48,7 @@ struct WorkspaceSidebar: View {
         Text(verbatim: "SimuSub").font(.system(size: size, weight: .semibold))
             .lineLimit(1).minimumScaleFactor(0.8)
             .foregroundStyle(ThemeColor.muted)
-            .modifier(TextSheen(active: true))
+            .modifier(TextSheen(active: appearance.wordmarkSheen))
             .accessibilityIdentifier("nav.brand")
     }
 

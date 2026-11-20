@@ -6,9 +6,22 @@ enum ThemeChecks {
     private static var started = false
     static func runIfRequested(model: AppModel, appearance: HomeAppearance, monitor: LiveMonitorStore, clips: ClipStore, subtitles: SubtitlePanelController) async -> Bool {
         if let index = CommandLine.arguments.firstIndex(of: "--theme-reload-check"), CommandLine.arguments.count > index + 2 {
-            let restored = HomeAppearance(defaults: UserDefaults(suiteName: CommandLine.arguments[index + 1])!, backgroundFile: FileManager.default.temporaryDirectory.appendingPathComponent("theme-no-wallpaper.png"))
-            let passed = restored.theme == .green && restored.mode == .light && restored.japaneseFont == "Hiragino Sans" && restored.chineseFont == "PingFang SC" && restored.japaneseSize == 18 && restored.chineseSize == 24 && restored.reduceMotion && restored.restorePage && restored.lastPage == "subtitle"
-            try? JSONSerialization.data(withJSONObject: ["passed": passed, "check": "theme_mode_and_fonts_restored_in_new_process", "processID": ProcessInfo.processInfo.processIdentifier], options: [.prettyPrinted]).write(to: URL(fileURLWithPath: CommandLine.arguments[index + 2]))
+            let suite = CommandLine.arguments[index + 1]
+            let defaults = UserDefaults(suiteName: suite)!
+            let wallpaper = FileManager.default.temporaryDirectory.appendingPathComponent("theme-no-wallpaper.png")
+            let restored = HomeAppearance(defaults: defaults, backgroundFile: wallpaper)
+            let offDefaults = UserDefaults(suiteName: suite + ".SheenOff")!
+            let sheenPassed: Bool
+            if defaults.object(forKey: HomeAppearance.wordmarkSheenKey) == nil {
+                // Earlier theme-check fixtures have no wordmark preference.
+                sheenPassed = !restored.wordmarkSheen && offDefaults.object(forKey: HomeAppearance.wordmarkSheenKey) == nil
+            } else {
+                let restoredOff = HomeAppearance(defaults: offDefaults, backgroundFile: wallpaper)
+                sheenPassed = restored.wordmarkSheen && !restoredOff.wordmarkSheen
+                    && offDefaults.object(forKey: HomeAppearance.wordmarkSheenKey) as? Bool == false
+            }
+            let passed = sheenPassed && restored.theme == .green && restored.mode == .light && restored.japaneseFont == "Hiragino Sans" && restored.chineseFont == "PingFang SC" && restored.japaneseSize == 18 && restored.chineseSize == 24 && restored.reduceMotion && restored.restorePage && restored.lastPage == "subtitle"
+            try? JSONSerialization.data(withJSONObject: ["passed": passed, "check": "theme_mode_and_fonts_restored_in_new_process", "wordmarkSheenPassed": sheenPassed, "wordmarkSheen": restored.wordmarkSheen, "processID": ProcessInfo.processInfo.processIdentifier], options: [.prettyPrinted]).write(to: URL(fileURLWithPath: CommandLine.arguments[index + 2]))
             NSApp.terminate(nil); return true
         }
         guard let index = CommandLine.arguments.firstIndex(of: "--theme-check"), CommandLine.arguments.count > index + 1 else { return false }
@@ -34,11 +47,19 @@ enum ThemeChecks {
             let wallpaper = directory.appendingPathComponent("no-wallpaper.png")
             do {
                 let saved = HomeAppearance(defaults: defaults, backgroundFile: wallpaper)
+                try require(!saved.wordmarkSheen, "wordmark_sheen_is_off_on_first_launch")
+                saved.wordmarkSheen = true
+                let offDefaults = UserDefaults(suiteName: suite + ".SheenOff")!
+                let savedOff = HomeAppearance(defaults: offDefaults, backgroundFile: wallpaper)
+                savedOff.wordmarkSheen = true
+                savedOff.wordmarkSheen = false
+                try require(!HomeAppearance(defaults: offDefaults, backgroundFile: wallpaper).wordmarkSheen, "wordmark_sheen_restores_off_after_being_disabled")
                 saved.theme = .green; saved.mode = .light; saved.japaneseFont = "Hiragino Sans"; saved.chineseFont = "PingFang SC"
                 saved.captionStyle = .blue
                 saved.japaneseSize = 18; saved.chineseSize = 24; saved.reduceMotion = true; saved.restorePage = true; saved.lastPage = "subtitle"
                 let restored = HomeAppearance(defaults: defaults, backgroundFile: wallpaper)
                 try require(restored.theme == .green && restored.mode == .light && restored.japaneseFont == saved.japaneseFont && restored.chineseFont == saved.chineseFont, "theme_mode_fonts_restore_from_saved_defaults")
+                try require(restored.wordmarkSheen, "wordmark_sheen_restores_on_when_enabled")
                 try require(restored.captionStyle == .blue, "live_caption_fill_outline_and_shadow_persist")
                 try require(restored.japaneseSize == 18 && restored.chineseSize == 24 && restored.reduceMotion && restored.restorePage && restored.lastPage == "subtitle", "font_sizes_and_workspace_preferences_persist")
             }
