@@ -5,7 +5,6 @@ struct UsageAboutSettingsView: View {
 
     @ObservedObject private var localization = AppLocalization.shared
     @State private var page: Page
-    @State private var readingLicense = false
 
     init(initialPage: Page = .guide) {
         _page = State(initialValue: initialPage)
@@ -26,9 +25,6 @@ struct UsageAboutSettingsView: View {
         }
         .frame(maxWidth: 700, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .sheet(isPresented: $readingLicense) {
-            licenseReader(title: copy.licenseTitle)
-        }
     }
 
     private func navigation(_ destination: Page, title: String, symbol: String) -> some View {
@@ -87,16 +83,7 @@ struct UsageAboutSettingsView: View {
                     }
                 }
             }
-            VStack(alignment: .leading, spacing: 10) {
-                sectionHeading(copy.licenseTitle, symbol: "doc.text")
-                paragraph(copy.licenseSummary)
-                Button { readingLicense = true } label: {
-                    Label(copy.licenseLinkTitle, systemImage: "doc.plaintext")
-                        .interfaceFont(size: 14, weight: .medium)
-                }
-                .buttonStyle(ThemeActionButtonStyle())
-                .accessibilityIdentifier("usage.readLicense")
-            }
+            paragraph(copy.licenseSummary)
             separator
             VStack(alignment: .leading, spacing: 9) {
                 sectionHeading(copy.originTitle, symbol: "captions.bubble")
@@ -115,25 +102,20 @@ struct UsageAboutSettingsView: View {
                     ForEach(Array(group.models.enumerated()), id: \.offset) { index, model in
                         if index > 0 { separator }
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(verbatim: model.name).interfaceFont(size: 15, weight: .semibold)
-                                .foregroundStyle(ThemeColor.ink).fixedSize(horizontal: false, vertical: true)
+                            externalLink(model.url, label: model.name)
                             Text(verbatim: model.author + " · " + model.role).interfaceFont(size: 14)
                                 .foregroundStyle(ThemeColor.muted).fixedSize(horizontal: false, vertical: true)
-                            externalLink(model.url, label: model.name)
                         }
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 9)
                     }
                 }
-                .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(ThemeColor.surface, in: RoundedRectangle(cornerRadius: 12))
-                .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(ThemeColor.line) }
             }
             separator
             VStack(alignment: .leading, spacing: 9) {
                 sectionHeading(copy.mentorTitle, symbol: "person")
                 paragraph(copy.mentorBody)
-                externalLink(copy.mentorLink.url, label: copy.mentorLink.title, showLabel: true)
+                externalLink(copy.mentorLink.url, label: copy.mentorLink.title)
             }
         }
         .accessibilityIdentifier("usage.about")
@@ -159,59 +141,17 @@ struct UsageAboutSettingsView: View {
             .textSelection(.enabled)
     }
 
-    private func externalLink(_ url: URL, label: String, showLabel: Bool = false) -> some View {
-        let address = url.absoluteString.replacingOccurrences(of: "https://", with: "")
-        return Link(destination: url) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Image(systemName: "arrow.up.right.square").font(.system(size: 13)).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    if showLabel { Text(verbatim: label).interfaceFont(size: 14, weight: .medium) }
-                    Text(verbatim: address).underline().interfaceFont(size: 14)
-                        .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .foregroundStyle(ThemeColor.primaryInk).padding(.vertical, 3)
+    private func externalLink(_ url: URL, label: String) -> some View {
+        Link(destination: url) {
+            Text(verbatim: label).underline().interfaceFont(size: 15, weight: .medium)
+                .foregroundStyle(ThemeColor.primaryInk).multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .buttonStyle(.plain)
         .help(url.absoluteString)
-        .accessibilityLabel(label + ", " + address)
-    }
-
-    private func licenseReader(title: String) -> some View {
-        VStack(alignment: .leading, spacing: 15) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(verbatim: title).interfaceFont(size: 20, weight: .semibold).accessibilityAddTraits(.isHeader)
-                Spacer()
-                Button { readingLicense = false } label: {
-                    Image(systemName: "xmark").frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain).help(L10n.text("关闭")).accessibilityLabel(L10n.text("关闭"))
-                .keyboardShortcut(.cancelAction)
-            }
-            separator
-            ScrollView {
-                Text(verbatim: Self.license ?? unavailableLicense)
-                    .font(.system(size: 14, design: .monospaced)).lineSpacing(5)
-                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .foregroundStyle(ThemeColor.ink).padding(20)
-        .frame(minWidth: 320, idealWidth: 520, maxWidth: 620, minHeight: 280, idealHeight: 400, maxHeight: 520)
-        .background(ThemeColor.background)
-        .accessibilityIdentifier("usage.license")
-    }
-
-    private var unavailableLicense: String {
-        switch localization.language {
-        case .english: return "The license file could not be read."
-        case .japanese: return "ライセンスファイルを読み込めませんでした。"
-        default: return localization.language.normalizeScript("无法读取许可证文件。")
-        }
     }
 
     private static let mark = Bundle.main.url(forResource: "SimuSubMark", withExtension: "png").flatMap(NSImage.init(contentsOf:))
-    private static let license = Bundle.main.url(forResource: "LICENSE", withExtension: nil)
-        .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
     private static let version: String? = {
         let info = Bundle.main.infoDictionary
         guard let version = info?["CFBundleShortVersionString"] as? String else { return nil }
