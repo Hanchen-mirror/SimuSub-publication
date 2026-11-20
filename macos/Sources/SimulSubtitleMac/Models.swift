@@ -14,6 +14,20 @@ struct Caption: Identifiable, Codable, Equatable {
     var recognitionNeedsReview = false
     var sourceLanguage: SubtitleLanguage = .japanese
     var targetLanguage: SubtitleLanguage = .simplifiedChinese
+    // In a clip, only a change of speaker needs a marker.
+    var clipRoleID: UUID?
+    var clipUsesDefault: Bool?
+
+    mutating func assignClipRole(_ id: UUID?) {
+        clipRoleID = id
+        clipUsesDefault = id == nil ? true : nil
+    }
+
+    mutating func inheritClipRole() {
+        clipRoleID = nil
+        clipUsesDefault = nil
+    }
+
     /// Finalized recognition intentionally kept without a translation.
     var isOriginalOnly: Bool { !isDraft && translated.isEmpty && !original.isEmpty }
 
@@ -22,7 +36,7 @@ struct Caption: Identifiable, Codable, Equatable {
         self.original = original; self.translated = translated; self.isDraft = isDraft
         self.sourceLanguage = sourceLanguage; self.targetLanguage = targetLanguage
     }
-    private enum CodingKeys: String, CodingKey { case id, start, end, original, translated, isDraft, confirmedPrefix, originalRevisions, recognitionNotice, pendingOriginal, recognitionNeedsReview, sourceLanguage, targetLanguage }
+    private enum CodingKeys: String, CodingKey { case id, start, end, original, translated, isDraft, confirmedPrefix, originalRevisions, recognitionNotice, pendingOriginal, recognitionNeedsReview, sourceLanguage, targetLanguage, clipRoleID, clipUsesDefault }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(UUID.self, forKey: .id)
@@ -30,6 +44,8 @@ struct Caption: Identifiable, Codable, Equatable {
         end = try values.decode(TimeInterval.self, forKey: .end)
         original = try values.decode(String.self, forKey: .original)
         translated = try values.decode(String.self, forKey: .translated)
+        clipRoleID = try values.decodeIfPresent(UUID.self, forKey: .clipRoleID)
+        clipUsesDefault = try values.decodeIfPresent(Bool.self, forKey: .clipUsesDefault)
         isDraft = try values.decodeIfPresent(Bool.self, forKey: .isDraft) ?? false
         confirmedPrefix = try values.decodeIfPresent(String.self, forKey: .confirmedPrefix) ?? ""
         originalRevisions = try values.decodeIfPresent([String].self, forKey: .originalRevisions) ?? []

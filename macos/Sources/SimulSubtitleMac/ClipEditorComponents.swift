@@ -47,9 +47,11 @@ struct ClipStyledPlayer: NSViewRepresentable {
     let player: AVPlayer
     var captions: [Caption]
     var style: ClipSubtitleStyle
+    var roles: [ClipCaptionRole] = []
     var mediaSize: CGSize
     var onPosition: ((CGPoint, Bool) -> Void)? = nil
     var onStyle: ((ClipSubtitleStyle, Bool) -> Void)? = nil
+    var onRoleResize: ((UUID, Double, Double) -> Void)? = nil
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView(); view.player = player; view.controlsStyle = .none; view.showsFullScreenToggleButton = false
@@ -67,6 +69,21 @@ struct ClipStyledPlayer: NSViewRepresentable {
         var mediaSize = CGSize(width: 1920, height: 1080)
         var style = ClipSubtitleStyle.classic
         var cue: Caption?
+        var roles: [ClipCaptionRole] = []
+        var onRoleResize: ((UUID, Double, Double) -> Void)?
+        private var initialRole: ClipCaptionRole?
+        private var resizingRole: ClipCaptionRole?
+        private var visibleStyle: ClipSubtitleStyle {
+            if let resizingRole, resizingRole.id == cue?.clipRoleID {
+                return style.resolving(cue: cue, roles: [resizingRole])
+            }
+            return style.resolving(cue: cue, roles: roles)
+        }
+        func show(_ cue: Caption?) {
+            self.cue = cue
+            image = ClipSubtitleRenderer.image(cue, size: ClipSubtitleRenderer.previewSize(mediaSize), style: visibleStyle)
+            needsDisplay = true
+        }
         private var hover = false
         private var tracking: NSTrackingArea?
         private var initialPoint = CGPoint.zero
@@ -80,7 +97,7 @@ struct ClipStyledPlayer: NSViewRepresentable {
         }
         private var captionRect: CGRect {
             let raster = ClipSubtitleRenderer.previewSize(mediaSize)
-            guard let cue, let overlay = ClipSubtitleRenderer.overlay(cue, size: raster, style: style) else { return .zero }
+            guard let cue, let overlay = ClipSubtitleRenderer.overlay(cue, size: raster, style: visibleStyle) else { return .zero }
             let size = CGSize(width: overlay.width, height: overlay.height)
             let p = ClipSubtitleRenderer.origin(size: raster, overlay: size, style: style)
             let scale = videoRect.width / raster.width
@@ -115,7 +132,12 @@ struct ClipStyledPlayer: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {
             initialPoint = convert(event.locationInWindow, from: nil); initialStyle = style
             initialRect = captionRect
-            if resizeRect.contains(initialPoint) { operation = "scale" }
+            initialRole = nil
+            if resizeRect.contains(initialPoint) {
+                initialRole = roles.first { $0.id == cue?.clipRoleID }
+                initialStyle = visibleStyle
+                operation = "scale"
+            }
             else if captionRect.contains(initialPoint) { operation = "caption" }
             else if maskRect.insetBy(dx: -6, dy: -6).contains(initialPoint), !maskRect.isEmpty {
                 initialRect = maskRect
@@ -133,6 +155,17 @@ struct ClipStyledPlayer: NSViewRepresentable {
                 let raw = 1+(dx-dy)/max(40,initialRect.width+initialRect.height)
                 let lower = max(12/value.chinese.size,12/value.japanese.size), upper = min(120/value.chinese.size,120/value.japanese.size)
                 let factor = min(upper,max(lower,raw)); value.chinese.size *= factor; value.japanese.size *= factor
+                if var role = initialRole {
+                    role.chinese.size = value.chinese.size
+                    role.japanese.size = value.japanese.size
+                    resizingRole = role
+                    show(cue)
+                    if commit {
+                        onRoleResize?(role.id, role.chinese.size, role.japanese.size)
+                        operation = ""; initialRole = nil; resizingRole = nil
+                    }
+                    return
+                }
             } else if operation == "caption" {
                 var position = value.position ?? ClipSubtitlePosition(width: 0.92)
                 position.x = clamp((initialRect.midX-videoRect.minX+dx)/videoRect.width)
@@ -160,7 +193,10 @@ struct ClipStyledPlayer: NSViewRepresentable {
         var lastID: UUID?
         func configure(_ source: ClipStyledPlayer) {
             let changed = self.source?.style != source.style || self.source?.captions != source.captions
+                || self.source?.roles != source.roles || self.source?.mediaSize != source.mediaSize
             image?.onPosition = source.onPosition; image?.onStyle = source.onStyle; image?.mediaSize = source.mediaSize; image?.style = source.style
+            image?.onRoleResize = source.onRoleResize
+            image?.roles = source.roles
             self.source = source; refresh(force: changed)
         }
         func refresh(force: Bool = false) {
@@ -168,9 +204,7 @@ struct ClipStyledPlayer: NSViewRepresentable {
             let time = player?.currentTime().seconds ?? 0
             let cue = source.captions.first { $0.start <= time && time < $0.end }
             if !force && lastID == cue?.id { return }; lastID = cue?.id
-            let size = ClipSubtitleRenderer.previewSize(source.mediaSize)
-            image?.cue = cue; image?.image = ClipSubtitleRenderer.image(cue, size: size, style: source.style)
-            image?.needsDisplay = true
+            image?.show(cue)
         }
         func stop() { if let observer { player?.removeTimeObserver(observer) }; observer = nil; image?.image = nil; source = nil }
     }

@@ -148,12 +148,88 @@ struct ClipWorkspace: View {
     }
 }
 
+private struct CaptionInspectorIcon: View {
+    let symbol: String
+    var accented = false
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var hovered = false
+
+    init(_ symbol: String, accented: Bool = false) {
+        self.symbol = symbol
+        self.accented = accented
+    }
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 16, weight: .regular))
+            .foregroundStyle(accented ? ThemeColor.primaryInk : ThemeColor.muted)
+            .frame(width: 30, height: 30)
+            .background(hovered && isEnabled ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 9))
+            .contentShape(Rectangle())
+            .onHover { hovered = $0 }
+    }
+}
+
+/// Keeps each toolbar group intact when the project title or interface language changes.
+private struct ClipToolbarLayout: Layout {
+    let gap: CGFloat = 14
+
+    private func frames(_ proposal: ProposedViewSize, _ views: Subviews) -> (width: CGFloat, items: [CGRect]) {
+        let ideal = views.map { $0.sizeThatFits(.unspecified) }
+        let idealWidth = ideal.reduce(0) { $0 + $1.width } + gap * CGFloat(max(0, views.count - 1))
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? idealWidth
+        var rows: [[CGRect]] = [[]]
+        var x: CGFloat = 0
+        for (index, size) in ideal.enumerated() {
+            let w = min(width, size.width)
+            if x > 0 && x + w > width {
+                rows.append([])
+                x = 0
+            }
+            let h = views[index].sizeThatFits(ProposedViewSize(width: w, height: nil)).height
+            rows[rows.count - 1].append(CGRect(x: x, y: 0, width: w, height: h))
+            x += w + gap
+        }
+
+        var y: CGFloat = 0
+        var items: [CGRect] = []
+        for (rowIndex, row) in rows.enumerated() {
+            let height = row.map(\.height).max() ?? 0
+            let slack = max(0, width - (row.last?.maxX ?? 0))
+            for (index, item) in row.enumerated() {
+                var rect = item.offsetBy(dx: slack, dy: y + (height - item.height) / 2)
+                if rowIndex == 0 && index == 0 {
+                    rect.origin.x = 0
+                    rect.size.width += slack
+                }
+                items.append(rect)
+            }
+            y += height + 10
+        }
+        return (width, items)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = frames(proposal, subviews)
+        return CGSize(width: result.width, height: result.items.map(\.maxY).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = frames(ProposedViewSize(width: bounds.width, height: nil), subviews)
+        for (item, frame) in zip(subviews, result.items) {
+            item.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                       anchor: .topLeading, proposal: ProposedViewSize(frame.size))
+        }
+    }
+}
+
 struct ClipEditor: View {
     var project: ClipProject
     var onImport: () -> Void = {}
     var onBack: () -> Void = {}
     var onLibrary: () -> Void = {}
     var onRemove: () -> Void = {}
+    @FocusState private var projectNameFocused: Bool
     @State private var rightTab = 0
     @State private var selectedCueID: UUID?
     @EnvironmentObject private var clips: ClipStore
@@ -194,6 +270,7 @@ struct ClipEditor: View {
     }
     private var hasRange: Bool { project.ranges.contains { $0.id == working.id } }
     private var cues: [Caption] { hasRange ? project.captions(for: active) : [] }
+    private var styledCues: [Caption] { hasRange ? project.styledCaptions(for: active) : [] }
     private var sample: Caption { cues.first ?? Caption(start: 0, end: 4, original: "今日はここから始めましょう。", translated: "今天我们从这里开始。") }
     @Environment(\.appThemeID) private var appThemeID
     var body: some View {
@@ -206,20 +283,18 @@ struct ClipEditor: View {
             let aspect = CGFloat(project.media.height) / CGFloat(max(1, project.media.width))
             let heightLimit = metrics.stacked ? 360 : max(180, min(440, geometry.size.height - 330))
             let videoHeight = max(120, min(heightLimit, videoWidth * aspect))
-            let controls = metrics.narrow ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-                : AnyLayout(HStackLayout(spacing: 8))
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     editorToolbar
                     metrics.columns {
                         VStack(alignment: .leading, spacing: 12) {
-                            ClipStyledPlayer(player: playback.player, captions: cues, style: showingStyle ? draftStyle : (draggedStyle ?? active.style),
+                            ClipStyledPlayer(player: playback.player, captions: styledCues, style: showingStyle ? draftStyle : (draggedStyle ?? active.style), roles: project.captionRoles ?? [],
                                 mediaSize: CGSize(width: project.media.width, height: project.media.height),
                                 onStyle: { style, commit in
                                     if gestureSnapshot == nil { gestureSnapshot = project }
                                     draggedStyle = style
                                     if commit { finishGesture(); applyStyle(style); draggedStyle = nil }
-                                })
+                                }, onRoleResize: resizeRole)
                                 .frame(height: videoHeight).clipShape(RoundedRectangle(cornerRadius: 16))
                             HStack {
                                 Text(ClipTime.label(playback.time) + " / " + ClipTime.label(project.media.duration)).font(.caption).monospacedDigit().foregroundStyle(ThemeColor.muted)
@@ -231,30 +306,7 @@ struct ClipEditor: View {
                             }
                         }.frame(maxWidth: .infinity).accessibilityIdentifier("clips.videoPanel")
                         VStack(alignment: .leading, spacing: 20) {
-                            HStack {
-                                Text(L10n.text("字幕")).interfaceFont(size: 16, weight: .semibold); Spacer()
-                                editorIcon("lightbulb", title: "生成字幕", action: transcribe)
-                                    .accessibilityIdentifier("clips.transcribe")
-                                editorIcon("checkmark.bubble", title: "核对译文", action: { showingProofread = true })
-                                    .disabled(cues.isEmpty).accessibilityIdentifier("clips.proofread")
-                                editorIcon("tray.and.arrow.down", title: "导入字幕", action: importSubtitles)
-                                    .accessibilityIdentifier("clips.importSubtitles")
-                                Menu {
-                                    ForEach(SubtitleExportFormat.allCases) { format in
-                                        Button(format.title) { exportSubtitles(format) }
-                                    }
-                                } label: {
-                                    Image(systemName: "tray.and.arrow.up").interfaceFont(size: 14, weight: .medium)
-                                        .frame(width: 32, height: 32)
-                                        .foregroundStyle(ThemeColor.primaryInk)
-                                        .background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 10))
-                                }
-                                .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 32)
-                                .help(L10n.text("导出字幕")).accessibilityLabel(L10n.text("导出字幕"))
-                                .accessibilityIdentifier("clips.exportSubtitles").disabled(cues.isEmpty)
-                                editorIcon("slider.horizontal.3", title: "字幕样式", action: { draftStyle = active.style; remember(); playback.player.pause(); if let cue = cues.first, !cues.contains(where: { playback.time >= $0.start && playback.time < $0.end }) { playback.seek(cue.start) }; showingStyle = true })
-                                    .accessibilityIdentifier("clips.customStyle")
-                            }.buttonStyle(.plain).disabled(!hasRange || clips.isBusy)
+                            subtitleInspectorHeader
                             subtitleColumn
                         }.padding(metrics.cardInset).frame(maxWidth: .infinity, alignment: .leading)
                             .frame(width: metrics.stacked ? nil : inspectorWidth,
@@ -278,7 +330,7 @@ struct ClipEditor: View {
             }
             .sheet(item: $editing) { cue in ClipCaptionEditor(projectID: project.id, range: active, cue: cue).appTheme() }
             .sheet(isPresented: $showingStyle, onDismiss: { applyStyle(draftStyle) }) {
-                ClipStyleEditor150(player: playback.player, captions: cues, mediaSize: CGSize(width: project.media.width, height: project.media.height), style: $draftStyle, onClose: { showingStyle = false }).appTheme()
+                ClipStyleEditor150(projectID: project.id, player: playback.player, captions: styledCues, roles: project.captionRoles ?? [], mediaSize: CGSize(width: project.media.width, height: project.media.height), style: $draftStyle, onClose: { showingStyle = false }, onRoleResize: resizeRole).appTheme()
             }
             .sheet(item: $renameRange) { range in
                 VStack(spacing: 18) {
@@ -316,36 +368,76 @@ struct ClipEditor: View {
         removeID = nil
     }
     private var editorToolbar: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) { editorTitle; Spacer(minLength: 8); editorActions }
-            VStack(alignment: .leading, spacing: 12) { editorTitle; HStack { Spacer(); editorActions } }
+        ClipToolbarLayout {
+            editorTitle
+            HStack(spacing: 8) {
+                editorIcon("trash", title: "移出工作台", action: onRemove)
+                    .accessibilityIdentifier("clips.removeProject")
+                editorIcon("square.and.arrow.down", title: "保存项目", action: { _ = saveWorking() })
+                    .accessibilityIdentifier("clips.saveProject")
+            }
+            HStack(spacing: 4) {
+                toolbarLanguage(model.sourceLanguage, set: model.setSourceLanguage)
+                Button(action: model.swapLanguages) {
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 12)).frame(width: 26, height: 32)
+                }.buttonStyle(.plain).help(L10n.text("交换语言")).accessibilityLabel(L10n.text("交换语言"))
+                toolbarLanguage(model.targetLanguage, set: model.setTargetLanguage)
+            }
+            Button { if saveWorking() { showingExport = true } } label: {
+                Label(L10n.text("导出片段"), systemImage: "square.and.arrow.up")
+                    .lineLimit(1).fixedSize()
+            }.buttonStyle(ThemeActionButtonStyle(prominent: true))
+                .fixedSize().disabled(project.ranges.isEmpty)
+                .accessibilityIdentifier("clips.exportRanges")
         }.disabled(clips.isBusy)
     }
-    private var editorTitle: some View {
-        HStack(spacing: 14) {
-            editorIcon("arrow.left", title: "返回最近项目", action: { if saveWorking() { onBack() } })
-            TextField(L10n.text("项目名称"), text: Binding(get: { project.name }, set: { value in
-                guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                clips.update(project.id) { $0.name = String(value.prefix(100)) }
-            })).textFieldStyle(.plain).interfaceFont(size: 22, weight: .semibold).frame(minWidth: 140)
-        }
+
+    private func toolbarLanguage(_ language: SubtitleLanguage, set: @escaping (SubtitleLanguage) -> Void) -> some View {
+        // Reserve the ideal localized label width including the menu chevron and insets.
+        Text(L10n.text(language.name)).interfaceFont(size: 13)
+            .lineLimit(1).padding(.horizontal, 22)
+            .frame(minWidth: 78).frame(height: 32)
+            .hidden().accessibilityHidden(true)
+            .overlay {
+                DesignMenuField(title: language.name, height: 32) {
+                    ForEach(SubtitleLanguage.allCases) { option in
+                        Button(L10n.text(option.name)) { set(option) }
+                    }
+                }
+            }
     }
-    private var editorActions: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 0) {
-                editorIcon("trash", title: "移出工作台", action: onRemove)
-                editorIcon("square.and.arrow.down", title: "保存项目", action: { _ = saveWorking() })
-            }
-            HStack(spacing: 2) {
-                DesignMenuField(title: model.sourceLanguage.name, height: 32) { ForEach(SubtitleLanguage.allCases) { lang in Button(lang.name) { model.setSourceLanguage(lang) } } }.frame(width: 112)
-                Button(action: model.swapLanguages) { Image(systemName: "arrow.left.arrow.right").font(.system(size: 12)).frame(width: 26, height: 32) }.buttonStyle(.plain).help(L10n.text("交换语言"))
-                DesignMenuField(title: model.targetLanguage.name, height: 32) { ForEach(SubtitleLanguage.allCases) { lang in Button(lang.name) { model.setTargetLanguage(lang) } } }.frame(width: 112)
-            }
-            Button { showingExport = true } label: { Label(L10n.text("导出片段"), systemImage: "square.and.arrow.up") }.buttonStyle(ThemeActionButtonStyle(prominent: true)).disabled(project.ranges.isEmpty)
+
+    private var editorTitle: some View {
+        HStack(spacing: 12) {
+            editorIcon("arrow.left", title: "返回最近项目", action: { if saveWorking() { onBack() } })
+            Text(verbatim: project.name).interfaceFont(size: 22, weight: .semibold)
+                .lineLimit(1).frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
+                .hidden().accessibilityHidden(true)
+                .overlay(alignment: .leading) {
+                    TextField(L10n.text("项目名称"), text: Binding(get: { project.name }, set: { value in
+                        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                        clips.update(project.id) { $0.name = String(value.prefix(100)) }
+                    }))
+                    .textFieldStyle(.plain).interfaceFont(size: 22, weight: .semibold)
+                    .focused($projectNameFocused)
+                    .overlay(alignment: .leading) {
+                        if !projectNameFocused {
+                            Text(verbatim: project.name).interfaceFont(size: 22, weight: .semibold)
+                                .lineLimit(1).truncationMode(.tail)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                                .background(ThemeColor.background)
+                                .accessibilityHidden(true).allowsHitTesting(false)
+                        }
+                    }
+                    .accessibilityIdentifier("clips.projectName")
+                    .help(project.name)
+                }
         }
     }
     private var exportSelection: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        let incomplete = burn ? project.ranges.first { $0.selected && !project.hasBurnableCaptions(for: $0) } : nil
+        return VStack(alignment: .leading, spacing: 18) {
             HStack { Text(L10n.text("导出片段")).font(.headline); Spacer(); Button { showingExport = false } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
             ScrollView {
                 VStack(spacing: 8) {
@@ -356,13 +448,18 @@ struct ClipEditor: View {
                     }
                 }
             }.frame(maxHeight: 280)
+            if let incomplete {
+                Text(incomplete.title + " · " + L10n.text("字幕未补齐。请补齐字幕，或关闭烧录。"))
+                    .font(.callout).foregroundStyle(ThemeColor.primaryInk)
+                    .accessibilityIdentifier("clips.export.incomplete")
+            }
             HStack {
                 Toggle(L10n.text("烧录字幕到 MP4"), isOn: $burn)
                     .toggleStyle(.checkbox)
                 Spacer()
                 Button(L10n.text("选择文件夹")) { chooseExportFolder = true; showingExport = false }
                     .buttonStyle(ThemeActionButtonStyle(prominent: true))
-                    .disabled(!project.ranges.contains(where: \.selected))
+                    .disabled(incomplete != nil || !project.ranges.contains(where: \.selected))
             }
         }.padding(24).frame(width: 510).background(ThemeColor.surface).appTheme()
     }
@@ -378,35 +475,70 @@ struct ClipEditor: View {
         }.buttonStyle(.plain).help(L10n.text(title)).accessibilityLabel(L10n.text(title))
     }
     private func rangePanel(_ metrics: WorkspaceMetrics) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                if project.ranges.count > 1 {
-                    Menu {
-                        Picker(L10n.text("选择选段"), selection: Binding(get: { working.id }, set: { id in
-                            if let range = project.ranges.first(where: { $0.id == id }) { switchRange(range) }
-                        })) {
-                            ForEach(project.ranges) { range in Text(range.title).tag(range.id) }
-                        }
-                    } label: { Text(working.title).lineLimit(1) }
-                    .menuStyle(.borderlessButton).frame(maxWidth: 130, alignment: .leading)
-                    .help(L10n.text("选择选段")).accessibilityIdentifier("clips.selectRange")
-                } else {
-                    Text(L10n.text("时间轴")).interfaceFont(size: 15, weight: .semibold)
+        let laneWidth = max(1, metrics.width - 2 * (metrics.gutter + metrics.cardInset))
+        let displayedRanges = project.ranges.map { $0.id == working.id ? active : $0 }
+        let total = max(0.2, project.media.duration)
+        let shortRanges = displayedRanges.filter { laneWidth * $0.duration / total < 24 }
+        let header = metrics.narrow ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                                    : AnyLayout(HStackLayout(spacing: 12))
+        return VStack(alignment: .leading, spacing: 14) {
+            header {
+                HStack(spacing: 12) {
+                    Text(hasRange ? working.title : L10n.text("时间轴"))
+                        .interfaceFont(size: 15, weight: .semibold)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("clips.rangeTitle")
+                    Button { showingTimes.toggle() } label: {
+                        Text(hasRange ? ClipTime.label(working.start) + " – " + ClipTime.label(working.end) : "—")
+                            .font(.caption).monospacedDigit().foregroundStyle(ThemeColor.muted)
+                    }
+                    .buttonStyle(.plain).disabled(!hasRange)
+                    .popover(isPresented: $showingTimes) {
+                        VStack {
+                            timeField("开始", text: $startText)
+                            timeField("结束", text: $endText)
+                            Button(L10n.text("完成")) {
+                                remember()
+                                if saveWorking() {
+                                    playback.select(working.start...working.end)
+                                    showingTimes = false
+                                }
+                            }
+                        }.padding(20).frame(width: 300).appTheme()
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 12) {
+                    editorIcon("star", title: "高光候选", action: { if cues.isEmpty { recommend(3) } else { showingHighlights = true } })
+                    editorIcon("arrow.uturn.backward", title: "撤销上一步", action: undo).disabled(undoStack.isEmpty)
+                    editorIcon("plus", title: "添加选段", action: addRange)
+                    editorIcon("minus", title: "删除选段", action: { removeID = working.id }).disabled(project.ranges.isEmpty)
                 }
-                Button { showingTimes.toggle() } label: { Text(project.ranges.isEmpty ? "—" : ClipTime.label(working.start) + " – " + ClipTime.label(working.end)).font(.caption).monospacedDigit().foregroundStyle(ThemeColor.muted) }.buttonStyle(.plain)
-                    .popover(isPresented: $showingTimes) { VStack { timeField("开始", text: $startText); timeField("结束", text: $endText); Button(L10n.text("完成")) { remember(); if saveWorking() { playback.select(working.start...working.end); showingTimes = false } } }.padding(20).frame(width: 300).appTheme() }
-                Spacer()
-                editorIcon("star", title: "高光候选", action: { if cues.isEmpty { recommend(3) } else { showingHighlights = true } })
-                editorIcon("arrow.uturn.backward", title: "撤销上一步", action: undo).disabled(undoStack.isEmpty)
-                editorIcon("plus", title: "添加选段", action: addRange)
-                editorIcon("minus", title: "删除选段", action: { removeID = working.id }).disabled(project.ranges.isEmpty)
             }
-            ClipTimeline150(ranges: project.ranges.map { $0.id == working.id ? active : $0 }, selected: working.id, duration: project.media.duration, time: playback.time,
+            ClipTimeline150(ranges: displayedRanges, selected: working.id, duration: project.media.duration, time: playback.time,
                 select: switchRange, change: { range, commit in
                     if gestureSnapshot == nil { gestureSnapshot = project }
                     working = range; syncTimes()
                     if commit { finishGesture(); _ = saveWorking(); playback.select(range.start...range.end) }
                 }, seek: playback.seek, rename: { renameRange = $0 })
+            if !shortRanges.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 6) {
+                        ForEach(shortRanges) { range in
+                            Button { switchRange(range) } label: {
+                                Text(range.title)
+                                    .interfaceFont(size: 12, weight: range.id == working.id ? .semibold : .regular)
+                                    .padding(.horizontal, 9).frame(minWidth: 30, minHeight: 28)
+                                    .background(range.id == working.id ? ThemeColor.selection : ThemeColor.soft,
+                                                in: RoundedRectangle(cornerRadius: 7))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(range.id == working.id ? .isSelected : [])
+                            .accessibilityValue(ClipTime.label(range.start) + " – " + ClipTime.label(range.end))
+                            .accessibilityIdentifier("clips.shortRange." + range.id.uuidString)
+                        }
+                    }
+                }
+            }
         }.designPanel(inset: metrics.cardInset).disabled(clips.isBusy).accessibilityIdentifier("clips.rangePanel")
     }
     private func remember() { undoStack.append(project); if undoStack.count > 40 { undoStack.removeFirst() }; textUndoCue = nil }
@@ -415,7 +547,7 @@ struct ClipEditor: View {
         guard let previous = undoStack.popLast() else { return }
         playback.player.pause()
         withAnimation(.easeInOut(duration: 0.18)) {
-            clips.update(project.id) { p in p.ranges = previous.ranges; p.captions = previous.captions }
+            clips.update(project.id) { p in p.ranges = previous.ranges; p.captions = previous.captions; p.captionRoles = previous.captionRoles }
             if let next = previous.ranges.first(where: { $0.id == working.id }) ?? previous.ranges.first { working = next; syncTimes(); playback.select(next.start...next.end) } else { playback.clearSelection() }
         }
         textUndoCue = nil
@@ -426,7 +558,63 @@ struct ClipEditor: View {
             TextField("00:00:00.000", text: text).interfaceFont(size: 11, design: .monospaced).textFieldStyle(ClipFieldStyle()).onSubmit { _ = saveWorking() }
         }.disabled(clips.isBusy)
     }
+    private var subtitleInspectorHeader: some View {
+        HStack(spacing: 5) {
+            Text(L10n.text("字幕")).interfaceFont(size: 16, weight: .semibold)
+            Spacer(minLength: 8)
+            Button(action: importSubtitles) { CaptionInspectorIcon("tray.and.arrow.down") }
+                .help(L10n.text("导入字幕")).accessibilityLabel(L10n.text("导入字幕"))
+                .accessibilityIdentifier("clips.importSubtitles")
+            Button(action: openSubtitleStyle) { CaptionInspectorIcon("slider.vertical.3") }
+                .help(L10n.text("字幕样式")).accessibilityLabel(L10n.text("字幕样式"))
+                .accessibilityIdentifier("clips.customStyle")
+            Button(action: transcribe) { CaptionInspectorIcon("lightbulb", accented: true) }
+                .help(L10n.text("生成字幕")).accessibilityLabel(L10n.text("生成字幕"))
+                .accessibilityIdentifier("clips.transcribe")
+            Menu {
+                Button(L10n.text("核对译文")) { showingProofread = true }
+                    .disabled(cues.isEmpty).accessibilityIdentifier("clips.proofread")
+                Menu(L10n.text("导出字幕")) {
+                    ForEach(SubtitleExportFormat.allCases) { format in
+                        Button(format.title) { exportSubtitles(format) }
+                    }
+                }.disabled(cues.isEmpty).accessibilityIdentifier("clips.exportSubtitles")
+            } label: {
+                CaptionInspectorIcon("ellipsis")
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 30)
+            .help(L10n.text("更多字幕操作")).accessibilityLabel(L10n.text("更多字幕操作"))
+            .accessibilityIdentifier("clips.moreSubtitleActions")
+            .disabled(cues.isEmpty)
+        }.buttonStyle(.plain).disabled(!hasRange || clips.isBusy)
+    }
+
+    private func openSubtitleStyle() {
+        draftStyle = active.style
+        remember()
+        playback.player.pause()
+        if let cue = cues.first, !cues.contains(where: { playback.time >= $0.start && playback.time < $0.end }) {
+            playback.seek(cue.start)
+        }
+        showingStyle = true
+    }
+
     private var subtitleColumn: some View {
+        Group {
+            if cues.isEmpty {
+                Button { insertCaption(at: playback.time) } label: {
+                    Label(L10n.text("添加字幕"), systemImage: "plus")
+                }
+                .buttonStyle(ThemeActionButtonStyle())
+                .accessibilityIdentifier("clips.addFirstSubtitle")
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            } else {
+                populatedSubtitleColumn
+            }
+        }.disabled(clips.isBusy || !hasRange)
+    }
+
+    private var populatedSubtitleColumn: some View {
         VStack(alignment: .leading, spacing: 14) {
             ScrollView {
                 VStack(spacing: 10) {
@@ -435,9 +623,18 @@ struct ClipEditor: View {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Button { remember(); editing = cue } label: { Text(ClipTime.label(cue.start) + " — " + ClipTime.label(cue.end)).interfaceFont(size: 10).monospacedDigit().foregroundStyle(ThemeColor.muted) }.buttonStyle(.plain)
+                                    .help(L10n.text("编辑字幕")).accessibilityIdentifier("clips.editCaption." + cue.id.uuidString)
                                 Spacer()
                                 
                                 Button { remember(); withAnimation(.easeInOut(duration: 0.18)) { clips.deleteSegmentCaption(project.id, rangeID: active.id, cueID: cue.id) } } label: { Image(systemName: "xmark").font(.system(size: 7, weight: .medium)).frame(width: 21, height: 21).overlay(Circle().stroke(ThemeColor.line, lineWidth: 1)) }.buttonStyle(.plain).help(L10n.text("删除字幕"))
+                            }
+                            if let id = cue.clipRoleID, let role = project.captionRoles?.first(where: { $0.id == id }) {
+                                Button { remember(); editing = cue } label: {
+                                    Label(role.name, systemImage: "person").font(.caption2).lineLimit(1)
+                                        .foregroundStyle(ThemeColor.primaryInk)
+                                }.buttonStyle(.plain).accessibilityLabel(role.name)
+                            } else if cue.clipUsesDefault == true {
+                                Text(L10n.text("片段默认")).font(.caption2).foregroundStyle(ThemeColor.muted)
                             }
                                 TextField(L10n.text("原文"), text: cueText(cue, original: true), axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).interfaceFont(size: 12).foregroundStyle(ThemeColor.muted).accessibilityIdentifier("clips.original")
                                 TextField(L10n.text("译文"), text: cueText(cue, original: false), axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).interfaceFont(size: 13).accessibilityIdentifier("clips.translation")
@@ -446,16 +643,12 @@ struct ClipEditor: View {
                             .contentShape(Rectangle()).onTapGesture { if selectedCaption?.id != cue.id { selectedCueID = cue.id; playback.seek(cue.start) } }
                             .accessibilityIdentifier("clips.cue." + cue.id.uuidString)
                     }
-                    if cues.isEmpty {
-                        Button { insertCaption(at: playback.time) } label: {
-                            Label(L10n.text("添加字幕"), systemImage: "plus")
-                        }.buttonStyle(ThemeActionButtonStyle()).padding(.vertical, 24)
-                    }
                 }
             }
-            if !cues.isEmpty { insertCaptionButton(at: playback.time) }
-        }.disabled(clips.isBusy || !hasRange)
+            insertCaptionButton(at: playback.time)
+        }
     }
+
     private func insertCaptionButton(at time: Double) -> some View {
         Button { insertCaption(at: time) } label: {
             HStack(spacing: 8) { Rectangle().frame(height: 1); Image(systemName: "plus").font(.system(size: 9)); Rectangle().frame(height: 1) }.foregroundStyle(ThemeColor.line).frame(height: 16).contentShape(Rectangle())
@@ -576,6 +769,15 @@ struct ClipEditor: View {
         var next = range; next.id = UUID(); next.title = "选段 \((project.ranges.compactMap { Int($0.title.split(separator: " ").last ?? "") }.max() ?? project.ranges.count) + 1)"; next.proofreadCandidates = nil
         clips.saveRange(project.id, range: next); working = next; syncTimes(); playback.select(next.start...next.end)
     }
+    private func resizeRole(_ id: UUID, chinese: Double, japanese: Double) {
+        remember()
+        clips.update(project.id) { project in
+            guard var roles = project.captionRoles, let index = roles.firstIndex(where: { $0.id == id }) else { return }
+            roles[index].chinese.size = chinese
+            roles[index].japanese.size = japanese
+            project.captionRoles = roles
+        }
+    }
     private func applyStyle(_ style: ClipSubtitleStyle) { guard saveWorking() else { return }; clips.setStyle(project.id, rangeID: working.id, style: style) }
     private func recommend(_ maximum: Int) {
         guard saveWorking() else { return }
@@ -625,7 +827,11 @@ private struct ClipCaptionEditor: View {
     var body: some View {
         let _ = appThemeID
         VStack(alignment: .leading, spacing: 12) {
-            Text(L10n.text("字幕时间")).font(.title3.bold())
+            Text(L10n.text("编辑字幕")).font(.title3.bold())
+            HStack {
+                Text(L10n.text("从这条起")).font(.caption).foregroundStyle(ThemeColor.muted)
+                ClipCaptionRoleMenu(projectID: projectID, baseStyle: range.style, sample: cue, cue: $cue)
+            }
             HStack { TextField(L10n.text("起点"), text: $start); Text("→"); TextField(L10n.text("终点"), text: $end) }.textFieldStyle(ClipFieldStyle())
             HStack {
                 Button(L10n.text("删除这条字幕"), role: .destructive) { clips.deleteSegmentCaption(projectID, rangeID: range.id, cueID: cue.id); dismiss() }
@@ -636,7 +842,10 @@ private struct ClipCaptionEditor: View {
                     if clips.saveSegmentCaption(projectID, rangeID: range.id, cue: cue) { dismiss() }
                 }.keyboardShortcut(.defaultAction)
             }
-        }.padding(24).frame(width: 520).onAppear { start = ClipTime.label(cue.start); end = ClipTime.label(cue.end) }
+        }.padding(24).frame(width: 520).onAppear {
+            start = ClipTime.label(max(range.start, cue.start))
+            end = ClipTime.label(min(range.end, cue.end))
+        }
     }
 }
 struct ClipVideoPreview: View {

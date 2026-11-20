@@ -53,7 +53,11 @@ enum SubtitlePanelChecks {
             model.subtitleDisplayMode = .bilingual
             try await Task.sleep(nanoseconds: 200_000_000)
             try snapshot(panel, to: directory.appendingPathComponent("字幕-双语-800x96.png"))
-            model.captions = (0..<8).map { index in
+            if let appearance {
+                try await checkCaptionStyle(appearance, panel: panel, directory: directory, checks: &checks)
+            }
+            try await checkPendingPair(model, panel: panel, directory: directory, checks: &checks)
+            model.captions = (0..<20).map { index in
                 Caption(start: Double(index * 4), end: Double(index * 4 + 3),
                     original: "字幕 \(index + 1)：今日は一緒に配信を楽しみましょう。",
                     translated: "字幕 \(index + 1)：今天也一起开心地看直播吧。")
@@ -62,7 +66,18 @@ enum SubtitlePanelChecks {
                 panel.setContentSize(NSSize(width: 800, height: height))
                 try await Task.sleep(nanoseconds: 180_000_000)
                 try snapshot(panel, to: directory.appendingPathComponent("history-800x\(height).png"))
-                try require(model.captions.count == 8, "expanded_history_preserves_all_captions_\(height)", &checks)
+                try require(model.captions.count == 20, "expanded_history_preserves_all_captions_\(height)", &checks)
+                if let appearance, let scroll = subview(NSScrollView.self, in: panel.contentView),
+                   let document = scroll.documentView {
+                    let row = SubtitleCueLayout.historyHeight(mode: model.subtitleDisplayMode,
+                        japaneseFont: appearance.japaneseFont, chineseFont: appearance.chineseFont,
+                        japaneseSize: appearance.japaneseSize, chineseSize: appearance.chineseSize,
+                        zoom: appearance.workspaceZoom)
+                    let rows = scroll.contentView.bounds.height / row
+                    try require(abs(document.bounds.height - 20 * row) <= 1 && abs(rows - rows.rounded()) < 0.04
+                                && (height < 180 || rows >= 2),
+                                "live_and_history_use_adjacent_complete_rows_\(height)", &checks)
+                } else { throw CheckFailure("missing_rendered_history_\(height)") }
             }
             try await checkHistoryScrolling(model, panel: panel, checks: &checks)
             model.captions = [caption]
@@ -177,18 +192,20 @@ enum SubtitlePanelChecks {
                         "compact_preserves_bilingual_panel", &checks)
             try snapshot(panel, to: directory.appendingPathComponent("字幕-紧凑双排-500x76.png"))
             try exerciseContinuousHeight(panel, caption: caption, checks: &checks)
+            try exerciseAnchoredCorners(panel, checks: &checks)
             let lastReadable = panel.frame
+            let releaseCenter = NSPoint(x: lastReadable.minX + 180, y: lastReadable.midY)
             try exerciseContinuousResize(panel, controller: controller, caption: caption, checks: &checks)
             try await Task.sleep(nanoseconds: 550_000_000)
             try require(controller.isBubble && panel.frame.size == NSSize(width: 44, height: 44)
-                        && abs(panel.frame.midX - lastReadable.midX) <= 1 && abs(panel.frame.midY - lastReadable.midY) <= 1
+                        && abs(panel.frame.midX - releaseCenter.x) <= 1 && abs(panel.frame.midY - releaseCenter.y) <= 1
                         && model.captions == [caption], "cue_pressure_folds_at_center_and_keeps_caption", &checks)
             try require(!panel.hasShadow && containsBubbleDragView(panel.contentView), "bubble_uses_native_drag_without_shadow", &checks)
             try snapshot(panel, to: directory.appendingPathComponent("字幕-收起徽记-44x44.png"))
             controller.restoreFromBubble()
             try await Task.sleep(nanoseconds: 550_000_000)
             try require(!controller.isBubble && panel.frame.size == compact && panel.hasShadow
-                        && abs(panel.frame.midX - lastReadable.midX) <= 1 && abs(panel.frame.midY - lastReadable.midY) <= 1,
+                        && abs(panel.frame.midX - releaseCenter.x) <= 1 && abs(panel.frame.midY - releaseCenter.y) <= 1,
                         "bubble_restores_last_readable_dimensions_and_center", &checks)
             findNativeControls(panel.contentView)?.buttons[1].performClick(nil)
             try await Task.sleep(nanoseconds: 550_000_000)
@@ -352,12 +369,12 @@ enum SubtitlePanelChecks {
             throw CheckFailure("missing_native_resize_surface")
         }
         let start = panel.frame
-        // Give the top and bottom edges equal room to grow on a laptop screen.
+        // Give the top edge enough space for the complete test gesture.
         panel.center()
         let centered = panel.frame
         let top = NSPoint(x: centered.midX, y: centered.maxY - 2)
         func event(_ type: NSEvent.EventType, _ height: CGFloat) throws -> NSEvent {
-            let screenPoint = NSPoint(x: top.x, y: top.y + (height - centered.height) / 2)
+            let screenPoint = NSPoint(x: top.x, y: top.y + height - centered.height)
             guard let e = NSEvent.mouseEvent(with: type, location: panel.convertPoint(fromScreen: screenPoint),
                 modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
                 context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)
@@ -372,7 +389,7 @@ enum SubtitlePanelChecks {
             surface.mouseDragged(with: try event(.leftMouseDragged, height))
             let geometry = SubtitleToolbarLayout(size: panel.frame.size)
             let layout = SubtitleCueLayout(caption: caption, mode: .bilingual, size: panel.frame.size)
-            guard abs(panel.frame.midX - centered.midX) <= 1 && abs(panel.frame.midY - centered.midY) <= 1,
+            guard abs(panel.frame.midX - centered.midX) <= 1 && abs(panel.frame.minY - centered.minY) <= 1,
                   abs(panel.frame.height - height) <= 1 && abs(panel.frame.width - centered.width) <= 1,
                   abs(geometry.paperFrame.midY - prior.paperFrame.midY) <= 1.01,
                   abs(geometry.languagesCenter.y - prior.languagesCenter.y) <= 1.01,
@@ -385,6 +402,44 @@ enum SubtitlePanelChecks {
         try require(panel.frame.size == start.size, "vertical_drag_across_height_breakpoints_preserves_cue_and_tools", &checks)
     }
 
+    private static func exerciseAnchoredCorners(_ panel: NSPanel, checks: inout [String]) throws {
+        guard let screen = panel.screen?.visibleFrame,
+              let surface = subview(SubtitleResizeSurface.ResizeView.self, in: panel.contentView) else {
+            throw CheckFailure("missing_resize_surface_or_screen")
+        }
+        let saved = panel.frame
+        defer { panel.setFrame(saved, display: true) }
+        for positive in [true, false] {
+            let width = min(420, screen.width - 100), height: CGFloat = 90
+            let x = positive ? screen.minX : screen.maxX - width
+            let y = positive ? screen.minY : screen.maxY - height
+            panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
+            panel.contentView?.layoutSubtreeIfNeeded()
+            let start = panel.frame
+            let corner = NSPoint(x: positive ? start.maxX - 2 : start.minX + 2,
+                                 y: positive ? start.maxY - 2 : start.minY + 2)
+            func event(_ type: NSEvent.EventType, _ distance: CGFloat) throws -> NSEvent {
+                let sign: CGFloat = positive ? 1 : -1
+                let location = CGPoint(x: corner.x + sign * distance, y: corner.y + sign * distance)
+                guard let event = NSEvent.mouseEvent(with: type, location: panel.convertPoint(fromScreen: location),
+                    modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
+                    context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) else {
+                    throw CheckFailure("missing_corner_drag_event")
+                }
+                return event
+            }
+            surface.mouseDown(with: try event(.leftMouseDown, 0))
+            surface.mouseDragged(with: try event(.leftMouseDragged, 35))
+            surface.mouseUp(with: try event(.leftMouseUp, 47))
+            let frame = panel.frame
+            let xShift = positive ? frame.minX - start.minX : frame.maxX - start.maxX
+            let yShift = positive ? frame.minY - start.minY : frame.maxY - start.maxY
+            try require(abs(xShift) <= 1 && abs(yShift) <= 1 && abs(frame.width - start.width - 47) <= 1
+                        && abs(frame.height - start.height - 47) <= 1,
+                        "drag_corner_follows_release_against_screen_\(positive ? "lower_left" : "upper_right")", &checks)
+        }
+    }
+
     private static func exerciseContinuousResize(_ panel: NSPanel, controller: SubtitlePanelController,
                                                  caption: Caption, checks: inout [String]) throws {
         guard let surface = subview(SubtitleResizeSurface.ResizeView.self, in: panel.contentView) else {
@@ -393,7 +448,7 @@ enum SubtitlePanelChecks {
         let start = panel.frame
         let origin = NSPoint(x: start.maxX - 2, y: start.midY)
         func event(_ type: NSEvent.EventType, atWidth width: CGFloat) throws -> NSEvent {
-            let screenPoint = NSPoint(x: origin.x + (width - start.width) / 2, y: origin.y)
+            let screenPoint = NSPoint(x: origin.x + width - start.width, y: origin.y)
             guard let e = NSEvent.mouseEvent(with: type, location: panel.convertPoint(fromScreen: screenPoint),
                 modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
                 context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)
@@ -409,7 +464,7 @@ enum SubtitlePanelChecks {
         for step in widths {
             let width = CGFloat(step)
             surface.mouseDragged(with: try event(.leftMouseDragged, atWidth: width))
-            guard !controller.isBubble, abs(panel.frame.midX - start.midX) <= 1, abs(panel.frame.midY - start.midY) <= 1,
+            guard !controller.isBubble, abs(panel.frame.minX - start.minX) <= 1, abs(panel.frame.midY - start.midY) <= 1,
                   abs(panel.frame.width - width) <= 1, panel.frame.height == start.height else {
                 throw CheckFailure("resize_jumps_or_folds_before_release")
             }
@@ -446,6 +501,75 @@ enum SubtitlePanelChecks {
                            + "_pointer_" + NSStringFromPoint(NSEvent.mouseLocation))
     }
 
+    private static func checkCaptionStyle(_ appearance: HomeAppearance, panel: NSPanel,
+                                          directory: URL, checks: inout [String]) async throws {
+        let saved = appearance.captionStyle, mode = appearance.mode
+        defer { appearance.captionStyle = saved; appearance.mode = mode }
+        appearance.mode = .dark
+        let originalSize = appearance.japaneseSize, translatedSize = appearance.chineseSize
+        var standardRows: [ClosedRange<Int>] = []
+        for (style, name) in [(LiveCaptionStyle.standard, "standard"), (.blue, "blue")] {
+            appearance.captionStyle = style
+            try await Task.sleep(nanoseconds: 250_000_000)
+            let bitmap = try snapshot(panel, to: directory.appendingPathComponent("caption-style-\(name).png"))
+            let width = bitmap.pixelsWide, height = bitmap.pixelsHigh
+            var whitePixels = 0, bluePixels = 0, rows: [ClosedRange<Int>] = []
+            for y in 0..<height {
+                var ink = 0
+                for x in stride(from: width / 4, to: 3 * width / 4, by: 2) {
+                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                    let r = color.redComponent, g = color.greenComponent, b = color.blueComponent
+                    if min(r, g, b) > 0.52 { ink += 1 }
+                    if min(r, g, b) > 0.95 { whitePixels += 1 }
+                    if b > r + 0.24 && g > r + 0.10 && b > g + 0.12 { bluePixels += 1 }
+                }
+                if ink >= 4 {
+                    if let last = rows.last, y - last.upperBound <= 2 {
+                        rows[rows.count - 1] = last.lowerBound...y
+                    } else { rows.append(y...y) }
+                }
+            }
+            if style == .standard {
+                try require(rows.count == 2 && bluePixels < 15, "standard_caption_has_two_rows_without_blue_outline", &checks)
+                standardRows = rows
+            } else {
+                try require(whitePixels > 80 && bluePixels > 80, "native_blue_outline_and_white_glyph_fill_visible", &checks)
+                let tolerance = Int(ceil(Double(height) / panel.frame.height * 2))
+                try require(rows.count == standardRows.count && zip(rows, standardRows).allSatisfy {
+                    abs($0.0.lowerBound - $0.1.lowerBound) <= tolerance && abs($0.0.upperBound - $0.1.upperBound) <= tolerance
+                } && appearance.japaneseSize == originalSize && appearance.chineseSize == translatedSize,
+                "caption_paint_keeps_original_and_translation_type_metrics", &checks)
+            }
+        }
+    }
+
+    private static func checkPendingPair(_ model: AppModel, panel: NSPanel, directory: URL,
+                                         checks: inout [String]) async throws {
+        panel.setContentSize(NSSize(width: 800, height: 320))
+        model.captions = [
+            Caption(start: 0, end: 2, original: "今日はいい天気ですね。", translated: "", isDraft: true),
+            Caption(start: 2, end: 4, original: "一緒に歩いてみよう。", translated: "", isDraft: true)
+        ]
+        var originalBounds: CGRect?
+        for step in 0..<3 {
+            if step > 0 {
+                model.captions[step - 1].isDraft = false
+                model.captions[step - 1].translated = step == 1 ? "今天的天气真好。" : "我们一起走走吧。"
+            }
+            try await Task.sleep(nanoseconds: 200_000_000)
+            guard let scroll = subview(NSScrollView.self, in: panel.contentView),
+                  let document = scroll.documentView else { throw CheckFailure("missing_two_cue_scroll") }
+            let viewport = scroll.convert(scroll.contentView.frame, to: nil)
+            let row = document.bounds.height / 2
+            try require(row > 20 && row < 96 && abs(viewport.height - 2 * row) <= 1
+                        && abs(viewport.midY - panel.frame.height / 2) <= 1
+                        && (originalBounds == nil || originalBounds == viewport),
+                        "pending_pair_stays_centered_with_stable_row_pitch_step_\(step)", &checks)
+            originalBounds = viewport
+            try snapshot(panel, to: directory.appendingPathComponent("pending-pair-\(step).png"))
+        }
+    }
+
     private static func checkHistoryScrolling(_ model: AppModel, panel: NSPanel, checks: inout [String]) async throws {
         guard let scroll = subview(NSScrollView.self, in: panel.contentView), let document = scroll.documentView else {
             throw CheckFailure("missing_history_scroll_view")
@@ -468,6 +592,10 @@ enum SubtitlePanelChecks {
         let tailBefore = liveOffset()
         try require(abs(readPosition - tailBefore) > 20 && readPosition >= 0,
                     "manual_scroll_reaches_valid_earlier_cue", &checks)
+        let row = document.bounds.height / CGFloat(model.captions.count)
+        let fromTop = document.isFlipped ? readPosition : document.bounds.height - clip.bounds.height - readPosition
+        try require(abs(fromTop - (fromTop / row).rounded() * row) <= 1,
+                    "history_rests_on_whole_cue_after_wheel", &checks)
         model.captions.append(Caption(start: 33, end: 36, original: "New sentence", translated: "新的一句"))
         try await Task.sleep(nanoseconds: 300_000_000)
         guard abs(clip.bounds.minY - readPosition) < 4 && abs(clip.bounds.minY - liveOffset()) > 20 else {
@@ -708,13 +836,15 @@ enum SubtitlePanelChecks {
         guard value else { throw CheckFailure(name) }
         checks.append(name)
     }
-    private static func snapshot(_ window: NSWindow, to url: URL) throws {
+    @discardableResult
+    private static func snapshot(_ window: NSWindow, to url: URL) throws -> NSBitmapImageRep {
         guard let view = window.contentView else { throw CheckFailure("no_content_view") }
         view.layoutSubtreeIfNeeded()
         guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw CheckFailure("no_bitmap") }
         view.cacheDisplay(in: view.bounds, to: bitmap)
         guard let data = bitmap.representation(using: .png, properties: [:]) else { throw CheckFailure("no_png") }
         try data.write(to: url)
+        return bitmap
     }
     private static func write(_ report: [String: Any], to url: URL) throws {
         try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)

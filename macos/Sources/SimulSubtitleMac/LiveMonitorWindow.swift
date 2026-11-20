@@ -11,6 +11,40 @@ extension LivePlatform {
     }
 }
 
+/// Keep each option at its natural width, including localized text and its checkmark.
+private struct RecordingChoiceFlow: Layout {
+    private let gap: CGFloat = 6
+
+    private func layout(_ views: Subviews, width: CGFloat?) -> (CGSize, [CGPoint]) {
+        var points: [CGPoint] = []
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, widest: CGFloat = 0
+        for view in views {
+            let size = view.sizeThatFits(.unspecified)
+            if let width, x > 0 && x + size.width > width {
+                x = 0
+                y += rowHeight + gap
+                rowHeight = 0
+            }
+            points.append(CGPoint(x: x, y: y))
+            widest = max(widest, x + size.width)
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + gap
+        }
+        return (CGSize(width: widest, height: y + rowHeight), points)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        layout(subviews, width: proposal.width).0
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let points = layout(subviews, width: bounds.width).1
+        for (item, point) in zip(subviews, points) {
+            item.place(at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y),
+                       anchor: .topLeading, proposal: .unspecified)
+        }
+    }
+}
+
 struct LiveRecordingSettings: View {
     @EnvironmentObject private var monitor: LiveMonitorStore
     @Environment(\.appThemeID) private var themeID
@@ -26,12 +60,14 @@ struct LiveRecordingSettings: View {
             }.designPanel(inset: 18)
             VStack(alignment: .leading, spacing: 10) {
                 Text(L10n.text("录制质量")).font(.headline)
-                HStack {
-                    Text(L10n.text("格式")); Spacer()
-                    Picker(L10n.text("格式"), selection: Binding(get: { monitor.settings.container }, set: { value in monitor.updateSettings { $0.container = value } })) {
-                        ForEach(RecordingContainer.allCases) { value in Text(value.title).tag(value) }
-                    }.labelsHidden().pickerStyle(.segmented).frame(width: 180)
-                }.frame(minHeight: 36)
+                recordingChoiceRow("格式") {
+                    ForEach(RecordingContainer.allCases) { value in
+                        recordingChoice(value.title, selected: monitor.settings.container == value) {
+                            monitor.updateSettings { $0.container = value }
+                        }
+                        .accessibilityIdentifier("recording.format." + value.rawValue)
+                    }
+                }
                 Divider().overlay(ThemeColor.line)
                 HStack {
                     Text(L10n.text("画质")); Spacer()
@@ -42,12 +78,15 @@ struct LiveRecordingSettings: View {
             }.designPanel(inset: 20)
             VStack(alignment: .leading, spacing: 10) {
                 Text(L10n.text("录制行为")).font(.headline)
-                HStack {
-                    Text(L10n.text("同时录制")); Spacer()
-                    Picker(L10n.text("同时录制"), selection: Binding(get: { monitor.settings.maximumRecordings }, set: { value in monitor.updateSettings { $0.maximumRecordings = value } })) {
-                        ForEach(1...3, id: \.self) { value in Text("\(value)").tag(value) }
-                    }.labelsHidden().pickerStyle(.segmented).frame(width: 132)
-                }.frame(minHeight: 36)
+                recordingChoiceRow("同时录制") {
+                    ForEach(1...3, id: \.self) { count in
+                        let labels = [L10n.text("1 路"), L10n.text("2 路"), L10n.text("3 路")]
+                        recordingChoice(labels[count - 1], selected: count == monitor.settings.maximumRecordings) {
+                            monitor.updateSettings { $0.maximumRecordings = count }
+                        }
+                        .accessibilityIdentifier("recording.concurrent." + String(count))
+                    }
+                }
                 Divider().overlay(ThemeColor.line)
                 HStack {
                     Text(L10n.text("检查间隔")); Spacer()
@@ -60,6 +99,38 @@ struct LiveRecordingSettings: View {
             }.designPanel(inset: 20)
         }
     }
+    private func recordingChoiceRow<Choices: View>(_ title: String, @ViewBuilder choices: () -> Choices) -> some View {
+        let label = Text(L10n.text(title)).fixedSize()
+        let options = HStack(spacing: 6) { choices() }.fixedSize()
+        return ViewThatFits(in: .horizontal) {
+            HStack { label; Spacer(minLength: 12); options }
+            VStack(alignment: .leading, spacing: 8) {
+                label
+                RecordingChoiceFlow { choices() }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(minHeight: 40)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.text(title))
+    }
+
+    private func recordingChoice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
+                    .opacity(selected ? 1 : 0).accessibilityHidden(true)
+                Text(verbatim: title).interfaceFont(size: 12, weight: .semibold)
+            }
+            .padding(.horizontal, 9).frame(minWidth: 52, minHeight: 32)
+            .foregroundStyle(selected ? ThemeColor.primaryInk : ThemeColor.muted)
+            .background(selected ? ThemeColor.selection : ThemeColor.control, in: RoundedRectangle(cornerRadius: 8))
+            .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? ThemeColor.primary : ThemeColor.line) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
     private func destination(symbol: String, path: String, label: String, action: @escaping () -> Void) -> some View {
         HStack(spacing: 14) {
             Image(systemName: symbol).foregroundStyle(ThemeColor.primaryInk).frame(width: 36, height: 36).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 10))

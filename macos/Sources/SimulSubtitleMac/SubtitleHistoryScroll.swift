@@ -6,11 +6,12 @@ import SwiftUI
 struct SubtitleHistoryScroll: NSViewRepresentable {
     let latestID: UUID?
     let size: CGSize
+    let rowHeight: CGFloat
 
     func makeNSView(context: Context) -> Anchor { Anchor() }
 
     func updateNSView(_ view: Anchor, context: Context) {
-        view.update(latestID: latestID, viewport: size)
+        view.update(latestID: latestID, viewport: size, rowHeight: rowHeight)
     }
 
     final class Anchor: NSView {
@@ -19,6 +20,9 @@ struct SubtitleHistoryScroll: NSViewRepresentable {
         private var viewport = CGSize.zero
         private var following = true
         private var readingOffset: CGFloat = 0
+        private var rowHeight: CGFloat = 1
+        private var gestureStart: CGFloat?
+        private var settleTask: DispatchWorkItem?
         private var liveScrolling = false
         private var adjustingOffset = false
         private var queued = false
@@ -36,9 +40,10 @@ struct SubtitleHistoryScroll: NSViewRepresentable {
             attach()
         }
 
-        func update(latestID: UUID?, viewport: CGSize) {
+        func update(latestID: UUID?, viewport: CGSize, rowHeight: CGFloat) {
             attach()
-            guard lastID != latestID || self.viewport != viewport else { return }
+            guard lastID != latestID || self.viewport != viewport || self.rowHeight != rowHeight else { return }
+            self.rowHeight = max(1, rowHeight)
             lastID = latestID
             self.viewport = viewport
             scheduleAlignment()
@@ -49,6 +54,8 @@ struct SubtitleHistoryScroll: NSViewRepresentable {
             guard next !== scroll else { return }
             let center = NotificationCenter.default
             center.removeObserver(self)
+            settleTask?.cancel()
+            gestureStart = nil
             scroll = next
             guard let next, let document = next.documentView else { return }
             lastClipSize = next.contentView.bounds.size
@@ -69,6 +76,7 @@ struct SubtitleHistoryScroll: NSViewRepresentable {
         @objc private func endScroll(_ note: Notification) {
             rememberPosition()
             liveScrolling = false
+            settleAfterWheel()
         }
 
         private func rememberPosition() {
@@ -76,8 +84,38 @@ struct SubtitleHistoryScroll: NSViewRepresentable {
             let bounds = scroll.contentView.bounds
             let maximum = max(0, document.bounds.height - bounds.height)
             let y = min(maximum, max(0, bounds.minY))
+            if gestureStart == nil { gestureStart = following ? maximum : readingOffset }
             readingOffset = document.isFlipped ? y : maximum - y
             following = maximum - readingOffset <= 2
+            if !liveScrolling { settleAfterWheel() }
+        }
+
+        // Let native scrolling and momentum run freely. When the user rests,
+        // settle on a cue boundary without pinning them back to the newest cue.
+        private func settleAfterWheel() {
+            settleTask?.cancel()
+            let task = DispatchWorkItem { [weak self] in
+                guard let self, !self.liveScrolling, let start = self.gestureStart,
+                      let scroll = self.scroll, let document = scroll.documentView else { return }
+                if NSEvent.pressedMouseButtons & 1 != 0 {
+                    self.settleAfterWheel()
+                    return
+                }
+                self.gestureStart = nil
+                guard !self.following else { return }
+                let row = self.rowHeight
+                let maximum = max(0, document.bounds.height - scroll.contentView.bounds.height)
+                var target = (self.readingOffset / row).rounded() * row
+                // A single wheel notch must also advance a line.
+                if abs(target - start) < 1 && abs(self.readingOffset - start) >= 1 {
+                    target += self.readingOffset > start ? row : -row
+                }
+                self.readingOffset = min(maximum, max(0, target))
+                self.following = maximum - self.readingOffset <= 2
+                self.align()
+            }
+            settleTask = task
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(170), execute: task)
         }
 
         @objc private func clipChanged(_ note: Notification) {

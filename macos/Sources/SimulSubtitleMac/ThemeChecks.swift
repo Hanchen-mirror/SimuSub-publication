@@ -35,9 +35,11 @@ enum ThemeChecks {
             do {
                 let saved = HomeAppearance(defaults: defaults, backgroundFile: wallpaper)
                 saved.theme = .green; saved.mode = .light; saved.japaneseFont = "Hiragino Sans"; saved.chineseFont = "PingFang SC"
+                saved.captionStyle = .blue
                 saved.japaneseSize = 18; saved.chineseSize = 24; saved.reduceMotion = true; saved.restorePage = true; saved.lastPage = "subtitle"
                 let restored = HomeAppearance(defaults: defaults, backgroundFile: wallpaper)
                 try require(restored.theme == .green && restored.mode == .light && restored.japaneseFont == saved.japaneseFont && restored.chineseFont == saved.chineseFont, "theme_mode_fonts_restore_from_saved_defaults")
+                try require(restored.captionStyle == .blue, "live_caption_fill_outline_and_shadow_persist")
                 try require(restored.japaneseSize == 18 && restored.chineseSize == 24 && restored.reduceMotion && restored.restorePage && restored.lastPage == "subtitle", "font_sizes_and_workspace_preferences_persist")
             }
             let imported = try ClipSubtitleImport.parse("1\n00:00:01,000 --> 00:00:03,000\nテスト字幕です。\n这是测试字幕。\n", extension: "srt", layout: .automatic, offset: 0, duration: 10)

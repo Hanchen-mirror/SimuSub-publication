@@ -55,11 +55,11 @@ enum ClipMediaEngine {
         }
         await progress(1)
     }
-    static func burn(input: URL, output: URL, captions: [Caption], style: ClipSubtitleStyle = .classic, progress: @escaping @Sendable (Double) async -> Void = { _ in }) async throws {
+    static func burn(input: URL, output: URL, captions: [Caption], style: ClipSubtitleStyle = .classic, roles: [ClipCaptionRole] = [], progress: @escaping @Sendable (Double) async -> Void = { _ in }) async throws {
         let asset = AVURLAsset(url: input)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw ClipError.message("没有可导出的视频轨道。") }
         let size = try await track.load(.naturalSize)
-        let cache = ClipOverlayCache(captions: captions, size: size, style: style)
+        let cache = ClipOverlayCache(captions: captions, size: size, style: style, roles: roles)
         let composition = AVMutableVideoComposition(asset: asset) { request in
             let time = request.compositionTime.seconds
             let image = request.sourceImage
@@ -95,15 +95,18 @@ private final class ClipExportCancellation: @unchecked Sendable {
 /// Bounded per-caption cache shared across AVFoundation composition requests.
 private final class ClipOverlayCache: @unchecked Sendable {
     let captions: [Caption]; let size: CGSize; let style: ClipSubtitleStyle
+    let roles: [ClipCaptionRole]
     private let lock = NSLock()
     private var images: [UUID: CIImage] = [:]
-    init(captions: [Caption], size: CGSize, style: ClipSubtitleStyle) { self.captions = captions; self.size = size; self.style = style }
+    init(captions: [Caption], size: CGSize, style: ClipSubtitleStyle, roles: [ClipCaptionRole]) {
+        self.captions = captions; self.size = size; self.style = style; self.roles = roles
+    }
     func image(at time: Double) -> CIImage? {
         let cue = captions.first(where: { $0.start <= time && time < $0.end })
         let key = cue?.id ?? UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
         return lock.withLock {
             if let cached = images[key] { return cached }
-            guard let rendered = ClipSubtitleRenderer.frame(cue, size: size, style: style) else { return nil }
+            guard let rendered = ClipSubtitleRenderer.frame(cue, size: size, style: style.resolving(cue: cue, roles: roles)) else { return nil }
             if images.count >= 8 { images.removeAll() }
             let image = CIImage(cgImage: rendered); images[key] = image; return image
         }

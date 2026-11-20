@@ -225,32 +225,47 @@ struct SubtitleResizeSurface: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {
             guard let window else { return }
             activeEdges = edges(at: convert(event.locationInWindow, from: nil))
+            guard !activeEdges.isEmpty else { return }
             initialFrame = window.frame
             initialMouse = window.convertPoint(toScreen: event.locationInWindow)
             controller.beginUserResize()
         }
         override func mouseDragged(with event: NSEvent) {
             guard let window else { return }
+            guard !activeEdges.isEmpty else { return }
             let pointer = window.convertPoint(toScreen: event.locationInWindow)
             let delta = NSPoint(x: pointer.x - initialMouse.x, y: pointer.y - initialMouse.y)
-            var size = initialFrame.size
-            if activeEdges.contains(.left) { size.width -= 2 * delta.x }
-            if activeEdges.contains(.right) { size.width += 2 * delta.x }
-            if activeEdges.contains(.bottom) { size.height -= 2 * delta.y }
-            if activeEdges.contains(.top) { size.height += 2 * delta.y }
-            let center = NSPoint(x: initialFrame.midX, y: initialFrame.midY)
-            if let screen = window.screen?.visibleFrame {
-                let horizontalRoom = 2 * min(center.x - screen.minX, screen.maxX - center.x)
-                let verticalRoom = 2 * min(center.y - screen.minY, screen.maxY - center.y)
-                size.width = min(size.width, max(initialFrame.width, horizontalRoom))
-                size.height = min(size.height, max(initialFrame.height, verticalRoom))
+            let screen = window.screen?.visibleFrame ?? NSRect.infinite
+            let minimum = window.contentMinSize
+            // Anchor the opposite edge. The grabbed edge follows the pointer one
+            // point for one point, even when the far side touches a screen boundary.
+            var frame = initialFrame
+            if activeEdges.contains(.left) {
+                frame.origin.x = min(initialFrame.maxX - minimum.width,
+                                     max(min(screen.minX, initialFrame.minX), initialFrame.minX + delta.x))
+                frame.size.width = initialFrame.maxX - frame.minX
+            } else if activeEdges.contains(.right) {
+                let right = min(max(screen.maxX, initialFrame.maxX), initialFrame.maxX + delta.x)
+                frame.size.width = max(minimum.width, right - initialFrame.minX)
             }
-            size.width = max(window.contentMinSize.width, size.width)
-            size.height = max(window.contentMinSize.height, size.height)
-            let frame = NSRect(x: center.x - size.width / 2, y: center.y - size.height / 2,
-                               width: size.width, height: size.height)
-            if window.frame != frame { window.setFrame(frame, display: true, animate: false) }
+            if activeEdges.contains(.bottom) {
+                frame.origin.y = min(initialFrame.maxY - minimum.height,
+                                     max(min(screen.minY, initialFrame.minY), initialFrame.minY + delta.y))
+                frame.size.height = initialFrame.maxY - frame.minY
+            } else if activeEdges.contains(.top) {
+                let top = min(max(screen.maxY, initialFrame.maxY), initialFrame.maxY + delta.y)
+                frame.size.height = max(minimum.height, top - initialFrame.minY)
+            }
+            if window.frame != frame {
+                window.setFrame(frame, display: false, animate: false)
+                window.contentView?.needsDisplay = true
+            }
         }
-        override func mouseUp(with event: NSEvent) { activeEdges = []; controller.finishUserResize() }
+        override func mouseUp(with event: NSEvent) {
+            guard !activeEdges.isEmpty else { return }
+            mouseDragged(with: event)
+            activeEdges = []
+            controller.finishUserResize()
+        }
     }
 }

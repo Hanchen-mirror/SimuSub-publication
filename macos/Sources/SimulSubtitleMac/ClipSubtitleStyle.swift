@@ -14,6 +14,7 @@ struct ClipTextStyle: Codable, Equatable {
     var bold = true
     var outlineColor = "#000000"
     var outline: Double = 2
+    var shadow: Double?
 }
 struct ClipSubtitlePosition: Codable, Equatable {
     var x: Double = 0.5
@@ -49,12 +50,20 @@ struct ClipSubtitleStyle: Codable, Equatable {
     var valid: Bool {
         [chinese, japanese].allSatisfy { t in
             t.size.isFinite && (12...120).contains(t.size) && t.outline.isFinite && (0...10).contains(t.outline)
+            && (t.shadow.map { $0.isFinite && (0...1).contains($0) } ?? true)
             && t.font.count <= 100 && Self.isColor(t.color) && Self.isColor(t.outlineColor)
         } && spacing.isFinite && (0...60).contains(spacing) && bottom.isFinite && (0...400).contains(bottom)
             && background.isFinite && (0...1).contains(background) && (0...2).contains(alignment)
             && (position?.valid ?? true) && (mask?.valid ?? true)
     }
     static func isColor(_ value: String) -> Bool { value.range(of: "^#[0-9A-Fa-f]{6}$", options: .regularExpression) != nil }
+    func resolving(cue: Caption?, roles: [ClipCaptionRole]) -> Self {
+        guard let id = cue?.clipRoleID, let role = roles.first(where: { $0.id == id }) else { return self }
+        var result = self
+        result.chinese = role.chinese
+        result.japanese = role.japanese
+        return result.valid ? result : self
+    }
     func lines(_ cue: Caption) -> [(String, ClipTextStyle)] {
         let zh = (SubtitleDocument.completedTranslation(cue) ?? "", chinese)
         let ja = (cue.original, japanese)
@@ -89,6 +98,7 @@ enum ClipSubtitleRenderer {
         let style = requested.valid ? requested : .classic
         let scale = max(0.05, size.width / 1920), width = max(32, floor(size.width * (style.position?.width ?? 0.92)))
         let padding = max(4, 14 * scale)
+        let shadowKey = NSAttributedString.Key("SimuSubClipTextShadow")
         var ratio: CGFloat = 1
         var text = NSMutableAttributedString(string: ""), height: CGFloat = 0
         repeat {
@@ -109,6 +119,7 @@ enum ClipSubtitleRenderer {
                     NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): false,
                     NSAttributedString.Key(kCTStrokeColorAttributeName as String): NSColor.clipHex(spec.outlineColor).cgColor,
                     NSAttributedString.Key(kCTStrokeWidthAttributeName as String): -spec.outline / spec.size * 100,
+                    shadowKey: spec.shadow ?? (style.shadow ? 0.8 : 0),
                     .paragraphStyle: paragraph]
                 text.append(NSAttributedString(string: (index == 0 ? "" : "\n") + line, attributes: attributes))
             }
@@ -133,14 +144,33 @@ enum ClipSubtitleRenderer {
                 NSAttributedString.Key(kCTStrokeColorAttributeName as String): color,
                 NSAttributedString.Key(kCTStrokeWidthAttributeName as String): max(0.001, width)], range: range)
         }
-        if style.shadow { ctx.setShadow(offset: CGSize(width: scale, height: -scale), blur: 3 * scale, color: NSColor.black.withAlphaComponent(0.8).cgColor) }
         let outlineFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(strokeText), CFRange(location: 0, length: text.length), path, nil)
-        CTFrameDraw(outlineFrame, ctx)
         let fillText = NSMutableAttributedString(attributedString: text)
         fillText.removeAttribute(NSAttributedString.Key(kCTStrokeWidthAttributeName as String), range: NSRange(location: 0, length: fillText.length))
         fillText.removeAttribute(NSAttributedString.Key(kCTStrokeColorAttributeName as String), range: NSRange(location: 0, length: fillText.length))
         let fillFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(fillText), CFRange(location: 0, length: fillText.length), path, nil)
-        CTFrameDraw(fillFrame, ctx)
+        let fillLines = CTFrameGetLines(fillFrame) as! [CTLine]
+        let outlines = CTFrameGetLines(outlineFrame) as! [CTLine]
+        guard !fillLines.isEmpty, fillLines.count == outlines.count else { return nil }
+        var origins = [CGPoint](repeating: .zero, count: fillLines.count)
+        CTFrameGetLineOrigins(fillFrame, CFRange(location: 0, length: 0), &origins)
+        for (index, line) in fillLines.enumerated() {
+            let location = CTLineGetStringRange(line).location
+            guard location < text.length else { continue }
+            let strength = text.attribute(shadowKey, at: location, effectiveRange: nil) as? Double ?? 0
+            ctx.saveGState()
+            if strength > 0 {
+                ctx.setShadow(offset: CGSize(width: scale, height: -scale), blur: 3 * scale,
+                              color: NSColor.black.withAlphaComponent(strength).cgColor)
+                ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            }
+            ctx.textPosition = CGPoint(x: origins[index].x + path.boundingBox.minX, y: origins[index].y + path.boundingBox.minY)
+            CTLineDraw(outlines[index], ctx)
+            ctx.textPosition = CGPoint(x: origins[index].x + path.boundingBox.minX, y: origins[index].y + path.boundingBox.minY)
+            CTLineDraw(line, ctx)
+            if strength > 0 { ctx.endTransparencyLayer() }
+            ctx.restoreGState()
+        }
         return ctx.makeImage()
     }
     static func preview(_ cue: Caption, style: ClipSubtitleStyle) -> NSImage? {

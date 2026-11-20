@@ -41,6 +41,13 @@ struct ClipRange: Identifiable, Codable, Equatable {
     }
 }
 struct ClipEnergy: Codable, Equatable { var start: Double; var rms: Double }
+struct ClipCaptionRole: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var name: String
+    var chinese: ClipTextStyle
+    var japanese: ClipTextStyle
+}
+
 struct ClipProject: Identifiable, Codable, Equatable {
     var id = UUID()
     var name: String
@@ -48,6 +55,7 @@ struct ClipProject: Identifiable, Codable, Equatable {
     var outputGrouping: [String]?
     var media: ClipMedia
     var captions: [Caption] = []
+    var captionRoles: [ClipCaptionRole]?
     var ranges: [ClipRange] = []
     var energy: [ClipEnergy] = []
     var createdAt = Date()
@@ -126,14 +134,44 @@ enum ClipTime {
 }
 
 extension ClipProject {
+    func hasBurnableCaptions(for range: ClipRange) -> Bool {
+        range.style.complete(captions(for: range))
+    }
+
     func captions(for range: ClipRange) -> [Caption] {
+        mergedCaptions(for: range).filter { $0.end > range.start && $0.start < range.end }
+    }
+
+    /// Resolve speaker changes before clipping, so trimming a range through a
+    /// speaker's turn keeps the visible lines in that speaker's style.
+    func styledCaptions(for range: ClipRange) -> [Caption] {
+        let roles = Set((captionRoles ?? []).map(\.id))
+        guard !roles.isEmpty else { return captions(for: range) }
+        var speaker: UUID?
+        var visible: [Caption] = []
+        for var cue in mergedCaptions(for: range) {
+            if cue.start >= range.end { break }
+            if let id = cue.clipRoleID {
+                speaker = roles.contains(id) ? id : nil
+            } else if cue.clipUsesDefault == true {
+                speaker = nil
+            }
+            if cue.end > range.start {
+                cue.clipRoleID = speaker
+                visible.append(cue)
+            }
+        }
+        return visible
+    }
+
+    private func mergedCaptions(for range: ClipRange) -> [Caption] {
         var values = range.importedCaptions ?? captions
         for cue in range.captionEdits ?? [] {
             if let i = values.firstIndex(where: { $0.id == cue.id }) { values[i] = cue }
             else { values.append(cue) }
         }
         let removed = Set(range.deletedCaptionIDs ?? [])
-        return values.filter { !removed.contains($0.id) && !$0.isDraft && $0.end > range.start && $0.start < range.end }.sorted { $0.start < $1.start }
+        return values.filter { !removed.contains($0.id) && !$0.isDraft }.sorted { $0.start < $1.start }
     }
 }
 

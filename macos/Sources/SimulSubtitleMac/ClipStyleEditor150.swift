@@ -3,11 +3,14 @@ import AVKit
 
 /// A small style surface: typography stays here; placement stays on the video.
 struct ClipStyleEditor150: View {
+    let projectID: UUID
     let player: AVPlayer
     let captions: [Caption]
+    var roles: [ClipCaptionRole] = []
     let mediaSize: CGSize
     @Binding var style: ClipSubtitleStyle
     let onClose: () -> Void
+    var onRoleResize: ((UUID, Double, Double) -> Void)? = nil
     @EnvironmentObject private var appearance: HomeAppearance
     @Environment(\.appThemeID) private var themeID
     @State private var showingMask = false
@@ -18,6 +21,7 @@ struct ClipStyleEditor150: View {
             HStack {
                 Text(L10n.text("字幕样式")).font(.system(size: 18, weight: .semibold))
                 Spacer()
+                ClipCaptionRoleMenu(projectID: projectID, baseStyle: style, sample: captions.first)
                 Button { showingMask.toggle() } label: {
                     Image(systemName: "rectangle.bottomthird.inset.filled")
                         .frame(width: 30, height: 30)
@@ -31,14 +35,14 @@ struct ClipStyleEditor150: View {
                     .buttonStyle(.plain).foregroundStyle(ThemeColor.muted)
                     .accessibilityLabel(L10n.text("关闭字幕样式"))
             }
-            ClipStyledPlayer(player: player, captions: captions, style: style, mediaSize: mediaSize,
-                             onStyle: { value, _ in style = value })
+            ClipStyledPlayer(player: player, captions: captions, style: style, roles: roles, mediaSize: mediaSize,
+                             onStyle: { value, _ in style = value }, onRoleResize: onRoleResize)
                 .frame(height: 200).background(Color.black)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .accessibilityIdentifier("clip.style.preview")
             HStack(alignment: .top, spacing: 24) {
-                textControls("原文", text: $style.japanese, role: "original")
-                textControls("译文", text: $style.chinese, role: "translation")
+                ClipTextStyleControls(title: "原文", text: $style.japanese, role: "original")
+                ClipTextStyleControls(title: "译文", text: $style.chinese, role: "translation")
             }
             HStack {
                 Spacer()
@@ -49,33 +53,6 @@ struct ClipStyleEditor150: View {
         }.padding(24).frame(width: 560)
             .background(ThemeColor.surface).foregroundStyle(ThemeColor.ink)
             .onExitCommand { if showingMask { showingMask = false } else { onClose() } }
-    }
-
-    private func textControls(_ title: String, text: Binding<ClipTextStyle>, role: String) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(L10n.text(title)).font(.system(size: 13, weight: .semibold))
-            VStack(alignment: .leading, spacing: 8) {
-                fieldLabel("字体")
-                DesignMenuField(title: fontLabel(text.wrappedValue.font), height: 36) {
-                    ForEach(fontChoices(including: text.wrappedValue.font), id: \.self) { font in
-                        Button(L10n.text(fontLabel(font))) { text.wrappedValue.font = font }
-                    }
-                }.accessibilityLabel(L10n.text(title + "字体"))
-            }
-            VStack(spacing: 8) {
-                HStack {
-                    fieldLabel("字号"); Spacer()
-                    Text("\(Int(text.wrappedValue.size.rounded())) px").font(.system(size: 11)).monospacedDigit()
-                }
-                Slider(value: text.size, in: 12...120, step: 1)
-                    .tint(ThemeColor.primary).controlSize(.small)
-                    .accessibilityLabel(L10n.text(title + "字号"))
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                fieldLabel("颜色")
-                ClipColorPalette150(value: text.color, role: role, title: title + "颜色")
-            }
-        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var maskControls: some View {
@@ -105,6 +82,190 @@ struct ClipStyleEditor150: View {
                     .accessibilityLabel(L10n.text("遮罩不透明度"))
             }
         }.padding(16).frame(width: 244).background(ThemeColor.surface).foregroundStyle(ThemeColor.ink)
+    }
+
+    private func fieldLabel(_ title: String) -> some View {
+        Text(L10n.text(title)).font(.system(size: 11)).foregroundStyle(ThemeColor.muted)
+    }
+}
+
+/// Used by the clip style toolbar and by the editor for an individual cue.
+struct ClipCaptionRoleMenu: View {
+    let projectID: UUID
+    let baseStyle: ClipSubtitleStyle
+    let sample: Caption?
+    var cue: Binding<Caption>?
+    @EnvironmentObject private var clips: ClipStore
+    @State private var draft: ClipCaptionRole?
+
+    private var roles: [ClipCaptionRole] {
+        clips.projects.first { $0.id == projectID }?.captionRoles ?? []
+    }
+    private var selectedRole: ClipCaptionRole? { roles.first { $0.id == cue?.wrappedValue.clipRoleID } }
+    private var selectionName: String {
+        if let selectedRole { return selectedRole.name }
+        return L10n.text(cue?.wrappedValue.clipUsesDefault == true ? "片段默认" : "沿用上一条")
+    }
+
+    var body: some View {
+        Menu {
+            if let cue {
+                Button {
+                    cue.wrappedValue.inheritClipRole()
+                } label: { choice(L10n.text("沿用上一条"), selected: cue.wrappedValue.clipRoleID == nil && cue.wrappedValue.clipUsesDefault != true) }
+                Button {
+                    cue.wrappedValue.assignClipRole(nil)
+                } label: { choice(L10n.text("片段默认"), selected: cue.wrappedValue.clipUsesDefault == true) }
+                ForEach(roles) { role in
+                    Button { cue.wrappedValue.assignClipRole(role.id) } label: {
+                        choice(role.name, selected: selectedRole?.id == role.id)
+                    }
+                }
+                Divider()
+                if let selectedRole { Button(L10n.text("编辑角色样式")) { draft = selectedRole } }
+            } else {
+                ForEach(roles) { role in
+                    Button { draft = role } label: { Text(verbatim: role.name) }
+                }
+                if !roles.isEmpty { Divider() }
+            }
+            Button {
+                draft = ClipCaptionRole(id: UUID(), name: "", chinese: baseStyle.chinese, japanese: baseStyle.japanese)
+            } label: { Label(L10n.text("新建角色样式"), systemImage: "plus") }
+        } label: {
+            Label(cue == nil ? L10n.text("角色样式") : selectionName, systemImage: "person.2")
+                .lineLimit(1)
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+        .accessibilityIdentifier(cue == nil ? "clips.manageCaptionRoles" : "clips.selectCaptionRole")
+        .sheet(item: $draft) { role in
+            ClipCaptionRoleEditor(role: role, roles: roles, baseStyle: baseStyle, sample: sample) { changed in
+                clips.update(projectID) { project in
+                    var all = project.captionRoles ?? []
+                    if let i = all.firstIndex(where: { $0.id == changed.id }) { all[i] = changed }
+                    else { all.append(changed) }
+                    project.captionRoles = all
+                }
+                if let cue { cue.wrappedValue.assignClipRole(changed.id) }
+                draft = nil
+            }
+            .appTheme()
+        }
+    }
+
+    @ViewBuilder private func choice(_ title: String, selected: Bool) -> some View {
+        if selected { Label(title, systemImage: "checkmark") } else { Text(verbatim: title) }
+    }
+}
+
+private struct ClipCaptionRoleEditor: View {
+    @State var role: ClipCaptionRole
+    let roles: [ClipCaptionRole]
+    let baseStyle: ClipSubtitleStyle
+    let sample: Caption?
+    let onSave: (ClipCaptionRole) -> Void
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var naming: Bool
+    @State private var showEffects = false
+
+    private var name: String { role.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var duplicate: Bool { roles.contains { $0.id != role.id && $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame } }
+    private var previewStyle: ClipSubtitleStyle {
+        var style = baseStyle
+        style.chinese = role.chinese
+        style.japanese = role.japanese
+        return style
+    }
+    private var previewCue: Caption {
+        if let sample, !sample.original.isEmpty || !sample.translated.isEmpty { return sample }
+        return Caption(start: 0, end: 3, original: model.sourceLanguage.preview, translated: model.targetLanguage.preview)
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(L10n.text("角色样式")).font(.title3.weight(.semibold))
+            HStack {
+                Text(L10n.text("角色名称")).font(.caption)
+                TextField(L10n.text("角色名称"), text: $role.name).textFieldStyle(ClipFieldStyle()).focused($naming)
+                    .accessibilityIdentifier("clips.captionRoleName")
+            }
+            if duplicate { Text(L10n.text("角色名称已存在")).font(.caption).foregroundStyle(ThemeColor.muted) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    ClipStylePreview(cue: previewCue, style: previewStyle).frame(height: 72)
+                    Toggle(L10n.text("描边与阴影"), isOn: $showEffects)
+                        .toggleStyle(.button).controlSize(.small).accessibilityIdentifier("clips.captionRoleEffects")
+                    HStack(alignment: .top, spacing: 24) {
+                        ClipTextStyleControls(title: "原文", text: $role.japanese, role: "original",
+                                              inheritedShadow: showEffects ? (baseStyle.shadow ? 0.8 : 0) : nil)
+                        ClipTextStyleControls(title: "译文", text: $role.chinese, role: "translation",
+                                              inheritedShadow: showEffects ? (baseStyle.shadow ? 0.8 : 0) : nil)
+                    }
+                }.frame(maxWidth: .infinity)
+            }
+            HStack {
+                Spacer()
+                Button(L10n.text("取消")) { dismiss() }.buttonStyle(ThemeActionButtonStyle()).keyboardShortcut(.cancelAction)
+                Button(L10n.text("保存")) {
+                    var changed = role
+                    changed.name = name
+                    onSave(changed)
+                }.buttonStyle(ThemeActionButtonStyle(prominent: true)).keyboardShortcut(.defaultAction)
+                    .disabled(name.isEmpty || duplicate || !previewStyle.valid)
+                    .accessibilityIdentifier("clips.saveCaptionRole")
+            }
+        }.padding(20).frame(width: 470, height: 452)
+            .background(ThemeColor.surface).foregroundStyle(ThemeColor.ink)
+            .onAppear { naming = role.name.isEmpty }
+    }
+}
+
+private struct ClipTextStyleControls: View {
+    let title: String
+    @Binding var text: ClipTextStyle
+    let role: String
+    var inheritedShadow: Double?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(L10n.text(title)).font(.system(size: 13, weight: .semibold))
+            VStack(alignment: .leading, spacing: 8) {
+                fieldLabel("字体")
+                DesignMenuField(title: fontLabel(text.font), height: 36) {
+                    ForEach(fontChoices(including: text.font), id: \.self) { font in
+                        Button(L10n.text(fontLabel(font))) { text.font = font }
+                    }
+                }.accessibilityLabel(L10n.text(title + "字体"))
+            }
+            VStack(spacing: 8) {
+                HStack {
+                    fieldLabel("字号"); Spacer()
+                    Text("\(Int(text.size.rounded())) px").font(.system(size: 11)).monospacedDigit()
+                }
+                Slider(value: $text.size, in: 12...120, step: 1)
+                    .tint(ThemeColor.primary).controlSize(.small)
+                    .accessibilityLabel(L10n.text(title + "字号"))
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                fieldLabel("颜色")
+                ClipColorPalette150(value: $text.color, role: role, title: title + "颜色")
+            }
+            if let inheritedShadow {
+                ColorPicker(L10n.text("描边颜色"), selection: Binding(get: {
+                    Color(nsColor: .clipHex(text.outlineColor))
+                }, set: { text.outlineColor = NSColor($0).clipHex }), supportsOpacity: false)
+                    .font(.system(size: 11))
+                VStack(spacing: 5) {
+                    HStack { fieldLabel("描边宽度"); Spacer(); Text(text.outline.formatted() + " px").font(.caption2).monospacedDigit() }
+                    Slider(value: $text.outline, in: 0...10, step: 0.1).controlSize(.small)
+                        .accessibilityLabel(L10n.text(title) + " " + L10n.text("描边宽度"))
+                }
+                VStack(spacing: 5) {
+                    HStack { fieldLabel("阴影"); Spacer(); Text((text.shadow ?? inheritedShadow).formatted(.percent)).font(.caption2).monospacedDigit() }
+                    Slider(value: Binding(get: { text.shadow ?? inheritedShadow }, set: { text.shadow = $0 }), in: 0...1, step: 0.05)
+                        .controlSize(.small).accessibilityLabel(L10n.text(title) + " " + L10n.text("阴影"))
+                }
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func fieldLabel(_ title: String) -> some View {

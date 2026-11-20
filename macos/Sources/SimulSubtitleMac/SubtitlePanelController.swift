@@ -431,6 +431,7 @@ private struct SubtitlePanelRoot: View {
                                   isBusy: model.isStarting || model.isStopping || model.isLoadingApplications || model.isClearingCaptions,
                                   canStartStop: !model.isDownloadingModels && model.subtitlePreparationBytes == nil,
                                   onStartStop: { if model.subtitlePlaybackIntent == .chooseApplication { controller.prepareForPicker() }; model.toggleSubtitlePlayback() },
+                                  captionStyle: appearance.captionStyle,
                                   japaneseFont: appearance.japaneseFont, chineseFont: appearance.chineseFont,
                                   japaneseSize: appearance.japaneseSize, chineseSize: appearance.chineseSize, zoom: appearance.workspaceZoom)
                         .contextMenu {

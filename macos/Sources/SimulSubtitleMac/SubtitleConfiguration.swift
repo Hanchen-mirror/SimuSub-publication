@@ -76,7 +76,7 @@ struct SubtitleConfiguration: View {
                             if let error = model.subtitleStartError {
                                 Text(L10n.text(error)).font(.caption).foregroundStyle(ThemeColor.muted).textSelection(.enabled)
                             }
-                        }.frame(maxHeight: layout.stacked ? nil : .infinity, alignment: .top).designPanel(inset: layout.cardInset).zIndex(1).accessibilityIdentifier("subtitle.sourcePanel")
+                        }.designPanel(inset: layout.cardInset).zIndex(1).accessibilityIdentifier("subtitle.sourcePanel")
                         VStack(alignment: .leading, spacing: 18) {
                             HStack {
                                 Text(L10n.text("字幕外观")).interfaceFont(size: 16, weight: .semibold)
@@ -86,20 +86,21 @@ struct SubtitleConfiguration: View {
                             }
                             VStack(spacing: 7) {
                                 if model.subtitleDisplayMode == .bilingual {
-                                    Text(model.sourceLanguage.preview)
-                                        .font(Font(SubtitleFont.native(appearance.japaneseFont, size: appearance.japaneseSize)))
-                                        .foregroundStyle(ThemeColor.muted)
+                                    LiveCaptionText(text: model.sourceLanguage.preview,
+                                        font: SubtitleFont.native(appearance.japaneseFont, size: appearance.japaneseSize, weight: .medium),
+                                        fallback: ThemeColor.muted, style: appearance.captionStyle)
                                         .transition(.opacity)
                                 }
-                                Text(model.originalOnly ? model.sourceLanguage.preview : model.targetLanguage.preview)
-                                    .font(Font(SubtitleFont.native(model.originalOnly ? appearance.japaneseFont : appearance.chineseFont,
-                                        size: model.originalOnly ? appearance.japaneseSize : appearance.chineseSize, weight: .semibold)))
+                                LiveCaptionText(text: model.originalOnly ? model.sourceLanguage.preview : model.targetLanguage.preview,
+                                    font: SubtitleFont.native(model.originalOnly ? appearance.japaneseFont : appearance.chineseFont,
+                                        size: model.originalOnly ? appearance.japaneseSize : appearance.chineseSize, weight: .semibold),
+                                    fallback: ThemeColor.ink, style: appearance.captionStyle)
                             }.padding(10).frame(maxWidth: .infinity, minHeight: 104).background(ThemeColor.preview, in: RoundedRectangle(cornerRadius: 12))
                                 .animation(transitionAnimation, value: model.subtitleDisplayMode)
+                            LiveCaptionStylePicker()
                             SubtitleFontSettings(inlineSizes: true)
-                                .frame(maxHeight: layout.stacked ? nil : .infinity, alignment: .bottom)
-                        }.frame(maxHeight: layout.stacked ? nil : .infinity, alignment: .top).designPanel(inset: layout.cardInset).accessibilityIdentifier("subtitle.appearancePanel")
-                    }.fixedSize(horizontal: false, vertical: !layout.stacked)
+                        }.designPanel(inset: layout.cardInset).accessibilityIdentifier("subtitle.appearancePanel")
+                    }
                 }.padding(layout.gutter)
             }.accessibilityIdentifier(layout.stacked ? "subtitle.layout.stacked" : "subtitle.layout.columns")
         }.background(ThemeColor.background)

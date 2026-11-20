@@ -58,10 +58,11 @@ final class ClipStore: ObservableObject {
     func update(_ id: UUID, _ change: (inout ClipProject) -> Void) {
         guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
         let oldRanges = projects[index].ranges
+        let oldRoles = projects[index].captionRoles
         let oldCaptions = projects[index].captions
         let oldPreview = projects[index].previewPath
         change(&projects[index])
-        if projects[index].captions != oldCaptions || projects[index].ranges != oldRanges {
+        if projects[index].captions != oldCaptions || projects[index].ranges != oldRanges || projects[index].captionRoles != oldRoles {
             removePreview(oldPreview); projects[index].previewPath = nil
         }
         projects[index].updatedAt = Date(); persist()
@@ -99,7 +100,14 @@ final class ClipStore: ObservableObject {
         return true
     }
     @discardableResult func applyProofread(_ id: UUID, rangeID: UUID, cue: Caption) -> Bool {
-        guard saveSegmentCaption(id, rangeID: rangeID, cue: cue) else { return false }
+        var revised = cue
+        if let project = projects.first(where: { $0.id == id }),
+           let range = project.ranges.first(where: { $0.id == rangeID }),
+           let current = project.captions(for: range).first(where: { $0.id == cue.id }) {
+            revised.clipRoleID = current.clipRoleID
+            revised.clipUsesDefault = current.clipUsesDefault
+        }
+        guard saveSegmentCaption(id, rangeID: rangeID, cue: revised) else { return false }
         update(id) { p in if let i = p.ranges.firstIndex(where: { $0.id == rangeID }) {
             p.ranges[i].proofreadCandidates?.removeAll { $0.id == cue.id }
         } }
@@ -107,6 +115,19 @@ final class ClipStore: ObservableObject {
     }
     func deleteSegmentCaption(_ id: UUID, rangeID: UUID, cueID: UUID) {
         update(id) { p in if let i = p.ranges.firstIndex(where: { $0.id == rangeID }) {
+            let visible = p.captions(for: p.ranges[i])
+            if let index = visible.firstIndex(where: { $0.id == cueID }),
+               visible[index].clipRoleID != nil || visible[index].clipUsesDefault == true,
+               visible.indices.contains(index + 1) {
+                var next = visible[index + 1]
+                if next.clipRoleID == nil && next.clipUsesDefault != true {
+                    next.assignClipRole(visible[index].clipRoleID)
+                    var edits = p.ranges[i].captionEdits ?? []
+                    edits.removeAll { $0.id == next.id }
+                    edits.append(next)
+                    p.ranges[i].captionEdits = edits
+                }
+            }
             var deleted = p.ranges[i].deletedCaptionIDs ?? []; deleted.append(cueID); p.ranges[i].deletedCaptionIDs = deleted
             p.ranges[i].captionEdits?.removeAll { $0.id == cueID }
         } }
@@ -181,16 +202,21 @@ final class ClipStore: ObservableObject {
                     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                     let url = folder.appendingPathComponent(UUID().uuidString + ".mp4")
                     let savedRange = project.ranges.first { $0.id == range.id } ?? range
-                    let cues = ClipTime.captions(project.captions(for: savedRange), within: range)
+                    let cues = ClipTime.captions(project.styledCaptions(for: savedRange), within: range)
                     let burn = job.burnSubtitles && savedRange.style.complete(cues)
                     let raw = folder.appendingPathComponent(UUID().uuidString + ".mp4")
                     defer { try? FileManager.default.removeItem(at: raw) }
                     do {
                         try await ClipMediaEngine.cut(media: project.media, range: range, output: burn ? raw : url)
                         if job.burnSubtitles && !savedRange.style.complete(cues) { throw ClipError.message("当前语言模式的字幕尚未补全，请先识别、导入或编辑字幕。") }
-                        if burn { try await ClipMediaEngine.burn(input: raw, output: url, captions: cues, style: savedRange.style) }
+                        if burn { try await ClipMediaEngine.burn(input: raw, output: url, captions: cues, style: savedRange.style, roles: project.captionRoles ?? []) }
                         try Task.checkCancellation()
-                        self.removePreview(project.previewPath)
+                        guard let current = self.projects.first(where: { $0.id == project.id }),
+                              current.ranges == project.ranges, current.captions == project.captions,
+                              current.captionRoles == project.captionRoles else {
+                            throw ClipError.message("字幕或样式已改变，请重新生成预览。")
+                        }
+                        self.removePreview(current.previewPath)
                         self.update(project.id) { $0.previewPath = url.path; $0.previewStart = range.start; $0.previewEnd = range.end; $0.previewHasSubtitles = burn; $0.previewRangeID = range.id }
                     } catch { try? FileManager.default.removeItem(at: url); throw error }
                 case .transcribe:
@@ -271,8 +297,7 @@ final class ClipStore: ObservableObject {
         for range in job.ranges {
             try range.validate(duration: project.media.duration)
             if job.exportKind != .mp3 && job.burnSubtitles {
-                let cues = ClipTime.captions(project.captions(for: range), within: range)
-                guard range.style.complete(cues) else {
+                guard project.hasBurnableCaptions(for: range) else {
                     throw ClipError.message("“" + range.title + "”的" + range.style.mode.rawValue + "字幕未补全，请先识别、导入或编辑；也可关闭内嵌字幕再导出。［CLIP-SUBTITLES］")
                 }
             }
@@ -280,8 +305,8 @@ final class ClipStore: ObservableObject {
         updateJob(job.id) { $0.completedRanges = [] }
         for (index, range) in job.ranges.enumerated() {
             try Task.checkCancellation()
-            let cues = ClipTime.captions(project.captions(for: range), within: range)
-            let fingerprint = try ClipExportReceipt.fingerprint(media: project.media, range: range, cues: cues, job: job)
+            let cues = ClipTime.captions(project.styledCaptions(for: range), within: range)
+            let fingerprint = try ClipExportReceipt.fingerprint(media: project.media, range: range, cues: cues, job: job, roles: project.captionRoles ?? [])
             var receipt = job.exportReceipts?.first { $0.rangeID == range.id && $0.fingerprint == fingerprint && $0.mediaExists }
             let isMP3 = job.exportKind == .mp3
             var stage = isMP3 ? "导出 MP3" : "裁切视频"
@@ -301,7 +326,7 @@ final class ClipStore: ObservableObject {
                         try await ClipMediaEngine.cut(media: project.media, range: range, output: job.burnSubtitles ? intermediate : partial)
                         if job.burnSubtitles {
                             stage = "烧录字幕"
-                            try await ClipMediaEngine.burn(input: intermediate, output: partial, captions: cues, style: range.style, progress: { value in
+                            try await ClipMediaEngine.burn(input: intermediate, output: partial, captions: cues, style: range.style, roles: project.captionRoles ?? [], progress: { value in
                                 await self.progress(job.id, value: (Double(index) + 0.35 + value * 0.65) / Double(job.ranges.count), message: "正在烧录字幕：" + range.title)
                             })
                         }

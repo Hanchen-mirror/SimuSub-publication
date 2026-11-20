@@ -66,6 +66,7 @@ struct SubtitleStrip: View {
     var canStartStop = true
     var onStartStop: (() -> Void)? = nil
     var previewControlsVisible = false
+    var captionStyle = LiveCaptionStyle.standard
     var japaneseFont = ""
     var chineseFont = ""
     var japaneseSize: Double = 16
@@ -105,29 +106,33 @@ struct SubtitleStrip: View {
                         .lineLimit(1).truncationMode(.tail).help(L10n.text(idleText))
                         .accessibilityIdentifier("subtitle.idleText")
                 } else {
-                    ScrollView(.vertical, showsIndicators: captions.count > 1) {
-                        let history = captions.dropLast()
-                        let rowHeight = SubtitleCueLayout.historyHeight(mode: displayMode, japaneseFont: japaneseFont,
-                            chineseFont: chineseFont, japaneseSize: japaneseSize, chineseSize: chineseSize, zoom: zoom)
-                        VStack(spacing: 0) {
-                            LazyVStack(spacing: 0) {
-                                ForEach(history) { caption in
-                                    captionView(caption, layout: cueLayout(caption))
-                                        .frame(maxWidth: .infinity).frame(height: rowHeight)
-                                }
-                            }
-                            .frame(height: CGFloat(history.count) * rowHeight)
-                            if let latest = captions.last {
-                                captionView(latest, layout: cueLayout(latest))
-                                    .frame(maxWidth: .infinity).frame(height: paper.height)
+                    let preferredRow = SubtitleCueLayout.historyHeight(mode: displayMode, japaneseFont: japaneseFont,
+                        chineseFont: chineseFont, japaneseSize: japaneseSize, chineseSize: chineseSize, zoom: zoom)
+                    let row = min(paper.height, preferredRow)
+                    let content = CGFloat(captions.count) * row
+                    // Keep short strips and short transcripts centered. In a tall
+                    // window the bottom margin stays bounded, so new cues sit next to history.
+                    let compactInset = max(0, (min(92, paper.height) - row) / 2)
+                    let bottomInset = max(compactInset, (paper.height - content) / 2)
+                    let visibleRows = max(1, floor((paper.height - bottomInset + 0.001) / row))
+                    let viewport = min(content, visibleRows * row)
+                    ScrollView(.vertical, showsIndicators: content > viewport) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(captions) { caption in
+                                captionView(caption, layout: cueLayout(caption))
+                                    .frame(maxWidth: .infinity).frame(height: row)
                             }
                         }
+                        .frame(height: content)
                         .background(alignment: .topLeading) {
-                            SubtitleHistoryScroll(latestID: captions.last?.id, size: paper.size)
+                            SubtitleHistoryScroll(latestID: captions.last?.id, size: CGSize(width: paper.width, height: viewport), rowHeight: row)
                                 .frame(width: 1, height: 1)
                                 .allowsHitTesting(false).accessibilityHidden(true)
                         }
                     }
+                    .frame(height: viewport)
+                    .padding(.bottom, bottomInset)
+                    .frame(height: paper.height, alignment: .bottom)
                     .accessibilityIdentifier("subtitle.history")
                 }
             }
@@ -157,7 +162,7 @@ struct SubtitleStrip: View {
     }
 
     private func captionView(_ caption: Caption, layout: SubtitleCueLayout) -> some View {
-        PaperCaption(layout: layout, isDraft: caption.isDraft) {
+        PaperCaption(layout: layout, isDraft: caption.isDraft, style: captionStyle, scale: zoom.factor) {
             // The selected cue stays readable while new audio advances the strip.
             fullCaption = FullCaption(id: caption.id, lines: layout.lines.map(\.fullText))
         }
@@ -303,15 +308,16 @@ private struct SubtitleToolStyle: ButtonStyle {
 private struct PaperCaption: View {
     let layout: SubtitleCueLayout
     let isDraft: Bool
+    let style: LiveCaptionStyle
+    let scale: CGFloat
     let showFullCaption: () -> Void
 
     private var rows: some View {
         VStack(spacing: layout.spacing) {
             ForEach(layout.lines, id: \.original) { line in
-                Text(verbatim: line.text)
-                    .font(Font(line.font))
-                    .foregroundStyle(isDraft || (line.original && layout.lines.count > 1) ? ThemeColor.muted : ThemeColor.ink)
-                    .lineLimit(1).truncationMode(.tail)
+                LiveCaptionText(text: line.text, font: line.font,
+                    fallback: isDraft || (line.original && layout.lines.count > 1) ? ThemeColor.muted : ThemeColor.ink,
+                    style: style, scale: scale)
                     .frame(width: layout.width)
             }
         }

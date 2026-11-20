@@ -114,6 +114,12 @@ enum ClipV121Checks {
         var blank = range; blank.id = UUID(); blank.title = "缺少中文"; blank.subtitleStyle = .classic; blank.subtitleStyle?.mode = .chinese
         blank.importedCaptions = [Caption(start: 1.2, end: 2.5, original: "日本語", translated: "")]
         allowed.update(deniedID) { $0.ranges.append(blank) }
+        var translationOnly = blank
+        translationOnly.importedCaptions = [Caption(start: 1.2, end: 2.5, original: "", translated: "测试")]
+        translationOnly.subtitleStyle?.mode = .bilingual
+        try require(!allowed.projects[0].hasBurnableCaptions(for: translationOnly), "export_sheet_blocks_bilingual_burn_with_only_translation")
+        translationOnly.subtitleStyle?.mode = .chinese
+        try require(allowed.projects[0].hasBurnableCaptions(for: translationOnly), "export_sheet_allows_translation_only_burn_with_translation")
         let exportsBefore = allowed.projects[0].exports.count
         allowed.start(ClipJob(projectID: deniedID, kind: .export, ranges: [range, blank], burnSubtitles: true, outputFolder: folder.path), model: nil)
         try await wait(allowed)
