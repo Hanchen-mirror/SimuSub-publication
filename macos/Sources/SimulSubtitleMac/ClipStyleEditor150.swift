@@ -97,6 +97,7 @@ struct ClipCaptionRoleMenu: View {
     var cue: Binding<Caption>?
     var inheritedRoleID: UUID?
     var badgeOnly = false
+    @ObservedObject private var localization = AppLocalization.shared
     @EnvironmentObject private var clips: ClipStore
     @State private var draft: ClipCaptionRole?
 
@@ -110,7 +111,7 @@ struct ClipCaptionRoleMenu: View {
         guard marker.clipUsesDefault != true else { return nil }
         return roles.first { $0.id == inheritedRoleID }
     }
-    private var selectionName: String { effectiveRole?.name ?? L10n.text("片段默认") }
+    private var selectionName: String { effectiveRole?.name ?? L10n.text("片段默认", language: localization.language) }
 
     var body: some View {
         Menu {

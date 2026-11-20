@@ -172,7 +172,7 @@ private struct CaptionInspectorIcon: View {
     var body: some View {
         VStack(spacing: 3) {
             Image(systemName: symbol).font(.system(size: 15, weight: .medium))
-            if let caption { Text(L10n.text(caption)).interfaceFont(size: 10).lineLimit(1).fixedSize() }
+            if let caption { Text(verbatim: caption).interfaceFont(size: 10).lineLimit(1).fixedSize() }
         }
             .foregroundStyle(accented ? ThemeColor.primaryInk : ThemeColor.ink)
             .padding(.horizontal, caption == nil ? 0 : 4)
@@ -594,13 +594,13 @@ struct ClipEditor: View {
         HStack(spacing: 5) {
             Text(L10n.text("字幕")).interfaceFont(size: 16, weight: .semibold)
             Spacer(minLength: 8)
-            Button(action: importSubtitles) { CaptionInspectorIcon("doc.badge.plus", "导入") }
+            Button(action: importSubtitles) { CaptionInspectorIcon("doc.badge.plus", L10n.text("导入")) }
                 .help(L10n.text("导入字幕")).accessibilityLabel(L10n.text("导入字幕"))
                 .accessibilityIdentifier("clips.importSubtitles")
-            Button(action: openSubtitleStyle) { CaptionInspectorIcon("textformat", "样式") }
+            Button(action: openSubtitleStyle) { CaptionInspectorIcon("textformat", L10n.text("样式")) }
                 .help(L10n.text("字幕样式")).accessibilityLabel(L10n.text("字幕样式"))
                 .accessibilityIdentifier("clips.customStyle")
-            Button(action: transcribe) { CaptionInspectorIcon("waveform", "生成", accented: true) }
+            Button(action: transcribe) { CaptionInspectorIcon("waveform", L10n.text("生成"), accented: true) }
                 .help(L10n.text("生成字幕")).accessibilityLabel(L10n.text("生成字幕"))
                 .accessibilityIdentifier("clips.transcribe")
             Menu {
@@ -669,7 +669,7 @@ struct ClipEditor: View {
                                     Button { remember(); editing = cue } label: { Text(ClipTime.label(cue.start) + " — " + ClipTime.label(cue.end)).interfaceFont(size: 10).monospacedDigit().foregroundStyle(ThemeColor.muted) }.buttonStyle(.plain)
                                         .help(L10n.text("编辑字幕")).accessibilityIdentifier("clips.editCaption." + cue.id.uuidString)
                                     Spacer()
-                                
+
                                     Button { remember(); withAnimation(.easeInOut(duration: 0.18)) { clips.deleteSegmentCaption(project.id, rangeID: active.id, cueID: cue.id) } } label: { Image(systemName: "xmark").font(.system(size: 7, weight: .medium)).frame(width: 21, height: 21).overlay(Circle().stroke(ThemeColor.line, lineWidth: 1)) }.buttonStyle(.plain).help(L10n.text("删除字幕"))
                                 }
                                 Text(verbatim: roleName)
