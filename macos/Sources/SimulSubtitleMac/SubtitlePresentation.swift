@@ -66,7 +66,7 @@ struct SubtitleStrip: View {
     var canStartStop = true
     var onStartStop: (() -> Void)? = nil
     var previewControlsVisible = false
-    var captionStyle = LiveCaptionStyle.standard
+    var captionStyle = LiveCaptionStyles.standard
     var japaneseFont = ""
     var chineseFont = ""
     var japaneseSize: Double = 16
@@ -308,7 +308,7 @@ private struct SubtitleToolStyle: ButtonStyle {
 private struct PaperCaption: View {
     let layout: SubtitleCueLayout
     let isDraft: Bool
-    let style: LiveCaptionStyle
+    let style: LiveCaptionStyles
     let scale: CGFloat
     let showFullCaption: () -> Void
 
@@ -317,7 +317,7 @@ private struct PaperCaption: View {
             ForEach(layout.lines, id: \.original) { line in
                 LiveCaptionText(text: line.text, font: line.font,
                     fallback: isDraft || (line.original && layout.lines.count > 1) ? ThemeColor.muted : ThemeColor.ink,
-                    style: style, scale: scale)
+                    style: line.original ? style.original : style.translation, scale: scale)
                     .frame(width: layout.width)
             }
         }

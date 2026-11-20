@@ -198,11 +198,7 @@ final class ClipStore: ObservableObject {
                 try Task.checkCancellation(); try project.media.validateFile()
                 switch job.kind {
                 case .recommend:
-                    let count = job.recommendationCount ?? 5
-                    let result = await Task.detached(priority: .utility) { ClipHighlights.recommend(project, maximum: count) }.value
-                    try Task.checkCancellation()
-                    self.update(project.id) { $0.candidates = result.candidates; $0.highlightsNote = result.note }
-                    guard !result.candidates.isEmpty else { throw ClipError.message(result.note) }
+                    try await self.recommendHighlights(for: project, range: job.range, maximum: job.recommendationCount ?? 5)
                 case .preview:
                     guard let range = job.range else { throw ClipError.message("请先选择预览范围。") }
                     try range.validate(duration: project.media.duration)
@@ -271,12 +267,16 @@ final class ClipStore: ObservableObject {
                     try await self.export(job, project: project)
 
                 }
+                if job.kind == .transcribe, let count = job.recommendationCount,
+                   let analyzed = self.projects.first(where: { $0.id == job.projectID }) {
+                    try await self.recommendHighlights(for: analyzed, range: job.range, maximum: count)
+                }
                 self.updateJob(jobID) {
                     $0.state = .completed; $0.progress = 1
                     switch job.kind {
                     case .recommend: $0.message = "候选已准备，勾选后加入选段，再预览与导出。"
                     case .preview: $0.message = "预览已准备，可检查画面并设置起止点。"
-                    case .transcribe: $0.message = "字幕处理已完成，可编辑后导出；未检测到的语音可手动补充。"
+                    case .transcribe: $0.message = job.recommendationCount == nil ? "字幕处理已完成，可编辑后导出；未检测到的语音可手动补充。" : "候选已准备，勾选后加入选段，再预览与导出。"
                     case .export: $0.message = job.exportKind == .mp3 ? "MP3 已分别保存，原视频保留。" : "MP4 已保存，所有可生成的字幕文件已核验。原视频保留。"
                     case .proofread: $0.message = "模型核对完成，请比较建议后应用；原字幕尚未改动。"
                     }
@@ -288,6 +288,14 @@ final class ClipStore: ObservableObject {
                 }
             }
         }
+    }
+    private func recommendHighlights(for project: ClipProject, range: ClipRange?, maximum: Int) async throws {
+        let result = await Task.detached(priority: .utility) {
+            ClipHighlights.recommend(project, maximum: maximum, in: range)
+        }.value
+        try Task.checkCancellation()
+        update(project.id) { $0.candidates = result.candidates; $0.highlightsNote = result.note }
+        guard !result.candidates.isEmpty else { throw ClipError.message(result.note) }
     }
     private func recordReceipt(_ receipt: ClipExportReceipt, jobID: UUID) {
         updateJob(jobID) { job in

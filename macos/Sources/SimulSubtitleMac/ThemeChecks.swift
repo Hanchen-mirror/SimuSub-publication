@@ -55,12 +55,26 @@ enum ThemeChecks {
                 savedOff.wordmarkSheen = false
                 try require(!HomeAppearance(defaults: offDefaults, backgroundFile: wallpaper).wordmarkSheen, "wordmark_sheen_restores_off_after_being_disabled")
                 saved.theme = .green; saved.mode = .light; saved.japaneseFont = "Hiragino Sans"; saved.chineseFont = "PingFang SC"
+                let legacyStyle = LiveCaptionStyle(fill: "#FFF4DB", outline: "#29221F", width: 1, shadow: 0.8)
+                defaults.set(try JSONEncoder().encode(legacyStyle), forKey: "subtitle.captionStyle.v158")
+                let migrated = HomeAppearance(defaults: defaults, backgroundFile: wallpaper)
+                try require(migrated.captionStyle == LiveCaptionStyles(both: legacyStyle)
+                    && migrated.captionStyle.original.effectiveShadowHeight == 1.4,
+                    "both_live_rows_preserve_legacy_outline_and_shadow")
                 saved.captionStyle = .blue
                 saved.japaneseSize = 18; saved.chineseSize = 24; saved.reduceMotion = true; saved.restorePage = true; saved.lastPage = "subtitle"
                 let restored = HomeAppearance(defaults: defaults, backgroundFile: wallpaper)
                 try require(restored.theme == .green && restored.mode == .light && restored.japaneseFont == saved.japaneseFont && restored.chineseFont == saved.chineseFont, "theme_mode_fonts_restore_from_saved_defaults")
                 try require(restored.wordmarkSheen, "wordmark_sheen_restores_on_when_enabled")
                 try require(restored.captionStyle == .blue, "live_caption_fill_outline_and_shadow_persist")
+                saved.captionStyle.original.width = 2.2
+                saved.captionStyle.original.shadow = 0.35
+                saved.captionStyle.original.shadowHeight = -3
+                saved.captionStyle.translation.shadowHeight = 4
+                let edited = HomeAppearance(defaults: defaults, backgroundFile: wallpaper)
+                try require(edited.captionStyle == saved.captionStyle && edited.captionStyle.translation.width == 1.3
+                    && edited.captionStyle.translation.shadow == 0.65,
+                    "live_source_and_translation_independently_restore_outline_strength_and_shadow_height")
                 try require(restored.japaneseSize == 18 && restored.chineseSize == 24 && restored.reduceMotion && restored.restorePage && restored.lastPage == "subtitle", "font_sizes_and_workspace_preferences_persist")
             }
             let imported = try ClipSubtitleImport.parse("1\n00:00:01,000 --> 00:00:03,000\nテスト字幕です。\n这是测试字幕。\n", extension: "srt", layout: .automatic, offset: 0, duration: 10)

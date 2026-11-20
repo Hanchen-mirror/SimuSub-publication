@@ -45,6 +45,24 @@ enum ClipRoleRenderChecks {
         let edited = overlap.captions(for: overlap.ranges[0]).first { $0.id == overlapping.id }
         try require(edited?.clipRoleID == b.id && edited?.original == overlapping.original && edited?.end == overlapping.end,
                     "role_menu_preserves_overlapping_caption_text_and_timing")
+        var deletion = overlap
+        deletion.ranges[0].importedCaptions = [marker, second]
+        deletion.ranges[0].proofreadCandidates = [marker]
+        deletion.candidates = deletion.ranges
+        deletion.removeCaptionRole(a.id)
+        let surviving = deletion.captionRoles ?? []
+        try require(surviving.count == 1 && surviving.first?.id == b.id && surviving.first?.number == 2,
+                    "removing_first_legacy_role_preserves_number_of_survivor")
+        try require(deletion.captions.first?.clipUsesDefault == true && deletion.captions.first?.clipRoleID == nil &&
+                    deletion.ranges[0].importedCaptions?.first?.clipUsesDefault == true &&
+                    deletion.ranges[0].proofreadCandidates?.first?.clipUsesDefault == true &&
+                    deletion.candidates?.first?.importedCaptions?.first?.clipUsesDefault == true &&
+                    deletion.ranges[0].captionEdits?.first?.clipRoleID == b.id,
+                    "deleting_role_resets_its_markers_and_preserves_other_assignments")
+        deletion.showsRoleBadges = false
+        let reloaded = try JSONDecoder().decode(ClipProject.self, from: JSONEncoder().encode(deletion))
+        try require(reloaded.showsRoleBadges == false && reloaded.styledCaptions(for: reloaded.ranges[0]).last?.clipRoleID == b.id,
+                    "hiding_badges_preserves_saved_role_assignments_and_styling")
         var expected = base; expected.chinese = a.chinese; expected.japanese = a.japanese
         let resolved = base.resolving(cue: cues[0], roles: [a, b])
         try require(resolved == expected && base.resolving(cue: cues[0], roles: [b]) == base, "roles_override_typography_only_and_missing_role_uses_range")
@@ -84,6 +102,33 @@ enum ClipRoleRenderChecks {
         guard let plain = ClipSubtitleRenderer.overlay(cues[0], size: size, style: shadowless) else { throw ClipError.message("Missing shadow comparison") }
         try require(plain.width == overlay.width && plain.height == overlay.height &&
                     plain.dataProvider?.data != overlay.dataProvider?.data, "per_language_shadow_strength_changes_pixels_without_moving_type")
+        for mode in [ClipLanguageMode.japanese, .chinese] {
+            var legacy = resolved
+            legacy.mode = mode
+            legacy.mask = nil
+            legacy.chinese.shadow = 1
+            legacy.japanese.shadow = 1
+            var explicit = legacy
+            explicit.chinese.shadowOffsetY = 1
+            explicit.japanese.shadowOffsetY = 1
+            func pixels(_ style: ClipSubtitleStyle) throws -> Data {
+                guard let image = ClipSubtitleRenderer.frame(cues[0], size: size, style: style),
+                      let data = image.dataProvider?.data else { throw ClipError.message("Missing shadow frame") }
+                return data as Data
+            }
+            let baseline = try pixels(legacy)
+            let originalSettings = try pixels(explicit)
+            try require(baseline == originalSettings, "legacy_shadow_matches_one_pixel_offset_" + mode.id)
+            var adjusted = legacy
+            if mode == .japanese { adjusted.chinese.shadowOffsetY = 12 }
+            else { adjusted.japanese.shadowOffsetY = 12 }
+            let otherLanguage = try pixels(adjusted)
+            try require(otherLanguage == baseline, "hidden_language_shadow_does_not_change_visible_line_" + mode.id)
+            if mode == .japanese { adjusted.japanese.shadowOffsetY = -12 }
+            else { adjusted.chinese.shadowOffsetY = -12 }
+            let moved = try pixels(adjusted)
+            try require(moved != baseline, "visible_language_shadow_offset_changes_pixels_" + mode.id)
+        }
         // Exercise the actual player's coordinator while paused, including editing its visible role.
         let player = AVPlayer(url: fixture)
         let positionView = ClipStyledPlayer.PositionView()

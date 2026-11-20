@@ -6,10 +6,26 @@ struct LiveCaptionStyle: Codable, Equatable {
     var outline = "#326BAD"
     var width: Double = 0
     var shadow: Double = 0
+    var shadowHeight: Double?
+    var effectiveShadowHeight: Double { shadowHeight ?? 1.4 }
 
     static let standard = LiveCaptionStyle()
     static let blue = LiveCaptionStyle(fill: "#FFFFFF", outline: "#326BAD", width: 1.3, shadow: 0.65)
     static let cinema = LiveCaptionStyle(fill: "#FFF4DB", outline: "#29221F", width: 1, shadow: 0.8)
+}
+
+struct LiveCaptionStyles: Codable, Equatable {
+    var original: LiveCaptionStyle
+    var translation: LiveCaptionStyle
+
+    init(both style: LiveCaptionStyle) {
+        original = style
+        translation = style
+    }
+
+    static let standard = Self(both: .standard)
+    static let blue = Self(both: .blue)
+    static let cinema = Self(both: .cinema)
 }
 
 // The visible text supplies both its natural metrics and its selection behavior.
@@ -33,7 +49,7 @@ struct LiveCaptionText: View {
                     .allowsHitTesting(false).accessibilityHidden(true)
                 }
             }
-            .shadow(color: Color.black.opacity(style.shadow), radius: 1.8 * scale, y: 1.4 * scale)
+            .shadow(color: Color.black.opacity(style.shadow), radius: 1.8 * scale, y: style.effectiveShadowHeight * scale)
     }
 
     private func outlineCanvas(label: some View, width: CGFloat) -> some View {
@@ -58,6 +74,7 @@ struct LiveCaptionStylePicker: View {
     @EnvironmentObject private var appearance: HomeAppearance
     @EnvironmentObject private var model: AppModel
     @State private var editing = false
+    @State private var editingOriginal = true
 
     var body: some View {
         HStack(spacing: 8) {
@@ -73,8 +90,8 @@ struct LiveCaptionStylePicker: View {
     }
 
     private func preset(_ title: String, _ style: LiveCaptionStyle) -> some View {
-        let selected = appearance.captionStyle == style
-        return Button { appearance.captionStyle = style } label: {
+        let selected = appearance.captionStyle == LiveCaptionStyles(both: style)
+        return Button { appearance.captionStyle = LiveCaptionStyles(both: style) } label: {
             LiveCaptionText(text: L10n.text(title), font: .systemFont(ofSize: 12, weight: .semibold),
                             fallback: ThemeColor.ink, style: style)
                 .padding(.horizontal, 9).frame(height: 30)
@@ -84,39 +101,71 @@ struct LiveCaptionStylePicker: View {
             .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
+    private var line: Binding<LiveCaptionStyle> {
+        editingOriginal ? $appearance.captionStyle.original : $appearance.captionStyle.translation
+    }
+
+    private var section: String { editingOriginal ? "原文" : "译文" }
+
     private var editor: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(L10n.text("自定义字幕样式")).font(.headline)
-            LiveCaptionText(text: model.targetLanguage.preview,
-                            font: SubtitleFont.native(appearance.chineseFont, size: appearance.chineseSize, weight: .semibold),
-                            fallback: ThemeColor.ink, style: appearance.captionStyle)
-                .frame(maxWidth: .infinity).padding(10)
-                .background(ThemeColor.preview, in: RoundedRectangle(cornerRadius: 8))
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(L10n.text("自定义字幕样式")).interfaceFont(size: 15, weight: .semibold)
+                Spacer()
+                Button { editing = false } label: {
+                    Image(systemName: "checkmark").frame(width: 28, height: 26)
+                }
+                .buttonStyle(ThemeActionButtonStyle()).keyboardShortcut(.defaultAction)
+                .help(L10n.text("完成")).accessibilityLabel(L10n.text("完成"))
+            }
+            VStack(spacing: 6) {
+                LiveCaptionText(text: model.sourceLanguage.preview,
+                    font: SubtitleFont.native(appearance.japaneseFont, size: appearance.japaneseSize, weight: .medium),
+                    fallback: ThemeColor.muted, style: appearance.captionStyle.original)
+                LiveCaptionText(text: model.targetLanguage.preview,
+                    font: SubtitleFont.native(appearance.chineseFont, size: appearance.chineseSize, weight: .semibold),
+                    fallback: ThemeColor.ink, style: appearance.captionStyle.translation)
+            }
+            .padding(10).frame(maxWidth: .infinity)
+            .background(ThemeColor.preview, in: RoundedRectangle(cornerRadius: 8))
+            HStack(spacing: 4) {
+                tab(original: true)
+                tab(original: false)
+            }
             ColorPicker(L10n.text("文字颜色"), selection: Binding(get: {
-                appearance.captionStyle.fill.map { Color(nsColor: .clipHex($0)) } ?? ThemeColor.ink
-            }, set: {
-                appearance.captionStyle.fill = NSColor($0).clipHex
-            }), supportsOpacity: false)
+                line.wrappedValue.fill.map { Color(nsColor: .clipHex($0)) } ?? (editingOriginal ? ThemeColor.muted : ThemeColor.ink)
+            }, set: { line.wrappedValue.fill = NSColor($0).clipHex }), supportsOpacity: false)
             ColorPicker(L10n.text("描边颜色"), selection: Binding(get: {
-                Color(nsColor: .clipHex(appearance.captionStyle.outline))
+                Color(nsColor: .clipHex(line.wrappedValue.outline))
             }, set: {
-                appearance.captionStyle.outline = NSColor($0).clipHex
-                if appearance.captionStyle.width == 0 { appearance.captionStyle.width = 1 }
+                line.wrappedValue.outline = NSColor($0).clipHex
+                if line.wrappedValue.width == 0 { line.wrappedValue.width = 1 }
             }), supportsOpacity: false)
-            HStack {
-                Text(L10n.text("描边宽度"))
-                Slider(value: $appearance.captionStyle.width, in: 0...2.5, step: 0.1)
-                    .accessibilityLabel(L10n.text("描边宽度"))
-                Text(appearance.captionStyle.width.formatted(.number.precision(.fractionLength(1))) + " pt")
-                    .monospacedDigit().frame(width: 44, alignment: .trailing)
-            }
-            HStack {
-                Text(L10n.text("阴影"))
-                Slider(value: $appearance.captionStyle.shadow, in: 0...1, step: 0.05)
-                    .accessibilityLabel(L10n.text("阴影"))
-                Text(appearance.captionStyle.shadow.formatted(.percent)).monospacedDigit().frame(width: 44, alignment: .trailing)
-            }
-            HStack { Spacer(); Button(L10n.text("完成")) { editing = false }.keyboardShortcut(.defaultAction) }
-        }.padding(18).frame(width: 290).appTheme()
+            ClipStyleSlider(title: "描边宽度", section: section, value: line.width, limits: 0...2.5,
+                            step: 0.1, readout: points(line.wrappedValue.width))
+            ClipStyleSlider(title: "阴影强度", section: section, value: line.shadow, limits: 0...1,
+                            step: 0.05, readout: line.wrappedValue.shadow.formatted(.percent))
+            ClipStyleSlider(title: "阴影高度", section: section,
+                            value: Binding(get: { line.wrappedValue.effectiveShadowHeight },
+                                           set: { line.wrappedValue.shadowHeight = $0 }),
+                            limits: -6...6, step: 0.1, readout: points(line.wrappedValue.effectiveShadowHeight))
+        }.padding(16).frame(width: 310).appTheme()
+    }
+
+    private func points(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(1))) + " pt"
+    }
+
+    private func tab(original: Bool) -> some View {
+        let selected = original == editingOriginal
+        return Button { editingOriginal = original } label: {
+            Text(L10n.text(original ? "原文" : "译文"))
+                .interfaceFont(size: 12, weight: selected ? .semibold : .regular)
+                .frame(maxWidth: .infinity, minHeight: 26)
+                .background(selected ? ThemeColor.selection : .clear, in: RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(selected ? ThemeColor.primaryInk : ThemeColor.muted)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

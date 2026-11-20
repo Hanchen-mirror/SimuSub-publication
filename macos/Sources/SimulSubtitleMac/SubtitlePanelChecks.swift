@@ -508,7 +508,7 @@ enum SubtitlePanelChecks {
         appearance.mode = .dark
         let originalSize = appearance.japaneseSize, translatedSize = appearance.chineseSize
         var standardRows: [ClosedRange<Int>] = []
-        for (style, name) in [(LiveCaptionStyle.standard, "standard"), (.blue, "blue")] {
+        for (style, name) in [(LiveCaptionStyles.standard, "standard"), (.blue, "blue")] {
             appearance.captionStyle = style
             try await Task.sleep(nanoseconds: 250_000_000)
             let bitmap = try snapshot(panel, to: directory.appendingPathComponent("caption-style-\(name).png"))
@@ -541,6 +541,29 @@ enum SubtitlePanelChecks {
                 "caption_paint_keeps_original_and_translation_type_metrics", &checks)
             }
         }
+        var split = LiveCaptionStyles.standard
+        split.original.fill = "#20FF40"
+        split.translation.fill = "#FF2080"
+        split.original.width = 0.6
+        split.translation.width = 1.7
+        split.original.shadow = 1
+        split.original.shadowHeight = -4
+        split.translation.shadow = 0.6
+        split.translation.shadowHeight = 2
+        appearance.captionStyle = split
+        try await Task.sleep(nanoseconds: 250_000_000)
+        let separate = try snapshot(panel, to: directory.appendingPathComponent("caption-style-independent.png"))
+        var topGreen = 0, bottomPink = 0
+        for y in 0..<separate.pixelsHigh {
+            for x in stride(from: separate.pixelsWide / 4, to: 3 * separate.pixelsWide / 4, by: 2) {
+                guard let c = separate.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if c.greenComponent > 0.7 && c.redComponent < 0.4 && c.blueComponent < 0.45
+                    && y < (standardRows[0].upperBound + standardRows[1].lowerBound) / 2 { topGreen += 1 }
+                if c.redComponent > 0.7 && c.greenComponent < 0.4 && c.blueComponent > 0.32
+                    && y > (standardRows[0].upperBound + standardRows[1].lowerBound) / 2 { bottomPink += 1 }
+            }
+        }
+        try require(topGreen > 40 && bottomPink > 40, "live_bilingual_panel_paints_original_and_translation_separately", &checks)
     }
 
     private static func checkPendingPair(_ model: AppModel, panel: NSPanel, directory: URL,

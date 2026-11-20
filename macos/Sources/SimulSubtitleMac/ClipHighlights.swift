@@ -8,10 +8,27 @@ enum ClipHighlights {
     struct Result { var candidates: [ClipRange]; var note: String }
     private struct Proposal { var range: ClipRange; var score: Double }
     private static let reactions = ["やば", "すごい", "凄い", "えっ", "待って", "まさか", "嘘", "うそ", "本当", "びっくり", "笑", "優勝", "成功", "失敗", "初めて", "ありがとう", "可愛い", "かわいい", "最高", "哈哈", "厉害", "震惊", "真的假的", "终于", "成功", "爆笑", "太棒", "笑死"]
-    static func recommend(_ project: ClipProject, maximum: Int = 5) -> Result {
+    /// Use the selected range's edited/imported cues inside its boundaries and
+    /// retain speech from the rest of the project in its original time base.
+    static func transcript(_ project: ClipProject, in range: ClipRange?) -> [Caption] {
+        var cues = project.captions
+        if let range, range.importedCaptions != nil || range.captionEdits != nil || range.deletedCaptionIDs != nil {
+            let local = project.captions(for: range)
+            let replaced = Set(local.map(\.id)).union(range.deletedCaptionIDs ?? [])
+            cues.removeAll { replaced.contains($0.id) || ($0.start < range.end && $0.end > range.start) }
+            cues.append(contentsOf: local)
+        }
+        return cues.filter {
+            !$0.isDraft && $0.start.isFinite && $0.end.isFinite && $0.start >= 0 && $0.end > $0.start
+                && $0.end <= project.media.duration + 0.05
+                && !($0.original + $0.translated).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.sorted { $0.start < $1.start }
+    }
+
+    static func recommend(_ project: ClipProject, maximum: Int = 5, in range: ClipRange? = nil) -> Result {
         let duration = project.media.duration
-        let captions = project.captions.filter { $0.start.isFinite && $0.end.isFinite && $0.start >= 0 && $0.end > $0.start && $0.end <= duration + 0.05 && !$0.original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.sorted { $0.start < $1.start }
-        guard duration.isFinite, duration > 0, !captions.isEmpty else { return Result(candidates: [], note: "先生成日中字幕，才能根据语句推荐高光。") }
+        let captions = transcript(project, in: range)
+        guard duration.isFinite, duration > 0, !captions.isEmpty else { return Result(candidates: [], note: "请先导入字幕，再推荐高光。") }
         let tokens = captions.map { words($0.original + " " + $0.translated) }
         let allEnergy = project.energy.filter { $0.rms.isFinite && $0.rms > 0.0001 }.map(\.rms).sorted()
         let median = allEnergy.isEmpty ? 0 : allEnergy[allEnergy.count / 2]
@@ -39,7 +56,7 @@ enum ClipHighlights {
             let loudness = peak >= loudThreshold ? min(2, peak / max(median, 0.001)) / 2 : 0
             let prior = (max(0, index - 8)..<index).filter { cue.start - captions[$0].end <= 60 }.reduce(into: Set<String>()) { $0.formUnion(tokens[$1]) }
             let novelty = prior.count >= 4 && tokens[index].count >= 2 ? Double(tokens[index].subtracting(prior).count) / Double(tokens[index].count) : 0
-            let activity = Double(captions[first...last].reduce(0) { $0 + $1.original.count }) / max(1, end - start)
+            let activity = Double(captions[first...last].reduce(0) { $0 + ($1.original.isEmpty ? $1.translated.count : $1.original.count) }) / max(1, end - start)
             let score = min(2.4, Double(hits.count) * 0.8) + loudness * 1.3 + novelty * 0.65 + min(0.7, activity / 10) + 0.1
             var reasons: [String] = []
             if !hits.isEmpty { reasons.append("反应词：" + hits.prefix(2).joined(separator: "、")) }
@@ -57,7 +74,7 @@ enum ClipHighlights {
         for p in proposals.sorted(by: { $0.score == $1.score ? $0.range.start < $1.range.start : $0.score > $1.score }) {
             guard !chosen.contains(where: { overlap($0, p.range) > 0.15 }) else { continue }
             chosen.append(p.range)
-            if chosen.count >= min(8, max(1, maximum)) { break }
+            if chosen.count >= max(1, maximum) { break }
         }
         chosen.sort { $0.start < $1.start }
         let analyzed = coverage(project.analysisCoverage, duration: duration)

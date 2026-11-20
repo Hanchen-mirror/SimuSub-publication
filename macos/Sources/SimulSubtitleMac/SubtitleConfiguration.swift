@@ -88,13 +88,13 @@ struct SubtitleConfiguration: View {
                                 if model.subtitleDisplayMode == .bilingual {
                                     LiveCaptionText(text: model.sourceLanguage.preview,
                                         font: SubtitleFont.native(appearance.japaneseFont, size: appearance.japaneseSize, weight: .medium),
-                                        fallback: ThemeColor.muted, style: appearance.captionStyle)
+                                        fallback: ThemeColor.muted, style: appearance.captionStyle.original)
                                         .transition(.opacity)
                                 }
                                 LiveCaptionText(text: model.originalOnly ? model.sourceLanguage.preview : model.targetLanguage.preview,
                                     font: SubtitleFont.native(model.originalOnly ? appearance.japaneseFont : appearance.chineseFont,
                                         size: model.originalOnly ? appearance.japaneseSize : appearance.chineseSize, weight: .semibold),
-                                    fallback: ThemeColor.ink, style: appearance.captionStyle)
+                                    fallback: ThemeColor.ink, style: model.originalOnly ? appearance.captionStyle.original : appearance.captionStyle.translation)
                             }.padding(10).frame(maxWidth: .infinity, minHeight: 104).background(ThemeColor.preview, in: RoundedRectangle(cornerRadius: 12))
                                 .animation(transitionAnimation, value: model.subtitleDisplayMode)
                             LiveCaptionStylePicker()

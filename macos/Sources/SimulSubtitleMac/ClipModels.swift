@@ -43,6 +43,7 @@ struct ClipRange: Identifiable, Codable, Equatable {
 struct ClipEnergy: Codable, Equatable { var start: Double; var rms: Double }
 struct ClipCaptionRole: Identifiable, Codable, Equatable {
     var id = UUID()
+    var number: Int?
     var name: String
     var chinese: ClipTextStyle
     var japanese: ClipTextStyle
@@ -56,6 +57,7 @@ struct ClipProject: Identifiable, Codable, Equatable {
     var media: ClipMedia
     var captions: [Caption] = []
     var captionRoles: [ClipCaptionRole]?
+    var showsRoleBadges: Bool?
     var ranges: [ClipRange] = []
     var energy: [ClipEnergy] = []
     var createdAt = Date()
@@ -134,6 +136,28 @@ enum ClipTime {
 }
 
 extension ClipProject {
+    mutating func removeCaptionRole(_ id: UUID) {
+        guard var roles = captionRoles, roles.contains(where: { $0.id == id }) else { return }
+        // Older projects use the position in the role list as their visible number.
+        for i in roles.indices where roles[i].number == nil { roles[i].number = i + 1 }
+        roles.removeAll { $0.id == id }
+        captionRoles = roles
+
+        func resetMarkers(_ cues: inout [Caption]) {
+            for i in cues.indices where cues[i].clipRoleID == id { cues[i].assignClipRole(nil) }
+        }
+        func resetRanges(_ ranges: inout [ClipRange]) {
+            for i in ranges.indices {
+                if ranges[i].captionEdits != nil { resetMarkers(&ranges[i].captionEdits!) }
+                if ranges[i].importedCaptions != nil { resetMarkers(&ranges[i].importedCaptions!) }
+                if ranges[i].proofreadCandidates != nil { resetMarkers(&ranges[i].proofreadCandidates!) }
+            }
+        }
+        resetMarkers(&captions)
+        resetRanges(&ranges)
+        if candidates != nil { resetRanges(&candidates!) }
+    }
+
     func hasBurnableCaptions(for range: ClipRange) -> Bool {
         range.style.complete(captions(for: range))
     }

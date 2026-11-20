@@ -11,10 +11,10 @@ final class HomeAppearance: ObservableObject {
     @Published private(set) var isDark: Bool
     @Published var theme: AppTheme { didSet { defaults.set(theme.rawValue, forKey: "appearance.theme.v128"); apply() } }
     @Published var mode: AppearanceMode { didSet { defaults.set(mode.rawValue, forKey: "appearance.mode.v128"); apply() } }
-    @Published var captionStyle: LiveCaptionStyle {
+    @Published var captionStyle: LiveCaptionStyles {
         didSet {
             if let data = try? JSONEncoder().encode(captionStyle) {
-                defaults.set(data, forKey: "subtitle.captionStyle.v158")
+                defaults.set(data, forKey: "subtitle.captionStyles.v225")
             }
         }
     }
@@ -55,9 +55,11 @@ final class HomeAppearance: ObservableObject {
         theme = AppTheme(rawValue: defaults.string(forKey: "appearance.theme.v128") ?? "") ?? .blue
         mode = AppearanceMode(rawValue: defaults.string(forKey: "appearance.mode.v128") ?? "")
             ?? (defaults.object(forKey: "home.dark.v099") == nil ? .system : (defaults.bool(forKey: "home.dark.v099") ? .dark : .light))
-        captionStyle = defaults.data(forKey: "subtitle.captionStyle.v158").flatMap {
+        captionStyle = defaults.data(forKey: "subtitle.captionStyles.v225").flatMap {
+            try? JSONDecoder().decode(LiveCaptionStyles.self, from: $0)
+        } ?? defaults.data(forKey: "subtitle.captionStyle.v158").flatMap {
             try? JSONDecoder().decode(LiveCaptionStyle.self, from: $0)
-        } ?? .standard
+        }.map(LiveCaptionStyles.init(both:)) ?? .standard
         japaneseFont = defaults.string(forKey: "subtitle.japaneseFont.v128") ?? ""
         chineseFont = defaults.string(forKey: "subtitle.chineseFont.v128") ?? ""
         japaneseSize = (defaults.object(forKey: "subtitle.japaneseSize.v129") as? Double).map { min(32, max(12, $0)) } ?? 16

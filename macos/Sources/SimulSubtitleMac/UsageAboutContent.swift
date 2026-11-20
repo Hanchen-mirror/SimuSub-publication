@@ -80,18 +80,18 @@ struct UsageAboutContent {
                      "把影片拖進「剪輯工作台」，或從「項目與錄製歷史」開啟一段錄影。新專案先點時間軸上方的「＋」建立第一個選段，再拖曳選段兩端，對準想保留的開頭和結尾。",
                      "Drag a video into Clip studio or open a recording from Projects & recordings. In a new project, click + above the timeline to create the first range. Drag its ends to the start and end of the moment you want to keep.",
                      "「クリップ編集」に動画をドラッグするか、「プロジェクトと録画履歴」から録画を開きます。新しいプロジェクトでは、まずタイムラインの上の「＋」で最初の区間を作ります。区間の両端をドラッグして、残したい場面に合わせます。"),
-                text("先在编辑器上方选好源语言和字幕语言。在「字幕」区，点波形生成字幕，或点带加号的文件图标导入已有字幕。点画笔调整样式，点字幕行的时间修改文字和出现时间。",
-                     "先在編輯器上方選好來源語言和字幕語言。在「字幕」區，點波形產生字幕，或點帶加號的文件圖示匯入現有字幕。點畫筆調整樣式，點字幕列上的時間修改文字和顯示時間。",
-                     "Choose the source and subtitle languages at the top of the editor. In the subtitle panel, click the waveform to generate subtitles or the document with a plus sign to import a file. Click the brush to adjust the style, or a line’s timestamp to edit its text and timing.",
-                     "編集画面の上部で元の言語と翻訳先を選びます。字幕欄の波形で字幕を生成し、＋付きの書類アイコンで字幕ファイルを読み込めます。筆でスタイルを調整し、各行の時刻を押すと文面や表示時間を変更できます。"),
-                text("点双人图标可以添加和管理多个角色。点一行字幕旁的数字，为这一行选择一个角色。0 是片段默认样式，自建角色从 1 开始，每个角色的编号固定。",
-                     "點雙人圖示可新增和管理多個角色。點一列字幕旁的數字，為這列字幕選一個角色。0 是片段預設樣式，自訂角色從 1 開始，每個角色的編號固定。",
-                     "Click the two-person icon to add or manage roles. Click the number beside a subtitle line to choose its role. 0 uses the clip’s default style. Each role you add keeps its own number, starting at 1.",
-                     "二人の人物のアイコンで役を追加・管理できます。各字幕の横の番号を押して、その行の役を一つ選びます。0 はクリップの標準スタイルです。追加した役には 1 から番号が付き、同じ役には常に同じ番号が表示されます。"),
-                text("点「导出片段」，勾选要分享的选段并开始导出。只想要字幕文件时，点「字幕」区的「…」，选「导出字幕」。",
-                     "點「導出片段」，勾選想分享的選段後開始匯出。如果只需要字幕檔，點「字幕」區的「…」，選「導出字幕」。",
-                     "Click Export clips, select the ranges you want to share, and start the export. For a subtitle file, open the … menu in the subtitle panel and choose Export subtitles.",
-                     "「クリップを書き出す」を押し、共有したい区間にチェックを入れて書き出します。字幕ファイルだけが必要なときは、字幕欄の「…」から「字幕を書き出す」を選びます。")
+                text("先选好源语言和字幕语言，再点灯泡，SimuSub 会识别当前选段的声音并翻译成字幕。已有字幕可以用带加号的文档图标导入。点画笔可分别调整原文和译文的样式。",
+                     "先選好來源語言和字幕語言，再點燈泡，SimuSub 會辨識目前選段的聲音並翻譯成字幕。已有字幕可用帶加號的文件圖示匯入。點畫筆可分別調整原文和譯文的樣式。",
+                     "Choose the source and subtitle languages, then click the lightbulb to transcribe and translate the selected range. Use the document with a plus sign to import subtitles, or the brush to style the source and translation separately.",
+                     "元の言語と翻訳先を選び、電球を押すと、選択区間の音声から文字起こしと翻訳が始まります。字幕を読み込むには＋付きの書類を、原文と訳文の見た目を個別に変えるには筆を押します。"),
+                text("点叠放的数字图标管理角色。用加号新建角色并设置样式，点字幕旁的编号选择角色。0 表示片段默认样式。点眼睛可以隐藏编号，已经选好的样式会保留。",
+                     "點疊放的數字圖示管理角色。用加號新增角色並設定樣式，點字幕旁的編號選取角色。0 表示片段預設樣式。點眼睛可隱藏編號，已選的樣式會保留。",
+                     "Click the stacked numbers to manage speakers. Use + to add a speaker and set their style, then choose a speaker from the number beside a subtitle. 0 uses the clip style. The eye hides the numbers and keeps the assigned styles.",
+                     "重なった番号のアイコンで話者を管理します。＋で話者を追加してスタイルを設定し、字幕の横の番号から話者を選びます。0 は区間の標準スタイルです。目のアイコンで番号を隠しても、割り当てたスタイルは残ります。"),
+                text("右键点字幕卡可以核对当前选段的译文。点「导出片段」可勾选要分享的选段。只想保存当前选段的字幕时，在同一窗口点「导出字幕」并选格式。",
+                     "按右鍵點字幕卡可校對目前選段的譯文。點「導出片段」可勾選想分享的選段。只想儲存目前選段的字幕時，在同一視窗點「導出字幕」並選格式。",
+                     "Right-click a subtitle card to review translations for the current range. Open Export clips to choose ranges to share. To save just the current range’s subtitles, choose Export subtitles and a file format in the same window.",
+                     "字幕カードを右クリックすると現在の区間の訳文を校正できます。「クリップを書き出す」で共有する区間を選びます。現在の区間の字幕だけを保存する場合は、同じ画面で「字幕を書き出す」から形式を選びます。")
             ])
         ]
     }

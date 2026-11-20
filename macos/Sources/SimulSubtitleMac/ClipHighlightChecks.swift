@@ -24,8 +24,8 @@ enum ClipHighlightChecks {
         try require(result.candidates.allSatisfy { ($0.reason ?? "").contains("反应词") && !$0.title.isEmpty && !$0.selected }, "highlights_reaction_titles_reasons_and_explicit_selection")
         try require(zip(result.candidates, result.candidates.dropFirst()).allSatisfy { $0.0.end <= $0.1.start }, "highlights_nonoverlapping_candidates")
         try require(result.note.contains("100%") && result.note.contains("纯视觉"), "highlights_coverage_and_method_honest_in_ui")
-        let eight = ClipHighlights.recommend(project, maximum: 50)
-        try require(eight.candidates.count <= 8 && Set(eight.candidates.map { ClipTime.label($0.start) }).count == eight.candidates.count, "highlights_limit_and_duplicate_suppression")
+        let ten = ClipHighlights.recommend(project, maximum: 10)
+        try require(ten.candidates.count == 10 && Set(ten.candidates.map { ClipTime.label($0.start) }).count == ten.candidates.count, "highlights_limit_and_duplicate_suppression")
         var partial = project
         partial.captions = [Caption(start: 105, end: 111, original: "すごい！", translated: "厉害！"), Caption(start: 205, end: 211, original: "優勝！", translated: "赢了！")]
         partial.analysisCoverage = [100...120, 200...220]
@@ -33,6 +33,21 @@ enum ClipHighlightChecks {
         try require(limited.candidates.count == 2 && limited.candidates.allSatisfy { r in partial.analysisCoverage.contains { $0.contains(r.start) && $0.contains(r.end) } }, "highlights_respect_partial_analysis_boundaries_and_gaps")
         try require(ClipHighlights.coverage([0...50, 20...60, 100...110], duration: 200) == 70, "highlights_analysis_coverage_merges_overlaps")
         try require(ClipHighlights.coverage([-20...10, 300...400], duration: 200) == 10, "highlights_coverage_clamps_outside_ranges")
+        var imported = project
+        imported.media.hasAudio = false
+        imported.captions = []
+        var selected = ClipRange(title: "Imported", start: 5, end: 20)
+        var importedCue = Caption(start: 7, end: 9, original: "", translated: "终于到了！")
+        selected.importedCaptions = [importedCue]
+        try require(ClipHighlights.recommend(imported, maximum: 1, in: selected).candidates.first?.title == importedCue.translated,
+                    "highlights_accept_range_imported_translation_on_silent_video")
+        importedCue.translated = "太棒了！"
+        selected.captionEdits = [importedCue]
+        imported.captions = [Caption(start: 120, end: 125, original: "すごい", translated: "真棒")]
+        try require(ClipHighlights.recommend(imported, in: selected).candidates.map(\.title) == ["太棒了！", "真棒"],
+                    "highlights_merge_range_edits_and_speech_elsewhere")
+        selected.deletedCaptionIDs = [importedCue.id]
+        try require(ClipHighlights.transcript(imported, in: selected).count == 1, "highlights_ignore_deleted_range_cues")
         var silent = project; silent.captions = []; silent.energy = [.init(start: 1, rms: 1)]
         try require(ClipHighlights.recommend(silent).candidates.isEmpty, "highlights_loud_music_alone_not_misrepresented_as_speech_highlight")
         return checks

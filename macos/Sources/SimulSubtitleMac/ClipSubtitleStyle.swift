@@ -15,6 +15,8 @@ struct ClipTextStyle: Codable, Equatable {
     var outlineColor = "#000000"
     var outline: Double = 2
     var shadow: Double?
+    /// Vertical distance below the glyph in pixels at a video width of 1920.
+    var shadowOffsetY: Double?
 }
 struct ClipSubtitlePosition: Codable, Equatable {
     var x: Double = 0.5
@@ -51,6 +53,7 @@ struct ClipSubtitleStyle: Codable, Equatable {
         [chinese, japanese].allSatisfy { t in
             t.size.isFinite && (12...120).contains(t.size) && t.outline.isFinite && (0...10).contains(t.outline)
             && (t.shadow.map { $0.isFinite && (0...1).contains($0) } ?? true)
+            && (t.shadowOffsetY.map { $0.isFinite && (-12...12).contains($0) } ?? true)
             && t.font.count <= 100 && Self.isColor(t.color) && Self.isColor(t.outlineColor)
         } && spacing.isFinite && (0...60).contains(spacing) && bottom.isFinite && (0...400).contains(bottom)
             && background.isFinite && (0...1).contains(background) && (0...2).contains(alignment)
@@ -99,11 +102,17 @@ enum ClipSubtitleRenderer {
         let scale = max(0.05, size.width / 1920), width = max(32, floor(size.width * (style.position?.width ?? 0.92)))
         let padding = max(4, 14 * scale)
         let shadowKey = NSAttributedString.Key("SimuSubClipTextShadow")
+        let offsetKey = NSAttributedString.Key("SimuSubClipShadowOffsetY")
+        let lines = style.lines(cue)
+        let shadowExtent = lines.map { item in
+            abs(item.1.shadowOffsetY ?? 1) + item.1.outline / 2 + 6
+        }.max() ?? 0
+        let verticalPadding = max(padding, ceil(shadowExtent * scale))
         var ratio: CGFloat = 1
         var text = NSMutableAttributedString(string: ""), height: CGFloat = 0
         repeat {
             text = NSMutableAttributedString(string: "")
-            for (index, item) in style.lines(cue).enumerated() {
+            for (index, item) in lines.enumerated() {
                 let (line, spec) = item
                 let fontSize = max(5, spec.size * scale * ratio)
                 let base = NSFont(name: spec.font, size: fontSize) ?? .systemFont(ofSize: fontSize)
@@ -120,22 +129,23 @@ enum ClipSubtitleRenderer {
                     NSAttributedString.Key(kCTStrokeColorAttributeName as String): NSColor.clipHex(spec.outlineColor).cgColor,
                     NSAttributedString.Key(kCTStrokeWidthAttributeName as String): -spec.outline / spec.size * 100,
                     shadowKey: spec.shadow ?? (style.shadow ? 0.8 : 0),
+                    offsetKey: spec.shadowOffsetY ?? 1,
                     .paragraphStyle: paragraph]
                 text.append(NSAttributedString(string: (index == 0 ? "" : "\n") + line, attributes: attributes))
             }
             guard text.length > 0 else { return nil }
             height = ceil(CTFramesetterSuggestFrameSizeWithConstraints(CTFramesetterCreateWithAttributedString(text), CFRange(location: 0, length: text.length), nil,
                 CGSize(width: width - padding * 2, height: .greatestFiniteMagnitude), nil).height)
-            if height + padding * 2 < size.height * 0.7 || ratio <= 0.2 { break }
+            if height + verticalPadding * 2 < size.height * 0.7 || ratio <= 0.2 { break }
             ratio *= 0.9
         } while true
-        let h = max(1, Int(ceil(height + padding * 2)))
+        let h = max(1, Int(ceil(height + verticalPadding * 2)))
         guard let ctx = CGContext(data: nil, width: Int(width), height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         if style.background > 0 {
             ctx.setFillColor(NSColor.black.withAlphaComponent(style.background).cgColor)
             fillRoundedMask(in: ctx, rect: CGRect(x: 0, y: 0, width: width, height: CGFloat(h)), videoWidth: size.width)
         }
-        let path = CGPath(rect: CGRect(x: padding, y: padding, width: width - padding * 2, height: height), transform: nil)
+        let path = CGPath(rect: CGRect(x: padding, y: verticalPadding, width: width - padding * 2, height: height), transform: nil)
         let strokeText = NSMutableAttributedString(attributedString: text)
         text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, range, _ in
             let width = abs(attributes[NSAttributedString.Key(kCTStrokeWidthAttributeName as String)] as? Double ?? 0)
@@ -158,9 +168,10 @@ enum ClipSubtitleRenderer {
             let location = CTLineGetStringRange(line).location
             guard location < text.length else { continue }
             let strength = text.attribute(shadowKey, at: location, effectiveRange: nil) as? Double ?? 0
+            let offsetY = text.attribute(offsetKey, at: location, effectiveRange: nil) as? Double ?? 1
             ctx.saveGState()
             if strength > 0 {
-                ctx.setShadow(offset: CGSize(width: scale, height: -scale), blur: 3 * scale,
+                ctx.setShadow(offset: CGSize(width: scale, height: -offsetY * scale), blur: 3 * scale,
                               color: NSColor.black.withAlphaComponent(strength).cgColor)
                 ctx.beginTransparencyLayer(auxiliaryInfo: nil)
             }
@@ -229,10 +240,17 @@ struct ClipStylePreset: Identifiable, Codable {
 final class ClipStyleLibrary: ObservableObject {
     @Published private(set) var presets: [ClipStylePreset] = []
     private let storage: LiveMonitorStorage
-    init(root: URL) { storage = LiveMonitorStorage(root: root); presets = storage.load([ClipStylePreset].self, name: "styles", fallback: []).0 }
+    init(root: URL) {
+        storage = LiveMonitorStorage(root: root)
+        reload()
+    }
+    func reload() {
+        presets = storage.load([ClipStylePreset].self, name: "styles", fallback: []).0
+    }
     func save(name: String, style: ClipSubtitleStyle) throws {
         guard style.valid else { throw ClipError.message("样式参数无效。") }
         let value = ClipStylePreset(name: String(name.prefix(40)), style: style)
+        reload()
         let next = Array(([value] + presets).prefix(40))
         try storage.save(next, name: "styles"); presets = next
     }
