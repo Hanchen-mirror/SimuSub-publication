@@ -11,6 +11,7 @@ struct SubtitleCueLayout {
         let text: String
         let preferredFont: NSFont
         let font: NSFont
+        let pendingTranslation: Bool
         let truncated: Bool
     }
 
@@ -51,14 +52,14 @@ struct SubtitleCueLayout {
         }
 
         let originalOnly = mode == .original || caption.isOriginalOnly
-        var texts: [(original: Bool, text: String)] = []
+        var texts: [(original: Bool, text: String, pending: Bool)] = []
         if originalOnly || (mode == .bilingual && caption.original != caption.translated) {
-            if !caption.original.isEmpty { texts.append((true, caption.original)) }
+            if !caption.original.isEmpty { texts.append((true, caption.original, false)) }
         }
         if !originalOnly {
             let failed = caption.translated.hasPrefix("翻译失败") || caption.translated.hasPrefix("译文未完成")
-            let translation = SubtitleDocument.completedTranslation(caption) ?? L10n.text(failed ? "翻译未完成" : "正在翻译…")
-            texts.append((false, translation))
+            let completed = SubtitleDocument.completedTranslation(caption)
+            texts.append((false, completed ?? L10n.text(failed ? "翻译未完成" : "正在翻译…"), completed == nil && !failed))
         }
 
         let measured = texts.map { row in
@@ -117,7 +118,7 @@ struct SubtitleCueLayout {
             let font = limit >= line.fitted.pointSize ? line.fitted
                 : SubtitleFont.native(line.family, size: limit, weight: line.weight)
             return Line(original: line.row.original, fullText: line.row.text, text: line.text,
-                        preferredFont: line.preferred, font: font, truncated: line.clipped)
+                        preferredFont: line.preferred, font: font, pendingTranslation: line.row.pending, truncated: line.clipped)
         }
     }
 }

@@ -86,6 +86,7 @@ struct AppThemeModifier: ViewModifier {
         content
             .buttonStyle(ThemeActionButtonStyle())
             .environment(\.appThemeID, appearance.theme.rawValue + "-" + appearance.mode.rawValue + "-" + String(appearance.isDark) + "-" + localization.language.rawValue)
+            .environment(\.simuSubReduceMotion, appearance.reduceMotion)
             .environment(\.locale, Locale(identifier: localization.language.rawValue))
             .environment(\.colorScheme, appearance.colorScheme)
             .transaction { transaction in
