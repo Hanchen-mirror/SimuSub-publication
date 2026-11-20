@@ -84,10 +84,10 @@ struct UsageAboutContent {
                      "先在編輯器上方選好來源語言和字幕語言。在「字幕」區，點波形產生字幕，或點帶加號的文件圖示匯入現有字幕。點畫筆調整樣式，點字幕列上的時間修改文字和顯示時間。",
                      "Choose the source and subtitle languages at the top of the editor. In the subtitle panel, click the waveform to generate subtitles or the document with a plus sign to import a file. Click the brush to adjust the style, or a line’s timestamp to edit its text and timing.",
                      "編集画面の上部で元の言語と翻訳先を選びます。字幕欄の波形で字幕を生成し、＋付きの書類アイコンで字幕ファイルを読み込めます。筆でスタイルを調整し、各行の時刻を押すと文面や表示時間を変更できます。"),
-                text("要区分说话人，点字幕旁的编号查看角色名称或切换角色。0 表示片段默认样式，自己添加的角色从 1 开始，同一角色始终使用同一个编号。",
-                     "若要區分說話者，點字幕旁的編號就能查看角色名稱或切換角色。0 代表片段預設樣式，自訂角色從 1 開始，同一角色會沿用同一個編號。",
-                     "Click the number beside a subtitle to see the role name or switch speakers. 0 uses the clip’s default style. Roles you add start at 1, and each keeps its number.",
-                     "話者を区別するには、字幕の横の番号を押して役名を確認し、必要に応じて切り替えます。0 はクリップの標準スタイルです。自分で追加した役には 1 から番号が付き、同じ役には常に同じ番号が表示されます。"),
+                text("点双人图标可以添加和管理多个角色。点一行字幕旁的数字，为这一行选择一个角色。0 是片段默认样式，自建角色从 1 开始，每个角色的编号固定。",
+                     "點雙人圖示可新增和管理多個角色。點一列字幕旁的數字，為這列字幕選一個角色。0 是片段預設樣式，自訂角色從 1 開始，每個角色的編號固定。",
+                     "Click the two-person icon to add or manage roles. Click the number beside a subtitle line to choose its role. 0 uses the clip’s default style. Each role you add keeps its own number, starting at 1.",
+                     "二人の人物のアイコンで役を追加・管理できます。各字幕の横の番号を押して、その行の役を一つ選びます。0 はクリップの標準スタイルです。追加した役には 1 から番号が付き、同じ役には常に同じ番号が表示されます。"),
                 text("点「导出片段」，勾选要分享的选段并开始导出。只想要字幕文件时，点「字幕」区的「…」，选「导出字幕」。",
                      "點「導出片段」，勾選想分享的選段後開始匯出。如果只需要字幕檔，點「字幕」區的「…」，選「導出字幕」。",
                      "Click Export clips, select the ranges you want to share, and start the export. For a subtitle file, open the … menu in the subtitle panel and choose Export subtitles.",
@@ -98,10 +98,7 @@ struct UsageAboutContent {
 
     var licenseTitle: String { text("项目许可", "專案授權", "Project license", "ライセンス") }
     var licenseSummary: String {
-        text("SimuSub 的源代码采用 MIT 许可证。你可以使用、修改和分发代码，分发时请保留原有的版权声明和许可声明。",
-             "SimuSub 的原始碼採用 MIT 授權條款。你可以使用、修改和散布程式碼，散布時請保留原有的著作權聲明和授權聲明。",
-             "SimuSub’s source code is available under the MIT License. You may use, modify and distribute it. When distributing the code, keep the original copyright and license notices.",
-             "SimuSub のソースコードは MIT ライセンスで公開しています。利用・変更・再配布ができます。配布の際は、元の著作権表示と許諾表示を残してください。")
+        text("SimuSub 使用 MIT 协议。", "SimuSub 使用 MIT 授權條款。", "SimuSub uses the MIT License.", "SimuSub は MIT ライセンスを採用しています。")
     }
     var licenseLinkTitle: String { text("阅读完整 MIT 许可证", "閱讀完整 MIT 授權條款", "Read the full MIT License", "MIT ライセンスの全文を読む") }
     var originTitle: String { text("为什么做 SimuSub", "為什麼做 SimuSub", "Why I made SimuSub", "SimuSub を作ったきっかけ") }
@@ -119,25 +116,26 @@ struct UsageAboutContent {
              "これらのモデルを公開してくださった開発者の皆さんに感謝しています。皆さんの仕事があったからこそ SimuSub を作れました。各モデルと重みには提供元の利用条件が適用されます。")
     }
     var modelGroups: [ModelGroup] {
-        let recognition = text("语音识别", "語音辨識", "Speech recognition", "音声認識")
-        let translation = text("字幕翻译", "字幕翻譯", "Subtitle translation", "字幕翻訳")
+        let standard = text("默认", "預設", "Default", "標準")
+        let optional = text("可选", "可選", "Optional", "任意")
+        let included = text("随包", "隨附", "Included", "同梱")
         return [
-            ModelGroup(title: text("默认模型", "預設模型", "Default models", "標準モデル"), models: [
-                Model("SenseVoice Small INT8", "FunAudioLLM / QwenAudio", text("中文识别", "中文辨識", "Chinese speech", "中国語の音声認識"), "QwenAudio/SenseVoice"),
-                Model("Whisper Base INT8", "OpenAI", text("英语识别", "英語辨識", "English speech", "英語の音声認識"), "openai/whisper"),
-                Model("ReazonSpeech k2 v2", "Reazon Human Interaction Lab", text("日语识别", "日語辨識", "Japanese speech", "日本語の音声認識"), "reazon-research/ReazonSpeech"),
-                Model("Index-Translate-2B Q4_K_M", "bilibili Index Team", translation, "bilibili/Index-Translate")
+            ModelGroup(title: text("语音识别", "語音辨識", "Speech recognition", "音声認識"), models: [
+                Model("SenseVoice Small INT8", "FunAudioLLM / QwenAudio", standard + " · " + text("中文", "中文", "Chinese", "中国語"), "QwenAudio/SenseVoice"),
+                Model("Whisper Base INT8", "OpenAI", standard + " · " + text("英语", "英語", "English", "英語"), "openai/whisper"),
+                Model("ReazonSpeech k2 v2", "Reazon Human Interaction Lab", standard + " · " + text("日语", "日語", "Japanese", "日本語"), "reazon-research/ReazonSpeech"),
+                Model("Whisper Small INT8", "OpenAI", optional, "openai/whisper"),
+                Model("Qwen3-ASR 0.6B INT8", "Qwen Team", optional, "QwenLM/Qwen3-ASR")
             ]),
-            ModelGroup(title: text("可选模型", "可選模型", "Optional models", "選択できるモデル"), models: [
-                Model("Whisper Small INT8", "OpenAI", recognition, "openai/whisper"),
-                Model("Qwen3-ASR 0.6B INT8", "Qwen Team", recognition, "QwenLM/Qwen3-ASR"),
-                Model("HY-MT1.5 1.8B Q4_K_M", "Tencent Hunyuan", translation, "Tencent-Hunyuan/Hy-MT"),
-                Model("Gemma 4 E2B / E4B QAT Q4_0", "Google DeepMind", translation, "google-deepmind/gemma")
+            ModelGroup(title: text("字幕翻译", "字幕翻譯", "Subtitle translation", "字幕翻訳"), models: [
+                Model("Index-Translate-2B Q4_K_M", "bilibili Index Team", standard, "bilibili/Index-Translate"),
+                Model("HY-MT1.5 1.8B Q4_K_M", "Tencent Hunyuan", optional, "Tencent-Hunyuan/Hy-MT"),
+                Model("Gemma 4 E2B / E4B QAT Q4_0", "Google DeepMind", optional, "google-deepmind/gemma")
             ]),
-            ModelGroup(title: text("随应用提供", "隨 App 提供", "Included with the app", "アプリに同梱"), models: [
-                Model("Silero VAD", "Silero Team", text("检测人声", "偵測語音", "Speech detection", "発話区間の検出"), "snakers4/silero-vad"),
-                Model("GTCRN", "Xiaobin Rong", text("语音降噪", "語音降噪", "Speech enhancement", "音声のノイズ抑制"), "Xiaobin-Rong/gtcrn"),
-                Model("BudouX", "Google", text("中日文字幕断行", "中日文字幕分行", "Chinese and Japanese line breaks", "中国語・日本語字幕の改行"), "google/budoux")
+            ModelGroup(title: text("人声处理与字幕断行", "人聲處理與字幕分行", "Speech processing and subtitle line breaks", "音声処理と字幕の改行"), models: [
+                Model("Silero VAD", "Silero Team", included + " · " + text("检测人声", "偵測語音", "Speech detection", "発話区間の検出"), "snakers4/silero-vad"),
+                Model("GTCRN", "Xiaobin Rong", included + " · " + text("语音降噪", "語音降噪", "Speech enhancement", "音声のノイズ抑制"), "Xiaobin-Rong/gtcrn"),
+                Model("BudouX", "Google", included + " · " + text("中日文字幕断行", "中日文字幕分行", "Chinese and Japanese line breaks", "中国語・日本語字幕の改行"), "google/budoux")
             ])
         ]
     }
@@ -148,7 +146,7 @@ struct UsageAboutContent {
              "最後に、SimuSub を作るにあたって指導してくださったメンターの frank さんに感謝します。")
     }
     var mentorLink: ProjectLink {
-        ProjectLink(title: text("frank 的哔哩哔哩主页", "frank 的嗶哩嗶哩主頁", "frank’s Bilibili profile", "frank さんの Bilibili プロフィール"),
+        ProjectLink(title: text("frank 的 B 站主页", "frank 的 B 站主頁", "frank on Bilibili", "frank の Bilibili"),
                     url: URL(string: "https://space.bilibili.com/19658621")!)
     }
 }
