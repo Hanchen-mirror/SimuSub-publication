@@ -1,7 +1,7 @@
 import SwiftUI
 
 private enum SettingsCategory: String, CaseIterable, Identifiable {
-    case appearance = "外观", recording = "录制与剪辑", accounts = "平台", permissions = "权限"
+    case appearance = "外观", recording = "录制与剪辑", accounts = "平台", permissions = "权限", guide = "使用说明"
     var id: String { rawValue }
 }
 
@@ -44,6 +44,11 @@ private struct SettingsCategoryGlyph: View {
                 context.stroke(links, with: .foreground, style: pen)
                 for x in [1.5, 13.5] {
                     context.fill(Path(roundedRect: CGRect(x: x, y: 13, width: 5, height: 4.5), cornerRadius: 1.3), with: .foreground)
+                }
+            case .guide:
+                for x in [2, 10] {
+                    let page = CGRect(x: x, y: 4, width: 8, height: 12)
+                    context.stroke(Path(roundedRect: page, cornerRadius: 1.5), with: .foreground, style: pen)
                 }
             case .permissions:
                 var key = Path(ellipseIn: CGRect(x: 2, y: 2, width: 8.5, height: 8.5))
@@ -113,6 +118,7 @@ struct SettingsWindow: View {
                             case .recording: LiveRecordingSettings()
                             case .accounts: PlatformAdvancedSettings()
                             case .permissions: SubtitlePermissionTools()
+                            case .guide: UsageAboutSettingsView()
                             }
                         }.id(category).transition(.opacity).frame(maxWidth: .infinity, alignment: .topLeading)
                     }

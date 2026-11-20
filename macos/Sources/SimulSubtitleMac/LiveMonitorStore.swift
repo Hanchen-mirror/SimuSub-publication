@@ -161,7 +161,8 @@ final class LiveMonitorStore: ObservableObject {
     }
     func chooseFolder() {
         let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true
-        panel.canCreateDirectories = true; panel.prompt = "保存录制到这里"
+        panel.canCreateDirectories = true; panel.prompt = L10n.text("保存录制到这里")
+        panel.directoryURL = URL(fileURLWithPath: settings.outputFolder, isDirectory: true)
         if panel.runModal() == .OK, let url = panel.url { updateSettings { $0.outputFolder = url.path } }
     }
     func showFolder() {

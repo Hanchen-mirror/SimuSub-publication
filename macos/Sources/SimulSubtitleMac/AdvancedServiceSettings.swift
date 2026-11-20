@@ -301,12 +301,15 @@ private struct ServiceConfigurationEditor: View {
             field("名称", text: $profile.name)
             field("接口地址", text: $profile.baseURL)
             field("模型 ID", text: $profile.model)
-            DisclosureGroup(L10n.text("连接与鉴权")) {
-                VStack(alignment: .leading, spacing: 12) {
-                    SecureField(L10n.text(model.savedCredentialIDs.contains(profile.id) ? "已保存密钥；留空保持" : "API Key"), text: $key).textFieldStyle(ClipFieldStyle())
-                    Stepper(L10n.text("超时 \(profile.timeoutSeconds) 秒"), value: $profile.timeoutSeconds, in: 5...180, step: 5)
-                }.padding(.top, 10)
-            }.font(.caption)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("API Key").font(.caption).foregroundStyle(ThemeColor.muted)
+                SecureField(L10n.text(model.savedCredentialIDs.contains(profile.id) ? "已保存密钥；留空保持" : "输入 API Key"), text: $key)
+                    .textFieldStyle(ClipFieldStyle())
+                    .accessibilityLabel("API Key")
+                    .accessibilityIdentifier("services.apiKey")
+            }
+            Stepper(L10n.text("超时 \(profile.timeoutSeconds) 秒"), value: $profile.timeoutSeconds, in: 5...180, step: 5)
+                .font(.caption)
             if !error.isEmpty { Text(error).font(.caption).foregroundStyle(ThemeColor.muted).textSelection(.enabled).accessibilityIdentifier("services.validation") }
             HStack {
                 if existing { Button(L10n.text(testing ? "测试中…" : "测试连接")) { test() }.disabled(testing).buttonStyle(ThemeActionButtonStyle()) }

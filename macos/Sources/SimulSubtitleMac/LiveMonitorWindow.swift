@@ -49,6 +49,9 @@ struct LiveRecordingSettings: View {
     @EnvironmentObject private var monitor: LiveMonitorStore
     @Environment(\.appThemeID) private var themeID
     @AppStorage("clips.exportFolder.v150") private var exportFolder = ""
+    private var exportPath: String {
+        exportFolder.isEmpty ? NSHomeDirectory() + "/Movies/SimuSub/Exports" : exportFolder
+    }
     var body: some View {
         let _ = themeID
         VStack(alignment: .leading, spacing: 16) {
@@ -56,7 +59,7 @@ struct LiveRecordingSettings: View {
             VStack(spacing: 0) {
                 destination(symbol: "video", path: monitor.settings.outputFolder, label: "录制文件夹", action: monitor.chooseFolder)
                 Divider().overlay(ThemeColor.line)
-                destination(symbol: "square.and.arrow.up", path: exportFolder.isEmpty ? NSHomeDirectory() + "/Movies/SimuSub/Exports" : exportFolder, label: "导出文件夹", action: chooseExportFolder)
+                destination(symbol: "square.and.arrow.up", path: exportPath, label: "导出文件夹", action: chooseExportFolder)
             }.designPanel(inset: 18)
             VStack(alignment: .leading, spacing: 10) {
                 Text(L10n.text("录制质量")).font(.headline)
@@ -134,15 +137,26 @@ struct LiveRecordingSettings: View {
     private func destination(symbol: String, path: String, label: String, action: @escaping () -> Void) -> some View {
         HStack(spacing: 14) {
             Image(systemName: symbol).foregroundStyle(ThemeColor.primaryInk).frame(width: 36, height: 36).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 10))
-            Text(path.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.system(size: 13, weight: .semibold)).lineLimit(1).truncationMode(.middle)
-            Spacer(minLength: 8)
+            Text((path as NSString).abbreviatingWithTildeInPath)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1).truncationMode(.middle)
+                .textSelection(.enabled).help(path)
+            Spacer(minLength: 4)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(path, forType: .string)
+            } label: { Image(systemName: "doc.on.doc").frame(width: 32, height: 30) }
+            .buttonStyle(.plain)
+            .help(L10n.text("复制路径"))
+            .accessibilityLabel(L10n.text(label) + " · " + L10n.text("复制路径"))
             Button(action: action) { Image(systemName: "folder").frame(width: 32, height: 30) }
                 .buttonStyle(.plain).background(ThemeColor.control, in: RoundedRectangle(cornerRadius: 9))
-                .help(L10n.text(label)).accessibilityLabel(L10n.text(label))
+                .help(L10n.text("更换文件夹")).accessibilityLabel(L10n.text(label) + " · " + L10n.text("更换文件夹"))
         }.padding(.vertical, 7)
     }
     private func chooseExportFolder() {
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
+        panel.directoryURL = URL(fileURLWithPath: exportPath, isDirectory: true)
         if panel.runModal() == .OK, let url = panel.url { exportFolder = url.path }
     }
 }
@@ -227,19 +241,13 @@ struct LiveConnectionSheet: View {
 
 struct SimuSubGuide: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.appThemeID) private var appThemeID
     var body: some View {
-        let _ = appThemeID
-        VStack(alignment: .leading, spacing: 22) {
-            HStack { Text(L10n.text("使用 SimuSub")).font(.title2.bold()); Spacer(); Button(L10n.text("完成")) { dismiss() } }
-            Label(L10n.text("字幕同传"), systemImage: "captions.bubble").font(.headline)
-            Text(L10n.text("选择声音来源和语言，开始同传。浮窗支持双语、仅译文和 TXT / SRT / VTT 导出。"))
-            Label(L10n.text("主播监控"), systemImage: "bell.badge").font(.headline)
-            Text(L10n.text("在直播录制页搜索并添加主播。平台入口可管理访客或导入的会话；右键主播可调整监控、提醒和自动录制。录制设置中可选择保存目录。关闭窗口继续运行，退出或睡眠后停止监控。"))
-            Label(L10n.text("自动切片"), systemImage: "scissors").font(.headline)
-            Text(L10n.text("从侧栏或首页打开独立剪辑窗，导入视频或已保存的录制。可新增、切换和删除选段，分别编辑日中字幕并设置样式；勾选片段后批量导出。原视频保留，任务可暂停或重试。高光候选由本地规则推荐；云端识别与核对会在调用前说明费用。"))
-            Spacer()
-        }.padding(28).frame(width: 550, height: 470)
+        VStack(alignment: .trailing, spacing: 12) {
+            ScrollView { UsageAboutSettingsView().padding(20) }
+            Button(L10n.text("完成")) { dismiss() }.keyboardShortcut(.defaultAction)
+        }
+        .padding(16)
+        .frame(width: 560, height: 500)
     }
 }
 
