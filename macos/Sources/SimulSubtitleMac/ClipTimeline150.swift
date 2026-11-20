@@ -80,7 +80,11 @@ struct ClipTimeline150: View {
                     let x = max(14, min(rail.size.width - 14, rail.size.width * time / total))
                     ZStack(alignment: .leading) {
                         Capsule().fill(ThemeColor.line).frame(height: 3)
-                        GalaxyPlayhead150().stroke(ThemeColor.primary, style: StrokeStyle(lineWidth: 1.1, lineCap: .round, lineJoin: .round))
+                        RocketPlayhead()
+                            .fill(ThemeColor.surface)
+                            .overlay {
+                                RocketPlayhead().stroke(ThemeColor.primary, style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
+                            }
                             .frame(width: 28, height: 20).offset(x: x - 14)
                     }.frame(height: 24).contentShape(Rectangle())
                         .gesture(DragGesture(minimumDistance: 0).onChanged { v in seek(max(0, min(total, v.location.x / max(1, rail.size.width) * total))) })
@@ -231,14 +235,30 @@ final class TimelineLaneCache {
     }
 }
 
-struct GalaxyPlayhead150: Shape {
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        p.addEllipse(in: CGRect(x: r.width * 0.02, y: r.height * 0.35, width: r.width * 0.96, height: r.height * 0.4))
-        for (x, y, s) in [(0.29, 0.39, 0.12), (0.50, 0.58, 0.09), (0.72, 0.34, 0.17)] {
-            let c = CGPoint(x: r.width * x, y: r.height * y), a = r.height * s
-            p.move(to: CGPoint(x: c.x, y: c.y - a)); p.addLine(to: CGPoint(x: c.x + a * 0.3, y: c.y - a * 0.3)); p.addLine(to: CGPoint(x: c.x + a, y: c.y)); p.addLine(to: CGPoint(x: c.x + a * 0.3, y: c.y + a * 0.3)); p.addLine(to: CGPoint(x: c.x, y: c.y + a)); p.addLine(to: CGPoint(x: c.x - a * 0.3, y: c.y + a * 0.3)); p.addLine(to: CGPoint(x: c.x - a, y: c.y)); p.addLine(to: CGPoint(x: c.x - a * 0.3, y: c.y - a * 0.3)); p.closeSubpath()
+private struct RocketPlayhead: Shape {
+    func path(in rect: CGRect) -> Path {
+        // A right-facing rocket drawn on a 28 × 20 point grid.
+        let scale = min(rect.width / 28, rect.height / 20)
+        let origin = CGPoint(x: rect.midX - 14 * scale, y: rect.midY - 10 * scale)
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: origin.x + x * scale, y: origin.y + y * scale)
         }
-        return p
+        var path = Path()
+        path.move(to: point(7, 7.2))
+        path.addLine(to: point(6, 2.5))
+        path.addQuadCurve(to: point(13.8, 5.5), control: point(10.6, 2.6))
+        path.addQuadCurve(to: point(26.5, 10), control: point(21, 5))
+        path.addQuadCurve(to: point(13.8, 14.5), control: point(21, 15))
+        path.addQuadCurve(to: point(6, 17.5), control: point(10.6, 17.4))
+        path.addLine(to: point(7, 12.8))
+        path.closeSubpath()
+
+        path.move(to: point(4.8, 8.2))
+        path.addQuadCurve(to: point(1.2, 10), control: point(3, 8.4))
+        path.addQuadCurve(to: point(4.8, 11.8), control: point(3, 11.6))
+        path.closeSubpath()
+
+        path.addEllipse(in: CGRect(origin: point(15.2, 8.2), size: CGSize(width: 3.6 * scale, height: 3.6 * scale)))
+        return path
     }
 }
