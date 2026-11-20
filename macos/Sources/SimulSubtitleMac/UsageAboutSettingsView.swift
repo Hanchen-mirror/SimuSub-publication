@@ -102,9 +102,11 @@ struct UsageAboutSettingsView: View {
                     ForEach(Array(group.models.enumerated()), id: \.offset) { index, model in
                         if index > 0 { separator }
                         VStack(alignment: .leading, spacing: 4) {
-                            externalLink(model.url, label: model.name)
+                            Text(verbatim: model.name).interfaceFont(size: 15, weight: .semibold)
+                                .foregroundStyle(ThemeColor.ink).fixedSize(horizontal: false, vertical: true)
                             Text(verbatim: model.author + " · " + model.role).interfaceFont(size: 14)
                                 .foregroundStyle(ThemeColor.muted).fixedSize(horizontal: false, vertical: true)
+                            externalLink(model.url, label: model.url.pathComponents.dropFirst().joined(separator: "/"))
                         }
                         .padding(.vertical, 9)
                     }
