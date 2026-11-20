@@ -58,7 +58,7 @@ enum Release145Checks {
             await onlyOriginal.process([Float](repeating: 0.1, count: 16000), start: 0)
             try require(onlyOriginal.captions.last?.original == raw && onlyOriginal.captions.last?.isOriginalOnly == true, "original_only_never_calls_translation_or_rewrites")
             try require(SubtitleDocument.render(onlyOriginal.captions, format: .txt, mode: .original) == raw+"\n", "original_only_export_has_one_unmodified_copy")
-            onlyOriginal.toggleOriginalOnly()
+            onlyOriginal.toggleBilingualDisplay()
             try require(onlyOriginal.subtitleDisplayMode == .bilingual, "original_button_restores_previous_display_mode")
             let savedTranslation = model.selectedTranslationProfileID
             model.subtitleDisplayMode = .original
@@ -73,7 +73,7 @@ enum Release145Checks {
             clock += 10
             try require(model.captions.last?.isOriginalOnly == true, "native_original_only_finalizes_without_translation")
             model.selectedTranslationProfileID = savedTranslation
-            model.toggleOriginalOnly()
+            model.toggleBilingualDisplay()
             await model.process(try AudioFileReader.read(URL(fileURLWithPath: corpus.audio[1].path)), start: clock)
             try require(model.captions.last?.isOriginalOnly == false && SubtitleDocument.completedTranslation(model.captions.last!) != nil, "translation_resumes_after_original_only_start")
             let mixedHistory = SubtitleTranslationContext(previous: [

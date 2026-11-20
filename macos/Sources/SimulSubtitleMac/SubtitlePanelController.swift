@@ -19,6 +19,7 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
     private var shouldReturnHome = true
     @Published private(set) var isBubble = false
     @Published var isResizeHover = false
+    @Published private(set) var isUserResizing = false
     private var spaceObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
     private var reassertTask: Task<Void, Never>?
@@ -89,7 +90,7 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
             window.backgroundColor = .clear
             window.hasShadow = true
             window.isMovableByWindowBackground = true
-            window.contentMinSize = NSSize(width: 48, height: 32)
+            window.contentMinSize = NSSize(width: 44, height: 32)
             window.acceptsMouseMovedEvents = true
             window.delegate = self
             let hosting = NSHostingView(rootView: SubtitlePanelRoot(controller: self)
@@ -130,42 +131,81 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
         }
     }
 
-    func beginUserResize() { resizeStartFrame = panel?.frame }
+    private var animateResize: Bool {
+        appearance?.reduceMotion != true && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    func beginUserResize() {
+        guard !isBubble, resizeStartFrame == nil, let panel else { return }
+        resizeStartFrame = panel.frame
+        isUserResizing = true
+    }
+
+    private func crossesReadingLimit(from old: CGSize, to new: CGSize) -> Bool {
+        let narrowing = new.width < old.width
+        let shortening = new.height < old.height
+        if (narrowing && new.width < 360) || (shortening && new.height < 64) { return true }
+        guard narrowing || shortening, let model, let appearance else { return false }
+        // Compare the same cue at both sizes. A new line arriving during a drag
+        // must not, by itself, cause the user's window to disappear.
+        func layout(_ size: CGSize) -> SubtitleCueLayout {
+            SubtitleCueLayout(caption: model.captions.last, mode: model.subtitleDisplayMode, size: size,
+                              japaneseFont: appearance.japaneseFont, chineseFont: appearance.chineseFont,
+                              japaneseSize: appearance.japaneseSize, chineseSize: appearance.chineseSize,
+                              zoom: appearance.workspaceZoom)
+        }
+        let before = layout(old), after = layout(new)
+        return (narrowing && after.tooNarrow && !before.tooNarrow)
+            || (shortening && after.tooShort && !before.tooShort)
+    }
 
     func finishUserResize() {
-        guard let panel else { return }
+        defer {
+            resizeStartFrame = nil
+            isUserResizing = false
+        }
+        guard let panel, !isBubble else { return }
         isResizeHover = false
-        if SubtitleDensity.forSize(panel.frame.size) == .bubble { collapseToBubble() }
-        else { lastExpandedFrame = panel.frame; saveFrame() }
-        resizeStartFrame = nil
+        if let start = resizeStartFrame, crossesReadingLimit(from: start.size, to: panel.frame.size) {
+            collapseToBubble()
+        } else {
+            lastExpandedFrame = panel.frame
+            saveFrame()
+        }
     }
 
     func collapseToBubble() {
         guard let panel, !isBubble else { return }
-        lastExpandedFrame = resizeStartFrame ?? lastExpandedFrame ?? panel.frame
+        let center = NSPoint(x: panel.frame.midX, y: panel.frame.midY)
+        lastExpandedFrame = resizeStartFrame ?? panel.frame
         isBubble = true
         panel.hasShadow = false
         panel.isMovableByWindowBackground = false
         panel.styleMask.remove(.resizable)
-        let frame = NSRect(x: panel.frame.minX, y: panel.frame.maxY - 48, width: 48, height: 48)
-        panel.setFrame(frame, display: true, animate: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        panel.contentMinSize = NSSize(width: 44, height: 44)
+        let frame = NSRect(x: center.x - 22, y: center.y - 22, width: 44, height: 44)
+        panel.setFrame(frame, display: true, animate: animateResize)
+        saveFrame()
     }
 
     func restoreFromBubble() {
-        guard let panel else { return }
+        guard let panel, isBubble else { return }
+        let center = NSPoint(x: panel.frame.midX, y: panel.frame.midY)
         isBubble = false
         panel.hasShadow = true
         panel.isMovableByWindowBackground = true
         panel.styleMask.insert(.resizable)
-        let old = lastExpandedFrame ?? NSRect(x: panel.frame.minX, y: panel.frame.maxY - 96, width: 800, height: 96)
-        var target = NSRect(x: panel.frame.minX, y: panel.frame.maxY - old.height, width: max(360, old.width), height: max(40, old.height))
+        panel.contentMinSize = NSSize(width: 44, height: 32)
+        let size = lastExpandedFrame?.size ?? NSSize(width: 800, height: 96)
+        var target = NSRect(x: center.x - size.width / 2, y: center.y - size.height / 2,
+                            width: size.width, height: size.height)
         if let screen = panel.screen?.visibleFrame {
             target.size.width = min(target.width, screen.width)
             target.size.height = min(target.height, screen.height)
             target.origin.x = min(max(target.minX, screen.minX), screen.maxX - target.width)
             target.origin.y = min(max(target.minY, screen.minY), screen.maxY - target.height)
         }
-        panel.setFrame(target, display: true, animate: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        panel.setFrame(target, display: true, animate: animateResize)
         lastExpandedFrame = target
         saveFrame()
         scheduleReassertion()
@@ -174,14 +214,17 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
     func toggleZoom() {
         guard let panel else { return }
         if let restore = zoomRestoreFrame {
-            panel.setFrame(restore, display: true, animate: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+            panel.setFrame(restore, display: true, animate: animateResize)
             zoomRestoreFrame = nil
         } else if let visible = panel.screen?.visibleFrame {
             zoomRestoreFrame = panel.frame
-            let width = min(1000, visible.width - 32), height = min(360, visible.height - 32)
-            let expanded = NSRect(x: min(max(panel.frame.midX - width / 2, visible.minX + 16), visible.maxX - width - 16),
-                y: min(max(panel.frame.minY, visible.minY + 16), visible.maxY - height - 16), width: width, height: height)
-            panel.setFrame(expanded, display: true, animate: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+            let width = min(visible.width, max(panel.frame.width, min(1000, visible.width - 32)))
+            let height = min(visible.height, max(panel.frame.height, min(360, visible.height - 32)))
+            let expanded = NSRect(
+                x: min(max(panel.frame.midX - width / 2, visible.minX), visible.maxX - width),
+                y: min(max(panel.frame.midY - height / 2, visible.minY), visible.maxY - height),
+                width: width, height: height)
+            panel.setFrame(expanded, display: true, animate: animateResize)
         }
         lastExpandedFrame = panel.frame
         saveFrame()
@@ -366,18 +409,24 @@ private struct SubtitlePanelRoot: View {
         let _ = appThemeID
         GeometryReader { geometry in
             Group {
-                if controller.isBubble || SubtitleDensity.forSize(geometry.size) == .bubble {
+                if controller.isBubble {
                     SubtitleBubble(controller: controller, active: model.isCapturing, busy: model.isStarting || model.isStopping)
                 } else {
                     SubtitleStrip(captions: model.captions,
                                   presentation: SubtitlePresentation(size: geometry.size, subtitleOnly: true, displayMode: model.subtitleDisplayMode),
-                                  size: geometry.size, isPinned: model.isSubtitlePinned,
+                                  size: geometry.size, isUserResizing: controller.isUserResizing, isPinned: model.isSubtitlePinned,
                                   onTogglePin: { model.isSubtitlePinned.toggle(); controller.scheduleReassertion() },
                                   onExit: controller.returnHome, onZoom: controller.toggleZoom, onClose: controller.closeSubtitles,
+                                  onCollapse: controller.collapseToBubble,
                                   displayMode: model.subtitleDisplayMode,
                                   onToggleDisplayMode: model.toggleBilingualDisplay,
                                   onExport: { model.exportCaptions(format: $0) },
                                   onClear: { Task { await model.clearCaptions() } }, canClear: model.canClearCaptions,
+                                  sourceLanguage: model.sourceLanguage, targetLanguage: model.targetLanguage,
+                                  canChangeLanguages: model.canChangeSubtitleLanguages,
+                                  onApplyLanguages: { source, target in
+                                      Task { await model.applySubtitleLanguages(source: source, target: target) }
+                                  },
                                   idleText: model.subtitleStatus, isCapturing: model.isCapturing,
                                   isBusy: model.isStarting || model.isStopping || model.isLoadingApplications || model.isClearingCaptions,
                                   canStartStop: !model.isDownloadingModels && model.subtitlePreparationBytes == nil,

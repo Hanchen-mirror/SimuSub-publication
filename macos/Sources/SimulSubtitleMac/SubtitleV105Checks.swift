@@ -50,6 +50,39 @@ enum SubtitleV105Checks {
         _ = SubtitleLineLayout.format(caption.original, language: .japanese, width: 96, font: .systemFont(ofSize: 16))
         try require(before == SubtitleDocument.render([caption], format: .srt, mode: .bilingual), "display_layout_does_not_change_export_or_source", &checks)
 
+        let suite = "SimuSub.DisplayModeChecks." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("译文", forKey: "singleSubtitleLanguage.v1")
+        defaults.set(SubtitleDisplayMode.chinese.rawValue, forKey: "subtitleDisplayMode.v101")
+        let store = LocalModelStore(root: FileManager.default.temporaryDirectory.appendingPathComponent(suite))
+        func restoredMode() -> AppModel {
+            AppModel(defaults: defaults, modelStore: store, modelDownloadsAllowed: false)
+        }
+        let legacy = restoredMode()
+        try require(legacy.subtitleDisplayMode == .chinese, "restores_explicit_legacy_translation_view", &checks)
+        legacy.toggleBilingualDisplay()
+        try require(legacy.subtitleDisplayMode == .bilingual, "legacy_translation_view_switches_to_bilingual", &checks)
+        legacy.toggleBilingualDisplay()
+        let restored = restoredMode()
+        try require(restored.originalOnly, "bilingual_switch_ignores_legacy_single_preference_and_persists_original", &checks)
+        restored.toggleBilingualDisplay()
+        try require(restoredMode().subtitleDisplayMode == .bilingual, "bilingual_choice_survives_relaunch", &checks)
+
+        let modeGate = CheckGate()
+        let switchingModel = makeModel(recognizer: ImmediateASR(), translator: GatedMT(gate: modeGate))
+        switchingModel.captions = [caption]
+        let pendingTranslation = Task { await switchingModel.process([Float](repeating: 0.1, count: 16_000), start: 3) }
+        try await waitForStart(modeGate)
+        switchingModel.toggleBilingualDisplay()
+        switchingModel.toggleBilingualDisplay()
+        await modeGate.release("迟到的翻译")
+        await pendingTranslation.value
+        let retained = switchingModel.captions
+        try require(retained.count == 2 && retained.first == caption && retained.last?.isOriginalOnly == true
+                    && SubtitleDocument.render(retained, format: .srt, mode: .bilingual).contains("新しい字幕です"),
+                    "rapid_mode_switch_preserves_completed_translation_and_pending_source", &checks)
+
         let asrGate = CheckGate()
         let oldCaption = Caption(start: 0, end: 1, original: "古い字幕", translated: "旧字幕")
         let asrModel = makeModel(recognizer: GatedASR(gate: asrGate), translator: ImmediateMT())

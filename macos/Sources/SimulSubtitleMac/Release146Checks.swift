@@ -70,7 +70,7 @@ enum Release146Checks {
             let pcm = try AudioFileReader.read(URL(fileURLWithPath: corpus.audio[5].path))
             await model.process(pcm, start: clock)
             try require(model.captions.last?.isOriginalOnly == true, "original_mode_without_translation_profile")
-            model.selectedTranslationProfileID = indexID; model.toggleOriginalOnly()
+            model.selectedTranslationProfileID = indexID; model.toggleBilingualDisplay()
             try require(model.subtitleDisplayMode == .bilingual, "original_icon_restores_bilingual_mode")
             let empty = AppModel(defaults: UserDefaults(suiteName: suite + ".empty")!, modelStore: LocalModelStore(root: output.appendingPathComponent("empty-models")), modelDownloadsAllowed: false)
             defer { UserDefaults.standard.removePersistentDomain(forName: suite + ".empty") }

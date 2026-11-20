@@ -1,14 +1,6 @@
 import AppKit
 import SwiftUI
 
-enum SubtitleDensity: String {
-    case regular, compact, bubble
-    static func forSize(_ size: CGSize) -> Self {
-        if size.width < 360 || size.height < 40 { return .bubble }
-        return size.height < 80 ? .compact : .regular
-    }
-}
-
 /// Track the whole nonactivating panel even while another app is frontmost.
 /// SwiftUI onHover can miss this surface when the native resize layer is above it.
 struct SubtitlePointerTracking: NSViewRepresentable {
@@ -32,11 +24,13 @@ struct SubtitlePointerTracking: NSViewRepresentable {
             // pointer; only geometry changes need a new initial containment check.
             guard area == nil || trackedBounds != bounds else { return }
             trackedBounds = bounds
-            if let area { removeTrackingArea(area) }
-            let tracking = NSTrackingArea(rect: .zero,
-                options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved, .enabledDuringMouseDrag], owner: self)
-            addTrackingArea(tracking)
-            area = tracking
+            if area == nil {
+                // inVisibleRect tracks geometry changes without sending a new enter/exit pair.
+                let tracking = NSTrackingArea(rect: .zero,
+                    options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved, .enabledDuringMouseDrag], owner: self)
+                addTrackingArea(tracking)
+                area = tracking
+            }
             // Initialize after layout, including windows opened under the pointer
             // and bounds changed by a resize, without mutating SwiftUI during layout.
             DispatchQueue.main.async { [weak self] in
@@ -122,25 +116,28 @@ struct SubtitleBubbleInteraction: NSViewRepresentable {
 struct SubtitleNativeControls: NSViewRepresentable {
     var onZoom: () -> Void
     var onClose: () -> Void
-    func makeNSView(context: Context) -> NativeControlsView { NativeControlsView(onZoom: onZoom, onClose: onClose) }
-    func updateNSView(_ view: NativeControlsView, context: Context) { view.onZoom = onZoom; view.onClose = onClose }
+    var onMinimize: (() -> Void)? = nil
+    func makeNSView(context: Context) -> NativeControlsView { NativeControlsView(onZoom: onZoom, onClose: onClose, onMinimize: onMinimize) }
+    func updateNSView(_ view: NativeControlsView, context: Context) { view.onZoom = onZoom; view.onClose = onClose; view.onMinimize = onMinimize }
 
     final class NativeControlsView: NSView {
         var onZoom: () -> Void
         var onClose: () -> Void
+        var onMinimize: (() -> Void)?
         private(set) var buttons: [NSButton] = []
-        init(onZoom: @escaping () -> Void, onClose: @escaping () -> Void) {
+        init(onZoom: @escaping () -> Void, onClose: @escaping () -> Void, onMinimize: (() -> Void)? = nil) {
+            self.onMinimize = onMinimize
             self.onZoom = onZoom
             self.onClose = onClose
             super.init(frame: NSRect(x: 0, y: 0, width: 66, height: 26))
             let kinds: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
-            let names = ["关闭字幕并停止监听", "最小化到程序坞", "放大／恢复字幕窗口"]
+            let names = ["关闭字幕并停止监听", onMinimize == nil ? "最小化到程序坞" : "收起为悬浮图标", "放大／恢复字幕窗口"]
             for (index, kind) in kinds.enumerated() {
                 guard let button = NSWindow.standardWindowButton(kind, for: [.titled, .closable, .miniaturizable, .resizable]) else { continue }
                 button.setFrameOrigin(NSPoint(x: 4 + index * 20, y: 6))
                 button.isEnabled = true
-                button.toolTip = names[index]
-                button.setAccessibilityLabel(names[index])
+                button.toolTip = L10n.text(names[index])
+                button.setAccessibilityLabel(L10n.text(names[index]))
                 button.setAccessibilityIdentifier("subtitle.window.\(index)")
                 button.target = self
                 button.action = [#selector(closeWindow), #selector(minimizeWindow), #selector(zoomWindow)][index]
@@ -150,7 +147,9 @@ struct SubtitleNativeControls: NSViewRepresentable {
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         @objc private func closeWindow() { onClose() }
-        @objc private func minimizeWindow() { window?.miniaturize(nil) }
+        @objc private func minimizeWindow() {
+            if let onMinimize { onMinimize() } else { window?.miniaturize(nil) }
+        }
         @objc private func zoomWindow() { onZoom() }
     }
 }
@@ -158,7 +157,7 @@ struct SubtitleNativeControls: NSViewRepresentable {
 struct SubtitleResizeSurface: NSViewRepresentable {
     @ObservedObject var controller: SubtitlePanelController
     func makeNSView(context: Context) -> ResizeView { ResizeView(controller: controller) }
-    func updateNSView(_ view: ResizeView, context: Context) { view.window?.invalidateCursorRects(for: view) }
+    func updateNSView(_ view: ResizeView, context: Context) {}
 
     final class ResizeView: NSView {
         struct Edges: OptionSet {
@@ -171,6 +170,8 @@ struct SubtitleResizeSurface: NSViewRepresentable {
         private var activeEdges: Edges = []
         private var initialFrame = NSRect.zero
         private var initialMouse = NSPoint.zero
+        private lazy var diagonalA = diagonalCursor("arrow.up.left.and.arrow.down.right")
+        private lazy var diagonalB = diagonalCursor("arrow.up.right.and.arrow.down.left")
 
         init(controller: SubtitlePanelController) { self.controller = controller; super.init(frame: .zero) }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -192,7 +193,7 @@ struct SubtitleResizeSurface: NSViewRepresentable {
         }
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
-            if let tracking { removeTrackingArea(tracking) }
+            guard tracking == nil else { return }
             let area = NSTrackingArea(rect: .zero, options: [.activeAlways, .inVisibleRect, .mouseMoved, .mouseEnteredAndExited], owner: self)
             tracking = area
             addTrackingArea(area)
@@ -201,12 +202,12 @@ struct SubtitleResizeSurface: NSViewRepresentable {
             let hovered = !edges(at: convert(event.locationInWindow, from: nil)).isEmpty
             if controller.isResizeHover != hovered { controller.isResizeHover = hovered }
         }
-        override func mouseExited(with event: NSEvent) { controller.isResizeHover = false }
+        override func mouseExited(with event: NSEvent) {
+            if activeEdges.isEmpty { controller.isResizeHover = false }
+        }
         override func resetCursorRects() {
             guard !controller.isBubble else { return }
             let w = bounds.width, h = bounds.height, edge: CGFloat = 6, corner: CGFloat = 12
-            let diagonalA = diagonalCursor("arrow.up.left.and.arrow.down.right")
-            let diagonalB = diagonalCursor("arrow.up.right.and.arrow.down.left")
             addCursorRect(NSRect(x: 0, y: corner, width: edge, height: max(0, h - corner * 2)), cursor: .resizeLeftRight)
             addCursorRect(NSRect(x: w - edge, y: corner, width: edge, height: max(0, h - corner * 2)), cursor: .resizeLeftRight)
             addCursorRect(NSRect(x: corner, y: 0, width: max(0, w - corner * 2), height: edge), cursor: .resizeUpDown)
@@ -225,20 +226,30 @@ struct SubtitleResizeSurface: NSViewRepresentable {
             guard let window else { return }
             activeEdges = edges(at: convert(event.locationInWindow, from: nil))
             initialFrame = window.frame
-            initialMouse = NSEvent.mouseLocation
+            initialMouse = window.convertPoint(toScreen: event.locationInWindow)
             controller.beginUserResize()
         }
         override func mouseDragged(with event: NSEvent) {
             guard let window else { return }
-            let delta = NSPoint(x: NSEvent.mouseLocation.x - initialMouse.x, y: NSEvent.mouseLocation.y - initialMouse.y)
-            var frame = initialFrame
-            if activeEdges.contains(.left) { frame.origin.x += delta.x; frame.size.width -= delta.x }
-            if activeEdges.contains(.right) { frame.size.width += delta.x }
-            if activeEdges.contains(.bottom) { frame.origin.y += delta.y; frame.size.height -= delta.y }
-            if activeEdges.contains(.top) { frame.size.height += delta.y }
-            if frame.width < 48 { if activeEdges.contains(.left) { frame.origin.x = initialFrame.maxX - 48 }; frame.size.width = 48 }
-            if frame.height < 32 { if activeEdges.contains(.bottom) { frame.origin.y = initialFrame.maxY - 32 }; frame.size.height = 32 }
-            window.setFrame(frame, display: true)
+            let pointer = window.convertPoint(toScreen: event.locationInWindow)
+            let delta = NSPoint(x: pointer.x - initialMouse.x, y: pointer.y - initialMouse.y)
+            var size = initialFrame.size
+            if activeEdges.contains(.left) { size.width -= 2 * delta.x }
+            if activeEdges.contains(.right) { size.width += 2 * delta.x }
+            if activeEdges.contains(.bottom) { size.height -= 2 * delta.y }
+            if activeEdges.contains(.top) { size.height += 2 * delta.y }
+            let center = NSPoint(x: initialFrame.midX, y: initialFrame.midY)
+            if let screen = window.screen?.visibleFrame {
+                let horizontalRoom = 2 * min(center.x - screen.minX, screen.maxX - center.x)
+                let verticalRoom = 2 * min(center.y - screen.minY, screen.maxY - center.y)
+                size.width = min(size.width, max(initialFrame.width, horizontalRoom))
+                size.height = min(size.height, max(initialFrame.height, verticalRoom))
+            }
+            size.width = max(window.contentMinSize.width, size.width)
+            size.height = max(window.contentMinSize.height, size.height)
+            let frame = NSRect(x: center.x - size.width / 2, y: center.y - size.height / 2,
+                               width: size.width, height: size.height)
+            if window.frame != frame { window.setFrame(frame, display: true, animate: false) }
         }
         override func mouseUp(with event: NSEvent) { activeEdges = []; controller.finishUserResize() }
     }

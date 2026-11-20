@@ -51,6 +51,24 @@ private actor WindowRecognitionFixture: JapaneseWindowRecognizing {
             checks.append(check)
             print("CHECK: " + check); fflush(stdout)
         }
+        // Switch while a Japanese recognition window has a translated preview.
+        // The finalized source must remain intact when bilingual display returns.
+        let phrase = "鉛筆を買った。"
+        let model = AppModel(defaults: defaults, modelStore: LocalModelStore(root: directory.appendingPathComponent("japanese-window-fixture")),
+                             recognizer: WindowRecognitionFixture([phrase, phrase]), translator: translator)
+        let id = UUID()
+        await model.process([Float](repeating: 0.1, count: 48_000), start: 0, id: id, isFinal: false)
+        guard model.captions.last?.isDraft == true, model.captions.last?.translated.isEmpty == false else {
+            throw ClipError.message("CHECK FAILED: japanese_bilingual_preview_before_switch")
+        }
+        model.toggleBilingualDisplay()
+        await model.process([Float](repeating: 0.1, count: 64_000), start: 0, id: id, revision: 2)
+        model.toggleBilingualDisplay()
+        guard model.captions.count == 1, model.captions[0].id == id, model.captions[0].isOriginalOnly,
+              SubtitleDocument.render(model.captions, format: .txt, mode: .bilingual) == phrase + "\n" else {
+            throw ClipError.message("CHECK FAILED: japanese_original_only_final_drops_obsolete_preview")
+        }
+        checks.append("japanese_original_only_final_drops_obsolete_preview")
         return checks
     }
 }

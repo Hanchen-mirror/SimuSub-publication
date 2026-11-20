@@ -30,6 +30,32 @@ final class AppModel: ObservableObject {
         sourceLanguage = targetLanguage; targetLanguage = oldSource
         persistLanguages()
     }
+    private var pendingLanguageChange: UUID?
+    var canChangeSubtitleLanguages: Bool {
+        pendingLanguageChange == nil && !isStarting && !isStopping && !isLoadingApplications
+            && !isChoosingApplication && !isProcessingFile && !isClearingCaptions
+            && !modelsAreDownloading && subtitlePreparationBytes == nil
+    }
+
+    func applySubtitleLanguages(source: SubtitleLanguage, target: SubtitleLanguage) async {
+        guard canChangeSubtitleLanguages, source != target,
+              source != sourceLanguage || target != targetLanguage else { return }
+        let resume = isCapturing
+        if resume {
+            // Finalize the old language's audio and queued translations before changing its engines.
+            let request = UUID()
+            pendingLanguageChange = request
+            stopCapture()
+            await stopTask?.value
+            guard pendingLanguageChange == request else { return }
+            pendingLanguageChange = nil
+        }
+        guard canBeginSubtitleCapture else { return }
+        sourceLanguage = source
+        targetLanguage = target
+        persistLanguages()
+        if resume { startCapture(showSubtitles: isSubtitleOnly) }
+    }
     private var cachedRoutingIndex: LocalLlamaTranslator?
 
     private func persistLanguages() {
@@ -119,12 +145,7 @@ final class AppModel: ObservableObject {
     @Published var subtitleDisplayMode: SubtitleDisplayMode = .bilingual {
         didSet {
             defaults.set(subtitleDisplayMode.rawValue, forKey: "subtitleDisplayMode.v101")
-            if subtitleDisplayMode == .bilingual, oldValue != .bilingual {
-                singleSubtitleLanguage = oldValue == .original ? .original : .translation
-            }
-            if subtitleDisplayMode != .original {
-                defaults.set(subtitleDisplayMode.rawValue, forKey: "subtitle.lastTranslatedDisplayMode.v145")
-            } else {
+            if subtitleDisplayMode == .original, oldValue != .original {
                 cancelTranslationPreview()
                 translationQueue?.discardPending()
                 for i in captions.indices where captions[i].isDraft && revisionGuards[captions[i].id] == nil {
@@ -135,23 +156,10 @@ final class AppModel: ObservableObject {
     }
     var originalOnly: Bool { subtitleDisplayMode == .original }
     func toggleBilingualDisplay() {
-        if subtitleDisplayMode == .bilingual {
-            subtitleDisplayMode = singleSubtitleLanguage == .original ? .original : .chinese
-        } else {
-            subtitleDisplayMode = .bilingual
-        }
-    }
-
-    func toggleOriginalOnly() {
-        subtitleDisplayMode = originalOnly
-            ? defaults.string(forKey: "subtitle.lastTranslatedDisplayMode.v145").flatMap(SubtitleDisplayMode.init(rawValue:)).flatMap { $0 == .original ? nil : $0 } ?? .bilingual
-            : .original
+        subtitleDisplayMode = subtitleDisplayMode == .bilingual ? .original : .bilingual
     }
     @Published var isSubtitlePinned = true {
         didSet { defaults.set(isSubtitlePinned, forKey: "subtitlePinned.v1") }
-    }
-    @Published var singleSubtitleLanguage: SingleSubtitleLanguage = .translation {
-        didSet { defaults.set(singleSubtitleLanguage.rawValue, forKey: "singleSubtitleLanguage.v1") }
     }
     @Published var isCapturing = false
     @Published var isStarting = false
@@ -346,15 +354,13 @@ final class AppModel: ObservableObject {
                       let saved = try? JSONDecoder().decode([ServiceProfile].self, from: data),
                       !saved.isEmpty else { continue }
                 for key in [Self.profilesKey, "selectedASRProfileID.v2", "selectedTranslationProfileID.v2",
-                            "subtitlePinned.v1", "singleSubtitleLanguage.v1"] {
+                            "subtitlePinned.v1"] {
                     if let value = legacy[key] { defaults.set(value, forKey: key) }
                 }
                 break
             }
         }
         isSubtitlePinned = defaults.object(forKey: "subtitlePinned.v1") as? Bool ?? true
-        singleSubtitleLanguage = defaults.string(forKey: "singleSubtitleLanguage.v1")
-            .flatMap(SingleSubtitleLanguage.init(rawValue:)) ?? .translation
         if let data = defaults.data(forKey: Self.profilesKey),
            let saved = try? JSONDecoder().decode([ServiceProfile].self, from: data), !saved.isEmpty {
             profiles = saved.map { profile in
@@ -792,6 +798,7 @@ final class AppModel: ObservableObject {
 
     /// Closing the subtitle window cancels startup as well as active capture.
     func finishSubtitleSession() async {
+        pendingLanguageChange = nil
         cancelApplicationSelection()
         cancelSubtitlePreparation()
         startupTask?.cancel()
@@ -1603,7 +1610,14 @@ final class AppModel: ObservableObject {
             if final { revisionGuards[key] = nil }
             else if key != id { revisionGuards[key] = ASRRevisionGuard() }
             captions[index].isDraft = true
-            if originalOnly { captions[index].isDraft = !final; continue }
+            if originalOnly {
+                // A Japanese phrase may already have a translation preview from
+                // before the switch. Its source-only final must stay exportable
+                // as original text when the panel later returns to bilingual.
+                captions[index].translated = ""
+                captions[index].isDraft = !final
+                continue
+            }
             let joinID = key == ids.first && targetLanguage.isChinese ? predecessor.flatMap { previousID in
                 captions.last(where: { $0.id == previousID }).flatMap {
                     JapaneseCaptionPhrase.completesLocation($0.original, phrase.text) ? previousID : nil

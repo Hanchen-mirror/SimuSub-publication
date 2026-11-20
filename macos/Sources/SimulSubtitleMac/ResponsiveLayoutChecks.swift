@@ -26,7 +26,11 @@ enum ResponsiveLayoutChecks {
             try await settle()
             let image = try snapshot(window, named: name, in: output)
             let size = window.contentView?.bounds.size ?? .zero
-            try require(abs(size.width - width) < 1 && abs(size.height - height) < 32,
+            // With a unified title bar the minimum usable height excludes the toolbar,
+            // while the full-size content view includes it. Check both AppKit rectangles.
+            let usable = window.contentLayoutRect.size
+            let requestedHeight = abs(size.height - height) < 1 || abs(usable.height - height) < 1
+            try require(abs(size.width - width) < 1 && requestedHeight,
                         "\(name)_native_size_\(Int(size.width))x\(Int(size.height))")
             return image
         }
@@ -92,7 +96,7 @@ enum ResponsiveLayoutChecks {
             let afterZoom = try snapshot(panel, named: "subtitle-800x180-125", in: output)
             try require(beforeZoom != afterZoom && panel.frame == frame, "subtitle_zoom_changes_rendering_in_same_window_bounds")
             try await checkLayout(panel, 800, 96, .large, "subtitle-800x96-150")
-            try await checkLayout(panel, 500, 48, .extraLarge, "subtitle-500x48-200")
+            try await checkLayout(panel, 500, 76, .extraLarge, "subtitle-500x76-200")
             panel.setContentSize(NSSize(width: 800, height: 96))
             let expanded = panel.frame
             subtitles.toggleZoom()
@@ -105,22 +109,42 @@ enum ResponsiveLayoutChecks {
             panel.setContentSize(NSSize(width: 180, height: 32))
             subtitles.finishUserResize()
             try await settle()
-            try require(subtitles.isBubble && panel.frame.size == CGSize(width: 48, height: 48), "subtitle_drag_to_bubble")
+            try require(subtitles.isBubble && panel.frame.size == CGSize(width: 44, height: 44), "subtitle_drag_to_bubble")
             subtitles.restoreFromBubble()
             try await settle()
             try require(panel.frame.size == expanded.size && model.captions.count == 1 && model.subtitleDisplayMode == .bilingual,
                         "subtitle_restores_caption_and_bilingual_preference")
             subtitles.returnHome()
 
-            let senseVoice = model.profiles.first { $0.localModelID == "sensevoice" }
-            let whisper = model.profiles.first { $0.localModelID == "whisper-base" }
+            // The UI fixture intentionally has no models. A real override can only
+            // be selected when the caller supplies an installed model directory.
+            let routing: AppModel
+            var routingSuite: String?
+            defer { if let routingSuite { UserDefaults.standard.removePersistentDomain(forName: routingSuite) } }
+            if let index = args.firstIndex(of: "--clip-real-models"), args.indices.contains(index + 1) {
+                let root = URL(fileURLWithPath: args[index + 1], isDirectory: true)
+                let suite = "SimuSub.LayoutRouting." + UUID().uuidString
+                routingSuite = suite
+                let defaults = UserDefaults(suiteName: suite)!
+                routing = AppModel(defaults: defaults, modelStore: LocalModelStore(root: root), modelDownloadsAllowed: false)
+            } else {
+                routing = model
+            }
+            let senseVoice = routing.profiles.first { $0.localModelID == "sensevoice" }
+            let whisper = routing.profiles.first { $0.localModelID == "whisper-base" }
             try require(senseVoice != nil && whisper != nil, "language_recognition_profiles_available")
-            model.chooseRecognition(senseVoice?.id, for: .japanese)
-            model.chooseRecognition(whisper?.id, for: .english)
-            model.chooseRecognition(senseVoice?.id, for: .simplifiedChinese)
             for (language, profile) in [(SubtitleLanguage.japanese, senseVoice), (.english, whisper), (.traditionalChinese, senseVoice)] {
-                model.setSourceLanguage(language)
-                try require(model.recognitionProfile(for: language)?.id == profile?.id, "clip_recognition_override_" + language.rawValue)
+                routing.setSourceLanguage(language)
+                let initialID = routing.recognitionProfile(for: language)?.id
+                let installed = routing.recognitionChoices(for: language).contains { $0.id == profile?.id }
+                routing.chooseRecognition(profile?.id, for: language)
+                if args.contains("--clip-real-models") {
+                    try require(installed && routing.recognitionProfile(for: language)?.id == profile?.id
+                                && routing.hasRecognitionOverride(for: language), "clip_recognition_override_" + language.rawValue)
+                } else {
+                    try require(!installed && routing.recognitionProfile(for: language)?.id == initialID
+                                && !routing.hasRecognitionOverride(for: language), "missing_clip_recognition_override_rejected_" + language.rawValue)
+                }
             }
         } catch {
             failure = error.localizedDescription

@@ -11,26 +11,55 @@ enum SubtitlePresentation: Equatable {
     }
 }
 
-enum SingleSubtitleLanguage: String, CaseIterable, Identifiable {
-    case original = "原文"
-    case translation = "译文"
-    var id: String { rawValue }
+/// Geometry shared by the floating panel and its pointer-interaction checks.
+/// Coordinates for the paper and controls use the panel's top-leading origin.
+struct SubtitleToolbarLayout {
+    let size: CGSize
+
+    let controlWidth: CGFloat = 24
+    let controlSize: CGFloat = 24
+    // A window resize moves each rail continuously, without changing the reading mode.
+    private var toolMidY: CGFloat { size.height / 2 }
+    var lightsCenter: CGPoint { CGPoint(x: 41, y: min(19, max(13, toolMidY - 21))) }
+    var paperFrame: CGRect {
+        CGRect(x: 93, y: 2, width: max(1, size.width - 186), height: max(1, size.height - 4))
+    }
+
+    private func rightColumn(_ index: Int, lower: Bool = false) -> CGPoint {
+        CGPoint(x: size.width - 75 + CGFloat(index) * 27, y: toolMidY + (lower ? 13 : -13))
+    }
+    var playbackCenter: CGPoint {
+        CGPoint(x: 39, y: (lightsCenter.y + 6 + size.height) / 2)
+    }
+    var pinCenter: CGPoint { rightColumn(0) }
+    var homeCenter: CGPoint { rightColumn(1) }
+    var exportCenter: CGPoint { rightColumn(2) }
+    var clearCenter: CGPoint { rightColumn(0, lower: true) }
+    var modeCenter: CGPoint { rightColumn(1, lower: true) }
+    var languagesCenter: CGPoint { rightColumn(2, lower: true) }
+
 }
 
 struct SubtitleStrip: View {
     let captions: [Caption]
     let presentation: SubtitlePresentation
     let size: CGSize
+    var isUserResizing = false
     let isPinned: Bool
     let onTogglePin: () -> Void
     let onExit: () -> Void
     let onZoom: () -> Void
     let onClose: () -> Void
+    var onCollapse: (() -> Void)? = nil
     let displayMode: SubtitleDisplayMode
     let onToggleDisplayMode: () -> Void
     let onExport: (SubtitleExportFormat) -> Void
     let onClear: () -> Void
     let canClear: Bool
+    var sourceLanguage: SubtitleLanguage = .japanese
+    var targetLanguage: SubtitleLanguage = .simplifiedChinese
+    var canChangeLanguages = false
+    var onApplyLanguages: ((SubtitleLanguage, SubtitleLanguage) -> Void)? = nil
     var idleText: String = "等待字幕…"
     var isCapturing = false
     var isBusy = false
@@ -44,94 +73,75 @@ struct SubtitleStrip: View {
     var zoom: WorkspaceZoom = .normal
     @State private var pointerInside = false
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @State private var showingLanguages = false
     @State private var showingExport = false
     @State private var showingClearConfirmation = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let bottomID = "subtitle.paper.bottom"
+    @State private var fullCaption: FullCaption?
     private var logicalHeight: CGFloat { zoom.logicalSize(size).height }
     private var compact: Bool { logicalHeight < 80 }
-    private var latest: Caption? { captions.last.map(SubtitleDocument.liveCaption) }
-    private var compactBilingual: Bool { displayMode == .bilingual && latest?.isOriginalOnly != true && latest?.original != latest?.translated }
-    private var compactOriginalSize: CGFloat { min(min(japaneseSize, 14) * zoom.factor, size.height * 0.52) }
-    private var compactTranslationSize: CGFloat { min(min(chineseSize, 16) * zoom.factor, size.height * 0.52) }
-    private var controlSize: CGFloat { compact ? 20 : 26 }
-    private var controlSpacing: CGFloat { compact ? 2 : 4 }
-    // Match the larger toolbar gutter so the compact caption stays centered.
-    private var textInset: CGFloat { compact ? (controlsVisible ? 116 : 76) : 16 }
-    private var textWidth: CGFloat { max(24, size.width - textInset * 2) }
-    private var paperInset: CGFloat { 8 }
-    private var contentHeight: CGFloat { max(1, size.height - (compact ? 0 : 34)) }
+    private var layout: SubtitleToolbarLayout {
+        SubtitleToolbarLayout(size: size)
+    }
+    private var controlSize: CGFloat { layout.controlSize }
+    private var controlWidth: CGFloat { layout.controlWidth }
+    private func cueLayout(_ caption: Caption) -> SubtitleCueLayout {
+        SubtitleCueLayout(caption: caption, mode: displayMode, size: size,
+            japaneseFont: japaneseFont, chineseFont: chineseFont,
+            japaneseSize: japaneseSize, chineseSize: chineseSize, zoom: zoom)
+    }
 
     @Environment(\.appThemeID) private var appThemeID
     var body: some View {
         let _ = appThemeID
-        VStack(spacing: 0) {
-            if !compact {
-                HStack(spacing: 10) {
-                    SubtitleNativeControls(onZoom: onZoom, onClose: onClose).frame(width: 66, height: 26)
-                    playbackButton
-                    Spacer(minLength: 8)
-                    rightControls
-                }.padding(.horizontal, 8).frame(height: 34)
-                .accessibilityIdentifier("subtitle.toolbar")
-            }
-            ZStack {
+        let paper = layout.paperFrame
+        ZStack(alignment: .topLeading) {
+            Group {
                 if captions.isEmpty {
-                    Text(L10n.text(idleText)).font(.system(size: min(15 * zoom.factor, size.height * 0.52), weight: .medium)).foregroundStyle(ThemeColor.muted)
-                        .multilineTextAlignment(.center).lineLimit(compact ? 1 : 2)
-                        .truncationMode(.tail).help(L10n.text(idleText))
-                        .frame(width: textWidth, height: max(1, contentHeight - paperInset * 2))
+                    Text(verbatim: L10n.text(idleText))
+                        .font(.system(size: min(15 * zoom.factor, size.height * 0.52), weight: .medium))
+                        .foregroundStyle(ThemeColor.muted)
+                        .lineLimit(1).truncationMode(.tail).help(L10n.text(idleText))
                         .accessibilityIdentifier("subtitle.idleText")
-                } else if compact, let latest {
-                    let showsOriginal = displayMode == .original || latest.isOriginalOnly
-                    HStack(spacing: 6) {
-                        if compactBilingual {
-                            Text(compactLine(latest.original, original: true))
-                                .font(Font(SubtitleFont.native(japaneseFont, size: compactOriginalSize)))
-                                .foregroundStyle(ThemeColor.muted)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                            Text("｜").foregroundStyle(ThemeColor.muted)
-                        }
-                        Text(compactLine(translation(latest), original: showsOriginal))
-                            .font(Font(SubtitleFont.native(showsOriginal ? japaneseFont : chineseFont,
-                                size: showsOriginal ? compactOriginalSize : compactTranslationSize, weight: .medium)))
-                            .foregroundStyle(ThemeColor.ink)
-                            .frame(maxWidth: .infinity, alignment: compactBilingual ? .leading : .center)
-                    }
-                    .lineLimit(1).help(compactText(latest))
-                    .frame(width: textWidth, height: max(1, contentHeight - paperInset * 2))
                 } else {
-                    ScrollViewReader { reader in
-                        ScrollView(.vertical, showsIndicators: true) {
-                            LazyVStack(alignment: .center, spacing: 18) {
-                                ForEach(captions) { caption in
-                                    PaperCaption(caption: SubtitleDocument.liveCaption(caption), mode: displayMode, textWidth: textWidth,
-                                        shortWindow: logicalHeight < 120, japaneseFont: japaneseFont, chineseFont: chineseFont,
-                                        japaneseSize: japaneseSize * zoom.factor, chineseSize: chineseSize * zoom.factor).id(caption.id)
+                    ScrollView(.vertical, showsIndicators: captions.count > 1) {
+                        let history = captions.dropLast()
+                        let rowHeight = SubtitleCueLayout.historyHeight(mode: displayMode, japaneseFont: japaneseFont,
+                            chineseFont: chineseFont, japaneseSize: japaneseSize, chineseSize: chineseSize, zoom: zoom)
+                        VStack(spacing: 0) {
+                            LazyVStack(spacing: 0) {
+                                ForEach(history) { caption in
+                                    captionView(caption, layout: cueLayout(caption))
+                                        .frame(maxWidth: .infinity).frame(height: rowHeight)
                                 }
-                                Color.clear.frame(height: 1).id(bottomID).allowsHitTesting(false)
                             }
-                            .frame(minHeight: max(0, contentHeight - paperInset * 2), alignment: captions.count <= 1 ? .center : .bottom)
-                            .padding(.horizontal, textInset).padding(.vertical, paperInset)
+                            .frame(height: CGFloat(history.count) * rowHeight)
+                            if let latest = captions.last {
+                                captionView(latest, layout: cueLayout(latest))
+                                    .frame(maxWidth: .infinity).frame(height: paper.height)
+                            }
                         }
-                        .onAppear { reader.scrollTo(bottomID, anchor: .bottom) }
-                        .onChange(of: captions.last) { _ in reader.scrollTo(bottomID, anchor: .bottom) }
-                        .onChange(of: displayMode) { _ in reader.scrollTo(bottomID, anchor: .bottom) }
-                        .onChange(of: size) { _ in reader.scrollTo(bottomID, anchor: .bottom) }
+                        .background(alignment: .topLeading) {
+                            SubtitleHistoryScroll(latestID: captions.last?.id, size: paper.size)
+                                .frame(width: 1, height: 1)
+                                .allowsHitTesting(false).accessibilityHidden(true)
+                        }
                     }
                     .accessibilityIdentifier("subtitle.history")
                 }
-            }.frame(height: contentHeight).clipped()
+            }
+            .frame(width: paper.width, height: paper.height)
+            .clipped()
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("subtitle.paper")
+            .popover(item: $fullCaption) { FullCaptionDetail(caption: $0) }
+            .position(x: paper.midX, y: paper.midY)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ThemeColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(alignment: compact ? .leading : .topLeading) {
-            if compact { SubtitleNativeControls(onZoom: onZoom, onClose: onClose).frame(width: 66, height: 26).padding(.leading, 8) }
-        }
-        .overlay(alignment: .leading) { if compact { playbackButton.padding(.leading, 80) } }
-        .overlay(alignment: .trailing) { if compact { rightControls.padding(.trailing, 8) } }
+        .overlay { toolbar }
         .contentShape(Rectangle())
         .background { SubtitlePointerTracking(isInside: $pointerInside) }
         .onDisappear { pointerInside = false }
@@ -146,70 +156,52 @@ struct SubtitleStrip: View {
         }
     }
 
-    private func translation(_ caption: Caption) -> String {
-        if displayMode == .original || caption.isOriginalOnly { return caption.original }
-        return SubtitleDocument.completedTranslation(caption)
-            ?? (caption.translated.hasPrefix("翻译失败") || caption.translated.hasPrefix("译文未完成") ? L10n.text("翻译未完成") : L10n.text("正在翻译…"))
-    }
-
-    private func compactText(_ caption: Caption) -> String {
-        if displayMode == .original || caption.isOriginalOnly { return caption.original }
-        let chinese = SubtitleDocument.completedTranslation(caption) ?? caption.translated
-        let text = displayMode == .bilingual && caption.original != chinese ? caption.original + " ｜ " + chinese : chinese
-        return text
-    }
-
-    private func compactLine(_ text: String, original: Bool) -> String {
-        let available = textWidth
-        let width = compactBilingual ? max(24, (available - 24) / 2) : available
-        let font = SubtitleFont.native(original ? japaneseFont : chineseFont,
-            size: original ? compactOriginalSize : compactTranslationSize, weight: original ? .regular : .medium)
-        let clean = text.replacingOccurrences(of: "\n", with: " ")
-        if (clean as NSString).size(withAttributes: [.font: font]).width <= width { return clean }
-        var tail = ""
-        for character in clean.reversed() {
-            let next = String(character) + tail
-            if (("…" + next) as NSString).size(withAttributes: [.font: font]).width > width { break }
-            tail = next
+    private func captionView(_ caption: Caption, layout: SubtitleCueLayout) -> some View {
+        PaperCaption(layout: layout, isDraft: caption.isDraft) {
+            // The selected cue stays readable while new audio advances the strip.
+            fullCaption = FullCaption(id: caption.id, lines: layout.lines.map(\.fullText))
         }
-        return "…" + tail
     }
 
     private var controlsVisible: Bool {
-        previewControlsVisible || voiceOverEnabled || pointerInside || showingExport || showingClearConfirmation
+        isUserResizing || previewControlsVisible || voiceOverEnabled || pointerInside || showingExport || showingClearConfirmation || showingLanguages
     }
 
-    private var rightControls: some View {
-        HStack(spacing: controlSpacing) {
-            HStack(spacing: controlSpacing) {
-                pinButton
-                homeButton
-                exportButton
-                clearButton
+    private var toolbar: some View {
+        ZStack {
+            SubtitleNativeControls(onZoom: onZoom, onClose: onClose, onMinimize: onCollapse)
+                .frame(width: 66, height: 26)
+                .position(layout.lightsCenter)
+            Group {
+                playbackButton.position(layout.playbackCenter)
+                pinButton.position(layout.pinCenter)
+                homeButton.position(layout.homeCenter)
+                exportButton.position(layout.exportCenter)
+                clearButton.position(layout.clearCenter)
+                modeButton.position(layout.modeCenter)
+                languagesButton.position(layout.languagesCenter)
             }
-            .opacity(controlsVisible ? 1 : 0)
-            .allowsHitTesting(controlsVisible)
-            .accessibilityHidden(!controlsVisible)
-            languageButton
-                .opacity(controlsVisible ? 1 : 0.78)
+            .modifier(SubtitleToolVisibility(visible: controlsVisible))
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: controlsVisible)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("subtitle.toolbar")
+        .animation(reduceMotion || isUserResizing ? nil : .easeOut(duration: 0.14), value: controlsVisible)
     }
 
     private var homeButton: some View {
-        toolButton("house", title: "返回首页（⌘⇧F）", action: onExit).accessibilityIdentifier("subtitle.home")
+        toolButton(.home, title: "返回首页（⌘⇧F）", action: onExit).accessibilityIdentifier("subtitle.home")
     }
     private var clearButton: some View {
-        toolButton("trash", title: "清空所有字幕…", action: { showingClearConfirmation = true })
+        toolButton(.clear, title: "清空所有字幕…", action: { showingClearConfirmation = true })
             .disabled(!canClear).accessibilityIdentifier("subtitle.clear")
     }
 
     private var playbackButton: some View {
         Group {
             if let onStartStop {
-                if isBusy { ProgressView().controlSize(.small).frame(width: controlSize, height: controlSize) }
+                if isBusy { ProgressView().controlSize(.small).frame(width: controlWidth, height: controlSize) }
                 else {
-                    toolButton(isCapturing ? "pause.fill" : "play.fill",
+                    toolButton(isCapturing ? .pause : .play,
                                title: isCapturing ? "暂停同传" : "开始／继续同传",
                                tint: ThemeColor.primary, action: onStartStop)
                         .disabled(!canStartStop)
@@ -217,29 +209,40 @@ struct SubtitleStrip: View {
                 }
             }
         }
-        .opacity(controlsVisible ? 1 : 0)
-        .allowsHitTesting(controlsVisible)
-        .accessibilityHidden(!controlsVisible)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: controlsVisible)
     }
 
     private var pinButton: some View {
-        toolButton(isPinned ? "pin.fill" : "pin", title: isPinned ? "取消置顶" : "置顶字幕",
+        toolButton(.pin, title: isPinned ? "取消置顶" : "置顶字幕",
                    tint: isPinned ? ThemeColor.primary : ThemeColor.muted, action: onTogglePin)
             .accessibilityIdentifier("subtitle.pin")
     }
-    private var languageButton: some View {
-        let bilingual = displayMode == .bilingual
-        return toolButton(bilingual ? "captions.bubble.fill" : "captions.bubble",
-                          title: bilingual ? "切换为单语字幕" : "切换为双语字幕",
-                          tint: bilingual ? ThemeColor.primary : ThemeColor.muted, action: onToggleDisplayMode)
-            .accessibilityLabel(L10n.text("双语字幕"))
-            .accessibilityValue(L10n.text(displayMode.title))
-            .accessibilityAddTraits(bilingual ? .isSelected : [])
-            .accessibilityIdentifier("subtitle.displayMode")
+    private var modeButton: some View {
+        let actionTitle = L10n.text(displayMode == .bilingual ? "切换为仅原文" : "切换为双语字幕")
+        return toolButton(displayMode == .bilingual ? .bilingual : .original, title: "字幕显示",
+                          tint: ThemeColor.primary, action: onToggleDisplayMode)
+        .help(actionTitle)
+        .accessibilityLabel(L10n.text("字幕显示"))
+        .accessibilityValue(L10n.text(displayMode.title))
+        .accessibilityHint(actionTitle)
+        .accessibilityIdentifier("subtitle.displayMode")
     }
+    private var languagesButton: some View {
+        toolButton(.languages, title: "翻译语言") { showingLanguages.toggle() }
+            .disabled(!canChangeLanguages)
+            .accessibilityValue(L10n.text(sourceLanguage.name) + " → " + L10n.text(targetLanguage.name))
+            .accessibilityIdentifier("subtitle.languages")
+            .popover(isPresented: $showingLanguages, arrowEdge: .bottom) {
+                SubtitleLanguagePicker(source: sourceLanguage, target: targetLanguage,
+                    onCancel: { showingLanguages = false },
+                    onApply: { source, target in
+                        showingLanguages = false
+                        onApplyLanguages?(source, target)
+                    })
+            }
+    }
+
     private var exportButton: some View {
-        toolButton("square.and.arrow.up", title: "导出字幕", action: { showingExport.toggle() })
+        toolButton(.export, title: "导出字幕", action: { showingExport.toggle() })
             .disabled(captions.isEmpty).accessibilityIdentifier("subtitle.export")
             .popover(isPresented: $showingExport, arrowEdge: .bottom) {
                 SubtitleExportPicker { format in
@@ -249,63 +252,109 @@ struct SubtitleStrip: View {
             }
     }
 
-    private func toolButton(_ symbol: String, title: String, tint: Color = ThemeColor.muted,
+    private func toolButton(_ glyph: SubtitlePanelGlyph, title: String, tint: Color = ThemeColor.muted,
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 12, weight: .medium))
-                .frame(width: controlSize, height: controlSize)
-                .background(ThemeColor.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
-                .contentShape(RoundedRectangle(cornerRadius: 7))
+            let dimension: CGFloat = glyph == .play || glyph == .pause ? 12 : 14
+            ZStack {
+                if glyph == .play || (glyph == .pin && isPinned) { glyph.fill() }
+                glyph.stroke(style: .init(lineWidth: 1.1, lineCap: .round, lineJoin: .round))
+            }
+                .frame(width: dimension, height: dimension)
+                .frame(width: controlWidth, height: controlSize)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain).foregroundStyle(tint).help(L10n.text(title)).accessibilityLabel(L10n.text(title))
+        .buttonStyle(SubtitleToolStyle(tint: tint)).help(L10n.text(title)).accessibilityLabel(L10n.text(title))
+    }
+}
+
+private struct SubtitleToolVisibility: ViewModifier {
+    let visible: Bool
+
+    func body(content: Content) -> some View {
+        content.opacity(visible ? 1 : 0)
+            .allowsHitTesting(visible)
+            .accessibilityHidden(!visible)
+    }
+}
+
+private struct SubtitleToolStyle: ButtonStyle {
+    let tint: Color
+    @State private var hovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(tint)
+            .background {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(tint.opacity(isEnabled && hovered ? 0.15 : 0.06))
+                    .frame(width: 20, height: 20)
+            }
+            .opacity(isEnabled ? 1 : 0.4)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
+            .onHover { hovered = $0 }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovered)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
 
 private struct PaperCaption: View {
-    let caption: Caption
-    let mode: SubtitleDisplayMode
-    let textWidth: CGFloat
-    let shortWindow: Bool
-    var japaneseFont = ""
-    var chineseFont = ""
-    var japaneseSize: Double = 16
-    var chineseSize: Double = 20
-    // Window height reveals more lines/history; it must never inflate fonts.
-    private var originalSize: CGFloat { max(12, japaneseSize) }
-    private var translatedSize: CGFloat { max(12, chineseSize) }
+    let layout: SubtitleCueLayout
+    let isDraft: Bool
+    let showFullCaption: () -> Void
 
-    @Environment(\.appThemeID) private var appThemeID
-    var body: some View {
-        let _ = appThemeID
-        VStack(alignment: .center, spacing: shortWindow ? 2 : 5) {
-            if mode == .original || caption.isOriginalOnly {
-                Text(SubtitleLineLayout.format(caption.original, language: caption.sourceLanguage.layoutLanguage, width: textWidth, font: SubtitleFont.native(japaneseFont, size: originalSize)))
-                    .font(Font(SubtitleFont.native(japaneseFont, size: originalSize)))
-                    .foregroundStyle(caption.isDraft ? ThemeColor.muted : ThemeColor.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-            if mode == .bilingual && caption.original != caption.translated {
-                Text(SubtitleLineLayout.format(caption.original, language: caption.sourceLanguage.layoutLanguage, width: textWidth, font: SubtitleFont.native(japaneseFont, size: originalSize)))
-                    .font(Font(SubtitleFont.native(japaneseFont, size: originalSize)))
-                    .foregroundStyle(ThemeColor.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if let chinese = SubtitleDocument.completedTranslation(caption) {
-                Text(SubtitleLineLayout.format(chinese, language: caption.targetLanguage.layoutLanguage, width: textWidth, font: SubtitleFont.native(chineseFont, size: translatedSize, weight: .medium))).font(Font(SubtitleFont.native(chineseFont, size: translatedSize, weight: .medium)))
-                    .foregroundStyle(caption.isDraft ? .secondary : .primary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text(caption.translated.hasPrefix("翻译失败") || caption.translated.hasPrefix("译文未完成")
-                     ? L10n.text("翻译未完成") : L10n.text("正在翻译…"))
-                    .font(.system(size: 14)).foregroundStyle(ThemeColor.muted)
-                    .help(caption.translated)
-            }
+    private var rows: some View {
+        VStack(spacing: layout.spacing) {
+            ForEach(layout.lines, id: \.original) { line in
+                Text(verbatim: line.text)
+                    .font(Font(line.font))
+                    .foregroundStyle(isDraft || (line.original && layout.lines.count > 1) ? ThemeColor.muted : ThemeColor.ink)
+                    .lineLimit(1).truncationMode(.tail)
+                    .frame(width: layout.width)
             }
         }
-        .lineSpacing(shortWindow ? 0 : 4)
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: textWidth, alignment: .center)
+    }
+
+    var body: some View {
+        if layout.lines.contains(where: \.truncated) {
+            Button(action: showFullCaption) { rows.contentShape(Rectangle()) }
+            .buttonStyle(.plain)
+            .help(L10n.text("查看完整字幕"))
+            .accessibilityLabel(L10n.text("查看完整字幕"))
+            .accessibilityValue(layout.lines.map(\.fullText).joined(separator: "\n"))
+            .accessibilityIdentifier("subtitle.fullCaption")
+        } else {
+            rows.textSelection(.enabled)
+        }
+    }
+}
+
+private struct FullCaption: Identifiable {
+    let id: UUID
+    let lines: [String]
+}
+
+private struct FullCaptionDetail: View {
+    let caption: FullCaption
+
+    var body: some View {
+        ViewThatFits(in: .vertical) {
+            content.fixedSize(horizontal: false, vertical: true)
+            ScrollView { content }
+        }
+        .frame(width: 340).frame(maxHeight: 280)
         .textSelection(.enabled)
+        .accessibilityIdentifier("subtitle.fullCaptionDetail")
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(caption.lines.indices, id: \.self) { index in
+                Text(verbatim: caption.lines[index]).fixedSize(horizontal: false, vertical: true)
+            }
+        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -390,7 +439,7 @@ struct SubtitleWindowMenu: View {
         Toggle(L10n.text("纯字幕置顶"), isOn: $model.isSubtitlePinned)
             .keyboardShortcut("p", modifiers: [.command, .shift])
         Picker(L10n.text("字幕显示"), selection: $model.subtitleDisplayMode) {
-            ForEach(SubtitleDisplayMode.allCases) { mode in
+            ForEach(model.isSubtitleOnly ? [.original, .bilingual] : SubtitleDisplayMode.allCases) { mode in
                 Text(L10n.text(mode.title)).tag(mode)
             }
         }
