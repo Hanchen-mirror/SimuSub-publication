@@ -111,8 +111,7 @@ struct ClipWorkspace: View {
                 Image(systemName: job.state == .completed ? "checkmark.circle" : "exclamationmark.circle")
                     .foregroundStyle(job.state == .completed ? ThemeColor.primaryInk : Color.orange)
             }
-            Text(L10n.text(job.message)).font(.caption).lineLimit(3)
-                .modifier(TextSheen(active: job.state == .running)).textSelection(.enabled)
+            Text(L10n.text(job.message)).font(.caption).lineLimit(3).textSelection(.enabled)
             Spacer()
             if job.state == .running {
                 Button(L10n.text("暂停"), action: clips.pause)
@@ -304,7 +303,7 @@ struct ClipEditor: View {
                                             Button(L10n.text("重试")) { playbackAttempt += 1 }
                                         }.padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                                     } else if !playback.ready {
-                                        ProgressView { Text(L10n.text("正在准备视频播放…")).modifier(TextSheen(active: true)) }
+                                        ProgressView(L10n.text("正在准备视频播放…"))
                                             .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                                     }
                                 }
@@ -765,7 +764,7 @@ struct ClipEditor: View {
                     }.font(.callout).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(ThemeColor.ink.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
                 }
             }
-            if clips.isBusy { ProgressView(); Text(L10n.text(clips.currentJob?.message ?? "处理中…")).font(.caption).modifier(TextSheen(active: true)) }
+            if clips.isBusy { ProgressView(); Text(L10n.text(clips.currentJob?.message ?? "处理中…")).font(.caption) }
             else if active.proofreadCandidates?.isEmpty == true { Text(L10n.text("核对完成，没有不同的译文建议。")).font(.caption).foregroundStyle(ThemeColor.muted) }
         }.padding(24).frame(width: 650, height: 540).background(ThemeColor.background)
     }

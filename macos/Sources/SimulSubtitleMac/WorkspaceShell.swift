@@ -46,6 +46,8 @@ struct WorkspaceSidebar: View {
     private func wordmark(size: CGFloat) -> some View {
         Text(verbatim: "SimuSub").font(.system(size: size, weight: .semibold))
             .lineLimit(1).minimumScaleFactor(0.8)
+            .foregroundStyle(ThemeColor.muted)
+            .modifier(TextSheen(active: true))
             .accessibilityIdentifier("nav.brand")
     }
 

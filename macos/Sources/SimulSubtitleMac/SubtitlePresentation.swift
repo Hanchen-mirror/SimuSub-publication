@@ -103,8 +103,7 @@ struct SubtitleStrip: View {
                     Text(verbatim: L10n.text(idleText))
                         .font(.system(size: min(15 * zoom.factor, size.height * 0.52), weight: .medium))
                         .foregroundStyle(ThemeColor.muted)
-                        .lineLimit(1).truncationMode(.tail)
-                        .modifier(TextSheen(active: isBusy || isCapturing)).help(L10n.text(idleText))
+                        .lineLimit(1).truncationMode(.tail).help(L10n.text(idleText))
                         .accessibilityIdentifier("subtitle.idleText")
                 } else {
                     let preferredRow = SubtitleCueLayout.historyHeight(mode: displayMode, japaneseFont: japaneseFont,
@@ -319,7 +318,6 @@ private struct PaperCaption: View {
                 LiveCaptionText(text: line.text, font: line.font,
                     fallback: isDraft || (line.original && layout.lines.count > 1) ? ThemeColor.muted : ThemeColor.ink,
                     style: style, scale: scale)
-                    .modifier(TextSheen(active: line.pendingTranslation))
                     .frame(width: layout.width)
             }
         }
