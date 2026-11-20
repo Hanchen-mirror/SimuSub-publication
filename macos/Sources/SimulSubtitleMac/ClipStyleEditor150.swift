@@ -96,6 +96,7 @@ struct ClipCaptionRoleMenu: View {
     let sample: Caption?
     var cue: Binding<Caption>?
     var inheritedRoleID: UUID?
+    var badgeOnly = false
     @EnvironmentObject private var clips: ClipStore
     @State private var draft: ClipCaptionRole?
 
@@ -137,20 +138,29 @@ struct ClipCaptionRoleMenu: View {
                 draft = ClipCaptionRole(id: UUID(), name: "", chinese: baseStyle.chinese, japanese: baseStyle.japanese)
             } label: { Label(L10n.text("新建角色样式"), systemImage: "plus") }
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: cue == nil ? "person.2" : "person")
-                Text(verbatim: cue == nil ? L10n.text("角色样式") : selectionName)
-                    .lineLimit(1).truncationMode(.tail)
-            }.font(.system(size: cue == nil ? 12 : 11, weight: .medium))
-                .padding(.horizontal, 7).frame(height: 23)
-                .foregroundStyle(ThemeColor.primaryInk).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 6))
+            if badgeOnly {
+                Text(verbatim: String(selectionName.prefix(1)))
+                    .interfaceFont(size: 13, weight: .semibold).frame(width: 26, height: 26)
+                    .foregroundStyle(ThemeColor.primaryInk)
+                    .background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 7))
+                    .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(ThemeColor.line) }
+            } else {
+                HStack(spacing: 5) {
+                    Image(systemName: cue == nil ? "person.2" : "person")
+                    Text(verbatim: cue == nil ? L10n.text("角色样式") : selectionName)
+                        .lineLimit(1).truncationMode(.tail)
+                }.font(.system(size: cue == nil ? 12 : 11, weight: .medium))
+                    .padding(.horizontal, 7).frame(height: 23)
+                    .foregroundStyle(ThemeColor.primaryInk).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 6))
+            }
         }
-        .menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: cue == nil ? 120 : 180, alignment: .leading)
+        .menuStyle(.borderlessButton).menuIndicator(badgeOnly ? .hidden : .visible)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: badgeOnly ? 28 : (cue == nil ? 120 : 180), alignment: .leading)
         .help(cue == nil ? L10n.text("角色样式") : selectionName)
         .accessibilityLabel(L10n.text("角色样式"))
         .accessibilityValue(cue == nil ? "" : selectionName)
-        .accessibilityIdentifier(cue == nil ? "clips.manageCaptionRoles" : "clips.selectCaptionRole")
+        .accessibilityIdentifier(badgeOnly ? "clips.roleBadge." + (sample?.id.uuidString ?? "") : (cue == nil ? "clips.manageCaptionRoles" : "clips.selectCaptionRole"))
         .sheet(item: $draft) { role in
             ClipCaptionRoleEditor(role: role, roles: roles, baseStyle: baseStyle, sample: sample) { changed in
                 let isNew = !roles.contains { $0.id == changed.id }

@@ -654,27 +654,34 @@ struct ClipEditor: View {
                 VStack(spacing: 10) {
                     ForEach(cues) { cue in
                         insertCaptionButton(at: max(active.start, cue.start))
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Button { remember(); editing = cue } label: { Text(ClipTime.label(cue.start) + " — " + ClipTime.label(cue.end)).interfaceFont(size: 10).monospacedDigit().foregroundStyle(ThemeColor.muted) }.buttonStyle(.plain)
-                                    .help(L10n.text("编辑字幕")).accessibilityIdentifier("clips.editCaption." + cue.id.uuidString)
-                                Spacer()
-                                
-                                Button { remember(); withAnimation(.easeInOut(duration: 0.18)) { clips.deleteSegmentCaption(project.id, rangeID: active.id, cueID: cue.id) } } label: { Image(systemName: "xmark").font(.system(size: 7, weight: .medium)).frame(width: 21, height: 21).overlay(Circle().stroke(ThemeColor.line, lineWidth: 1)) }.buttonStyle(.plain).help(L10n.text("删除字幕"))
-                            }
+                        let roleName = effectiveRoles[cue.id].flatMap { id in project.captionRoles?.first { $0.id == id }?.name } ?? L10n.text("片段默认")
+                        HStack(alignment: .top, spacing: 6) {
                             ClipCaptionRoleMenu(projectID: project.id, baseStyle: active.style, sample: cue,
                                                 cue: Binding(get: { cue }, set: { changed in
                                                     remember()
                                                     clips.update(project.id) {
                                                         $0.setRoleMarker(from: changed, in: working.id)
                                                     }
-                                                }), inheritedRoleID: effectiveRoles[cue.id])
+                                                }), inheritedRoleID: effectiveRoles[cue.id], badgeOnly: true)
+                                .padding(.top, 8)
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Button { remember(); editing = cue } label: { Text(ClipTime.label(cue.start) + " — " + ClipTime.label(cue.end)).interfaceFont(size: 10).monospacedDigit().foregroundStyle(ThemeColor.muted) }.buttonStyle(.plain)
+                                        .help(L10n.text("编辑字幕")).accessibilityIdentifier("clips.editCaption." + cue.id.uuidString)
+                                    Spacer()
+                                
+                                    Button { remember(); withAnimation(.easeInOut(duration: 0.18)) { clips.deleteSegmentCaption(project.id, rangeID: active.id, cueID: cue.id) } } label: { Image(systemName: "xmark").font(.system(size: 7, weight: .medium)).frame(width: 21, height: 21).overlay(Circle().stroke(ThemeColor.line, lineWidth: 1)) }.buttonStyle(.plain).help(L10n.text("删除字幕"))
+                                }
+                                Text(verbatim: roleName)
+                                    .interfaceFont(size: 11, weight: .medium).foregroundStyle(ThemeColor.primaryInk)
+                                    .lineLimit(1).truncationMode(.tail).help(roleName)
                                 TextField(L10n.text("原文"), text: cueText(cue, original: true), axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).interfaceFont(size: 12).foregroundStyle(ThemeColor.muted).accessibilityIdentifier("clips.original")
                                 TextField(L10n.text("译文"), text: cueText(cue, original: false), axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).interfaceFont(size: 13).accessibilityIdentifier("clips.translation")
                         }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
                             .background(selectedCaption?.id == cue.id ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 11))
                             .contentShape(Rectangle()).onTapGesture { if selectedCaption?.id != cue.id { selectedCueID = cue.id; playback.seek(cue.start) } }
                             .accessibilityIdentifier("clips.cue." + cue.id.uuidString)
+                        }
                     }
                 }
             }

@@ -42,7 +42,7 @@ enum ClipRoleRenderChecks {
         markerOnly.original = "old draft"
         markerOnly.assignClipRole(b.id)
         overlap.setRoleMarker(from: markerOnly, in: range.id)
-        let edited = overlap.captions(for: range).first { $0.id == overlapping.id }
+        let edited = overlap.captions(for: overlap.ranges[0]).first { $0.id == overlapping.id }
         try require(edited?.clipRoleID == b.id && edited?.original == overlapping.original && edited?.end == overlapping.end,
                     "role_menu_preserves_overlapping_caption_text_and_timing")
         var expected = base; expected.chinese = a.chinese; expected.japanese = a.japanese
