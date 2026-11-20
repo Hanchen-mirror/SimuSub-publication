@@ -80,11 +80,7 @@ struct ClipTimeline150: View {
                     let x = max(14, min(rail.size.width - 14, rail.size.width * time / total))
                     ZStack(alignment: .leading) {
                         Capsule().fill(ThemeColor.line).frame(height: 3)
-                        RocketPlayhead()
-                            .fill(ThemeColor.surface)
-                            .overlay {
-                                RocketPlayhead().stroke(ThemeColor.primary, style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
-                            }
+                        RocketMarker(time: time)
                             .frame(width: 28, height: 20).offset(x: x - 14)
                     }.frame(height: 24).contentShape(Rectangle())
                         .gesture(DragGesture(minimumDistance: 0).onChanged { v in seek(max(0, min(total, v.location.x / max(1, rail.size.width) * total))) })
@@ -235,6 +231,83 @@ final class TimelineLaneCache {
     }
 }
 
+private struct RocketMarker: View {
+    let time: Double
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @AppStorage("appearance.reduceMotion.v129") private var appReduceMotion = false
+    @State private var previousTime: Double
+    @State private var facingLeft = false
+    @State private var moving = false
+    @State private var lastMovement = ContinuousClock.now
+
+    init(time: Double) {
+        self.time = time
+        _previousTime = State(initialValue: time)
+    }
+
+    private var reduceMotion: Bool { appReduceMotion || systemReduceMotion }
+
+    var body: some View {
+        ZStack {
+            RocketPlayhead()
+                .fill(ThemeColor.surface)
+                .overlay {
+                    RocketPlayhead().stroke(ThemeColor.primary, style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
+                }
+            if moving && !reduceMotion {
+                TimelineView(.animation(minimumInterval: 1.0 / 30)) { tick in
+                    let phase = tick.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.42) / 0.42
+                    RocketExhaust(pulse: (1 - cos(phase * 2 * .pi)) / 2)
+                        .fill(ThemeColor.primary)
+                }
+                .transition(.opacity)
+            }
+        }
+        .rotationEffect(.degrees(facingLeft ? -180 : 0))
+        .onChange(of: time) { next in
+            let delta = next - previousTime
+            previousTime = next
+            guard abs(delta) > 0.0001 else { return }
+            if facingLeft != (delta < 0) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.24)) { facingLeft = delta < 0 }
+            }
+            guard !reduceMotion else { return }
+            lastMovement = .now
+            if !moving { withAnimation(.easeOut(duration: 0.12)) { moving = true } }
+        }
+        .task(id: moving) {
+            guard moving else { return }
+            // Refresh the deadline on movement without starting a timer for every video frame.
+            while !Task.isCancelled {
+                let deadline = lastMovement + .milliseconds(150)
+                do { try await ContinuousClock().sleep(until: deadline) } catch { return }
+                if ContinuousClock.now >= lastMovement + .milliseconds(150) {
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { moving = false }
+                    return
+                }
+            }
+        }
+        .onChange(of: reduceMotion) { if $0 { moving = false } }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct RocketExhaust: Shape {
+    let pulse: Double
+    func path(in rect: CGRect) -> Path {
+        let nozzle = CGPoint(x: rect.minX + rect.width * 0.23, y: rect.midY)
+        let tip = CGPoint(x: nozzle.x - rect.width * (0.12 + 0.09 * pulse), y: nozzle.y)
+        let height = rect.height * 0.12
+        var path = Path()
+        path.move(to: CGPoint(x: nozzle.x, y: nozzle.y - height))
+        path.addQuadCurve(to: tip, control: CGPoint(x: tip.x + 1.5, y: nozzle.y - height))
+        path.addQuadCurve(to: CGPoint(x: nozzle.x, y: nozzle.y + height), control: CGPoint(x: tip.x + 1.5, y: nozzle.y + height))
+        path.closeSubpath()
+        return path
+    }
+}
+
 private struct RocketPlayhead: Shape {
     func path(in rect: CGRect) -> Path {
         // A right-facing rocket drawn on a 28 × 20 point grid.
@@ -251,11 +324,6 @@ private struct RocketPlayhead: Shape {
         path.addQuadCurve(to: point(13.8, 14.5), control: point(21, 15))
         path.addQuadCurve(to: point(6, 17.5), control: point(10.6, 17.4))
         path.addLine(to: point(7, 12.8))
-        path.closeSubpath()
-
-        path.move(to: point(4.8, 8.2))
-        path.addQuadCurve(to: point(1.2, 10), control: point(3, 8.4))
-        path.addQuadCurve(to: point(4.8, 11.8), control: point(3, 11.6))
         path.closeSubpath()
 
         path.addEllipse(in: CGRect(origin: point(15.2, 8.2), size: CGSize(width: 3.6 * scale, height: 3.6 * scale)))
