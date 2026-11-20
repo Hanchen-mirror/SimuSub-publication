@@ -95,6 +95,7 @@ struct ClipCaptionRoleMenu: View {
     let baseStyle: ClipSubtitleStyle
     let sample: Caption?
     var cue: Binding<Caption>?
+    var inheritedRoleID: UUID?
     @EnvironmentObject private var clips: ClipStore
     @State private var draft: ClipCaptionRole?
 
@@ -102,10 +103,13 @@ struct ClipCaptionRoleMenu: View {
         clips.projects.first { $0.id == projectID }?.captionRoles ?? []
     }
     private var selectedRole: ClipCaptionRole? { roles.first { $0.id == cue?.wrappedValue.clipRoleID } }
-    private var selectionName: String {
-        if let selectedRole { return selectedRole.name }
-        return L10n.text(cue?.wrappedValue.clipUsesDefault == true ? "片段默认" : "沿用上一条")
+    private var effectiveRole: ClipCaptionRole? {
+        guard let marker = cue?.wrappedValue else { return nil }
+        if marker.clipRoleID != nil { return selectedRole }
+        guard marker.clipUsesDefault != true else { return nil }
+        return roles.first { $0.id == inheritedRoleID }
     }
+    private var selectionName: String { effectiveRole?.name ?? L10n.text("片段默认") }
 
     var body: some View {
         Menu {
@@ -122,7 +126,7 @@ struct ClipCaptionRoleMenu: View {
                     }
                 }
                 Divider()
-                if let selectedRole { Button(L10n.text("编辑角色样式")) { draft = selectedRole } }
+                if let effectiveRole { Button(L10n.text("重命名或编辑样式")) { draft = effectiveRole } }
             } else {
                 ForEach(roles) { role in
                     Button { draft = role } label: { Text(verbatim: role.name) }
@@ -133,20 +137,30 @@ struct ClipCaptionRoleMenu: View {
                 draft = ClipCaptionRole(id: UUID(), name: "", chinese: baseStyle.chinese, japanese: baseStyle.japanese)
             } label: { Label(L10n.text("新建角色样式"), systemImage: "plus") }
         } label: {
-            Label(cue == nil ? L10n.text("角色样式") : selectionName, systemImage: "person.2")
-                .lineLimit(1)
+            HStack(spacing: 5) {
+                Image(systemName: cue == nil ? "person.2" : "person")
+                Text(verbatim: cue == nil ? L10n.text("角色样式") : selectionName)
+                    .lineLimit(1).truncationMode(.tail)
+            }.font(.system(size: cue == nil ? 12 : 11, weight: .medium))
+                .padding(.horizontal, 7).frame(height: 23)
+                .foregroundStyle(ThemeColor.primaryInk).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 6))
         }
-        .menuStyle(.borderlessButton).fixedSize()
+        .menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: cue == nil ? 120 : 180, alignment: .leading)
+        .help(cue == nil ? L10n.text("角色样式") : selectionName)
+        .accessibilityLabel(L10n.text("角色样式"))
+        .accessibilityValue(cue == nil ? "" : selectionName)
         .accessibilityIdentifier(cue == nil ? "clips.manageCaptionRoles" : "clips.selectCaptionRole")
         .sheet(item: $draft) { role in
             ClipCaptionRoleEditor(role: role, roles: roles, baseStyle: baseStyle, sample: sample) { changed in
+                let isNew = !roles.contains { $0.id == changed.id }
                 clips.update(projectID) { project in
                     var all = project.captionRoles ?? []
                     if let i = all.firstIndex(where: { $0.id == changed.id }) { all[i] = changed }
                     else { all.append(changed) }
                     project.captionRoles = all
                 }
-                if let cue { cue.wrappedValue.assignClipRole(changed.id) }
+                if isNew, let cue { cue.wrappedValue.assignClipRole(changed.id) }
                 draft = nil
             }
             .appTheme()

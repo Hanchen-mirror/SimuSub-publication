@@ -144,13 +144,14 @@ extension ClipProject {
 
     /// Resolve speaker changes before clipping, so trimming a range through a
     /// speaker's turn keeps the visible lines in that speaker's style.
-    func styledCaptions(for range: ClipRange) -> [Caption] {
+    func styledCaptions(for range: ClipRange, inheritingAt cueID: UUID? = nil) -> [Caption] {
         let roles = Set((captionRoles ?? []).map(\.id))
         guard !roles.isEmpty else { return captions(for: range) }
         var speaker: UUID?
         var visible: [Caption] = []
         for var cue in mergedCaptions(for: range) {
             if cue.start >= range.end { break }
+            if cue.id == cueID { cue.inheritClipRole() }
             if let id = cue.clipRoleID {
                 speaker = roles.contains(id) ? id : nil
             } else if cue.clipUsesDefault == true {
@@ -162,6 +163,18 @@ extension ClipProject {
             }
         }
         return visible
+    }
+
+    /// A speaker choice edits the marker alone, including for imported overlapping cues.
+    mutating func setRoleMarker(from cue: Caption, in rangeID: UUID) {
+        guard let index = ranges.firstIndex(where: { $0.id == rangeID }),
+              var current = captions(for: ranges[index]).first(where: { $0.id == cue.id }) else { return }
+        current.clipRoleID = cue.clipRoleID
+        current.clipUsesDefault = cue.clipUsesDefault
+        var edits = ranges[index].captionEdits ?? []
+        if let existing = edits.firstIndex(where: { $0.id == cue.id }) { edits[existing] = current }
+        else { edits.append(current) }
+        ranges[index].captionEdits = edits
     }
 
     private func mergedCaptions(for range: ClipRange) -> [Caption] {

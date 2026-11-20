@@ -21,6 +21,7 @@ struct ClipExportReceipt: Codable, Equatable {
             var start: Double
             var end: Double
             var style: ClipSubtitleStyle
+            var roundedMaskRevision: Int?
             var cueStyles: [ClipSubtitleStyle]?
             var cues: [Caption]
             var burn: Bool
@@ -36,7 +37,8 @@ struct ClipExportReceipt: Codable, Equatable {
             return style
         }
         let snapshot = Snapshot(media: media, title: range.title, start: range.start, end: range.end,
-                                style: range.style, cueStyles: job.burnSubtitles && !cueStyles.isEmpty ? cueStyles : nil, cues: cues, burn: job.burnSubtitles,
+                                style: range.style, roundedMaskRevision: job.burnSubtitles && (range.style.mask?.enabled == true || range.style.background > 0) ? 1 : nil,
+                                cueStyles: job.burnSubtitles && !cueStyles.isEmpty ? cueStyles : nil, cues: cues, burn: job.burnSubtitles,
                                 kind: job.exportKind ?? .mp4, folder: job.outputFolder ?? "")
         return SHA256.hash(data: try encoder.encode(snapshot)).map { String(format: "%02x", $0) }.joined()
     }

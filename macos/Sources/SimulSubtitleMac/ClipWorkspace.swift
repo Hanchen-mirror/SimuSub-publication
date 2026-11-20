@@ -38,7 +38,7 @@ struct ClipWorkspace: View {
             }
             .sheet(isPresented: $showingLibrary) { library }
             .confirmationDialog(L10n.text("移出当前项目？原视频和导出文件会保留。"), isPresented: $removing, titleVisibility: .visible) {
-                Button(L10n.text("移出工作台")) { if let id = pendingProjectRemoval { withAnimation(.easeInOut(duration: 0.2)) { clips.removeProject(id) } }; pendingProjectRemoval = nil }
+                Button(L10n.text("移出工作台"), role: .destructive) { if let id = pendingProjectRemoval { withAnimation(.easeInOut(duration: 0.2)) { clips.removeProject(id) } }; pendingProjectRemoval = nil }
                 Button(L10n.text("取消"), role: .cancel) {}
             }
             .alert(L10n.text("剪辑工作台"), isPresented: Binding(get: { clips.notice != nil }, set: { if !$0 { clips.notice = nil } })) { Button(L10n.text("知道了")) { clips.notice = nil } } message: { Text(clips.notice ?? "") }
@@ -131,7 +131,15 @@ struct ClipWorkspace: View {
     }
     private func importVideo() {
         guard !importing, !clips.isBusy else { return }
-        let panel = NSOpenPanel(); panel.title = "导入视频"; panel.allowsMultipleSelection = false
+        let panel = NSOpenPanel()
+        panel.title = L10n.text("打开视频")
+        panel.prompt = L10n.text("打开视频")
+        let folder = URL(fileURLWithPath: (monitor.settings.outputFolder as NSString).expandingTildeInPath, isDirectory: true)
+        if !FileManager.default.fileExists(atPath: folder.path), folder.path == LiveMonitorSettings().outputFolder {
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        panel.directoryURL = folder
+        panel.allowsMultipleSelection = false
         panel.allowedContentTypes = ["mp4", "mkv", "mov", "webm", "flv", "m4v"].compactMap { UTType(filenameExtension: $0) }
         if panel.runModal() == .OK, let url = panel.url { load(url, creator: creatorID, name: nil) }
     }
@@ -150,21 +158,26 @@ struct ClipWorkspace: View {
 
 private struct CaptionInspectorIcon: View {
     let symbol: String
+    let caption: String?
     var accented = false
     @Environment(\.isEnabled) private var isEnabled
     @State private var hovered = false
 
-    init(_ symbol: String, accented: Bool = false) {
+    init(_ symbol: String, _ caption: String? = nil, accented: Bool = false) {
+        self.caption = caption
         self.symbol = symbol
         self.accented = accented
     }
 
     var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: 16, weight: .regular))
-            .foregroundStyle(accented ? ThemeColor.primaryInk : ThemeColor.muted)
-            .frame(width: 30, height: 30)
-            .background(hovered && isEnabled ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 9))
+        VStack(spacing: 3) {
+            Image(systemName: symbol).font(.system(size: 15, weight: .medium))
+            if let caption { Text(L10n.text(caption)).interfaceFont(size: 10).lineLimit(1).fixedSize() }
+        }
+            .foregroundStyle(accented ? ThemeColor.primaryInk : ThemeColor.ink)
+            .padding(.horizontal, caption == nil ? 0 : 4)
+            .frame(minWidth: caption == nil ? 30 : 34, minHeight: caption == nil ? 30 : 38)
+            .background(accented || (hovered && isEnabled) ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
             .onHover { hovered = $0 }
     }
@@ -341,7 +354,7 @@ struct ClipEditor: View {
             .onChange(of: project.ranges.map(\.id)) { ids in
                 if !ids.contains(working.id) { if let next = project.ranges.first { working = next; syncTimes(); playback.select(next.start...next.end) } else { playback.clearSelection() } }
             }
-            .sheet(item: $editing) { cue in ClipCaptionEditor(projectID: project.id, range: active, cue: cue).appTheme() }
+            .sheet(item: $editing) { cue in ClipCaptionEditor(projectID: project.id, range: active, cue: cue, inheritedRoleID: project.styledCaptions(for: active, inheritingAt: cue.id).first { $0.id == cue.id }?.clipRoleID).appTheme() }
             .sheet(isPresented: $showingStyle, onDismiss: { applyStyle(draftStyle) }) {
                 ClipStyleEditor150(projectID: project.id, player: playback.player, captions: styledCues, roles: project.captionRoles ?? [], mediaSize: CGSize(width: project.media.width, height: project.media.height), style: $draftStyle, onClose: { showingStyle = false }, onRoleResize: resizeRole).appTheme()
             }
@@ -384,9 +397,13 @@ struct ClipEditor: View {
         ClipToolbarLayout {
             editorTitle
             HStack(spacing: 8) {
-                editorIcon("trash", title: "移出工作台", action: onRemove)
+                editorIcon("trash", title: "移出工作台", subdued: true, action: onRemove)
                     .accessibilityIdentifier("clips.removeProject")
-                editorIcon("square.and.arrow.down", title: "保存项目", action: { _ = saveWorking() })
+                Button { _ = saveWorking() } label: {
+                    ClipSaveGlyph().stroke(style: StrokeStyle(lineWidth: 1.45, lineCap: .round, lineJoin: .round))
+                        .frame(width: 17, height: 17).frame(width: 32, height: 32)
+                        .foregroundStyle(ThemeColor.primaryInk).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 10))
+                }.buttonStyle(.plain).help(L10n.text("保存项目")).accessibilityLabel(L10n.text("保存项目"))
                     .accessibilityIdentifier("clips.saveProject")
             }
             HStack(spacing: 4) {
@@ -481,10 +498,12 @@ struct ClipEditor: View {
             .frame(width: 36, height: 36).foregroundStyle(ThemeColor.surface)
             .background(ThemeColor.primary, in: RoundedRectangle(cornerRadius: 10))
     }
-    private func editorIcon(_ symbol: String, title: String, action: @escaping () -> Void) -> some View {
+    private func editorIcon(_ symbol: String, title: String, subdued: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol).interfaceFont(size: 14, weight: .medium).frame(width: 32, height: 32)
-                .foregroundStyle(ThemeColor.primaryInk).background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 10))
+                .foregroundStyle(subdued ? ThemeColor.muted : ThemeColor.primaryInk)
+                .background(subdued ? .clear : ThemeColor.soft, in: RoundedRectangle(cornerRadius: 10))
+                .overlay { if subdued { RoundedRectangle(cornerRadius: 10).strokeBorder(ThemeColor.line) } }
         }.buttonStyle(.plain).help(L10n.text(title)).accessibilityLabel(L10n.text(title))
     }
     private func rangePanel(_ metrics: WorkspaceMetrics) -> some View {
@@ -575,13 +594,13 @@ struct ClipEditor: View {
         HStack(spacing: 5) {
             Text(L10n.text("字幕")).interfaceFont(size: 16, weight: .semibold)
             Spacer(minLength: 8)
-            Button(action: importSubtitles) { CaptionInspectorIcon("tray.and.arrow.down") }
+            Button(action: importSubtitles) { CaptionInspectorIcon("doc.badge.plus", "导入") }
                 .help(L10n.text("导入字幕")).accessibilityLabel(L10n.text("导入字幕"))
                 .accessibilityIdentifier("clips.importSubtitles")
-            Button(action: openSubtitleStyle) { CaptionInspectorIcon("slider.vertical.3") }
+            Button(action: openSubtitleStyle) { CaptionInspectorIcon("textformat", "样式") }
                 .help(L10n.text("字幕样式")).accessibilityLabel(L10n.text("字幕样式"))
                 .accessibilityIdentifier("clips.customStyle")
-            Button(action: transcribe) { CaptionInspectorIcon("lightbulb", accented: true) }
+            Button(action: transcribe) { CaptionInspectorIcon("waveform", "生成", accented: true) }
                 .help(L10n.text("生成字幕")).accessibilityLabel(L10n.text("生成字幕"))
                 .accessibilityIdentifier("clips.transcribe")
             Menu {
@@ -628,7 +647,9 @@ struct ClipEditor: View {
     }
 
     private var populatedSubtitleColumn: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        let effectiveRoles = Dictionary(styledCues.compactMap { cue in cue.clipRoleID.map { (cue.id, $0) } },
+                                        uniquingKeysWith: { first, _ in first })
+        return VStack(alignment: .leading, spacing: 14) {
             ScrollView {
                 VStack(spacing: 10) {
                     ForEach(cues) { cue in
@@ -641,14 +662,13 @@ struct ClipEditor: View {
                                 
                                 Button { remember(); withAnimation(.easeInOut(duration: 0.18)) { clips.deleteSegmentCaption(project.id, rangeID: active.id, cueID: cue.id) } } label: { Image(systemName: "xmark").font(.system(size: 7, weight: .medium)).frame(width: 21, height: 21).overlay(Circle().stroke(ThemeColor.line, lineWidth: 1)) }.buttonStyle(.plain).help(L10n.text("删除字幕"))
                             }
-                            if let id = cue.clipRoleID, let role = project.captionRoles?.first(where: { $0.id == id }) {
-                                Button { remember(); editing = cue } label: {
-                                    Label(role.name, systemImage: "person").font(.caption2).lineLimit(1)
-                                        .foregroundStyle(ThemeColor.primaryInk)
-                                }.buttonStyle(.plain).accessibilityLabel(role.name)
-                            } else if cue.clipUsesDefault == true {
-                                Text(L10n.text("片段默认")).font(.caption2).foregroundStyle(ThemeColor.muted)
-                            }
+                            ClipCaptionRoleMenu(projectID: project.id, baseStyle: active.style, sample: cue,
+                                                cue: Binding(get: { cue }, set: { changed in
+                                                    remember()
+                                                    clips.update(project.id) {
+                                                        $0.setRoleMarker(from: changed, in: working.id)
+                                                    }
+                                                }), inheritedRoleID: effectiveRoles[cue.id])
                                 TextField(L10n.text("原文"), text: cueText(cue, original: true), axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).interfaceFont(size: 12).foregroundStyle(ThemeColor.muted).accessibilityIdentifier("clips.original")
                                 TextField(L10n.text("译文"), text: cueText(cue, original: false), axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).interfaceFont(size: 13).accessibilityIdentifier("clips.translation")
                         }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
@@ -833,6 +853,7 @@ private struct ClipCaptionEditor: View {
     var projectID: UUID
     var range: ClipRange
     @State var cue: Caption
+    var inheritedRoleID: UUID?
     @EnvironmentObject private var clips: ClipStore
     @Environment(\.dismiss) private var dismiss
     @State private var start = ""
@@ -844,7 +865,7 @@ private struct ClipCaptionEditor: View {
             Text(L10n.text("编辑字幕")).font(.title3.bold())
             HStack {
                 Text(L10n.text("从这条起")).font(.caption).foregroundStyle(ThemeColor.muted)
-                ClipCaptionRoleMenu(projectID: projectID, baseStyle: range.style, sample: cue, cue: $cue)
+                ClipCaptionRoleMenu(projectID: projectID, baseStyle: range.style, sample: cue, cue: $cue, inheritedRoleID: inheritedRoleID)
             }
             HStack { TextField(L10n.text("起点"), text: $start); Text("→"); TextField(L10n.text("终点"), text: $end) }.textFieldStyle(ClipFieldStyle())
             HStack {

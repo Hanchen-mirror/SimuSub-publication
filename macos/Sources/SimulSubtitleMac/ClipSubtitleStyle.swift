@@ -133,7 +133,7 @@ enum ClipSubtitleRenderer {
         guard let ctx = CGContext(data: nil, width: Int(width), height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         if style.background > 0 {
             ctx.setFillColor(NSColor.black.withAlphaComponent(style.background).cgColor)
-            ctx.addPath(CGPath(roundedRect: CGRect(x: 0, y: 0, width: width, height: CGFloat(h)), cornerWidth: padding, cornerHeight: padding, transform: nil)); ctx.fillPath()
+            fillRoundedMask(in: ctx, rect: CGRect(x: 0, y: 0, width: width, height: CGFloat(h)), videoWidth: size.width)
         }
         let path = CGPath(rect: CGRect(x: padding, y: padding, width: width - padding * 2, height: height), transform: nil)
         let strokeText = NSMutableAttributedString(attributedString: text)
@@ -193,6 +193,11 @@ enum ClipSubtitleRenderer {
         return CGPoint(x: min(max(0, size.width * position.x - overlay.width / 2), max(0, size.width - overlay.width)),
             y: min(max(0, size.height * (1 - position.y) - overlay.height / 2), max(0, size.height - overlay.height)))
     }
+    private static func fillRoundedMask(in ctx: CGContext, rect: CGRect, videoWidth: CGFloat) {
+        let radius = min(min(rect.width, rect.height) * 0.26, videoWidth / 1920 * 32)
+        ctx.addPath(CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil))
+        ctx.fillPath()
+    }
     static func maskRect(size: CGSize, mask: ClipSubtitleMask) -> CGRect {
         let w = size.width * mask.width, h = size.height * mask.height
         return CGRect(x: min(max(0, size.width * mask.x - w / 2), size.width - w),
@@ -202,8 +207,7 @@ enum ClipSubtitleRenderer {
         guard let ctx = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         if let mask = style.mask, mask.valid, mask.enabled {
             ctx.setFillColor(NSColor.clipHex(mask.color).withAlphaComponent(mask.opacity).cgColor)
-            let rect = maskRect(size: size, mask: mask), radius = max(1, size.width / 1920 * 5)
-            ctx.addPath(CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)); ctx.fillPath()
+            fillRoundedMask(in: ctx, rect: maskRect(size: size, mask: mask), videoWidth: size.width)
         }
         if let cue, let overlay = overlay(cue, size: size, style: style) {
             let overlaySize = CGSize(width: overlay.width, height: overlay.height)

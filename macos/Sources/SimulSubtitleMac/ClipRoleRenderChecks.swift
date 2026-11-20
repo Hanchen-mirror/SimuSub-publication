@@ -31,6 +31,20 @@ enum ClipRoleRenderChecks {
         store.update(id) { $0.ranges = [range]; $0.captions = [marker, first, second]; $0.captionRoles = [a, b] }
         let cues = ClipTime.captions(store.projects[0].styledCaptions(for: range), within: range)
         try require(cues.count == 2 && cues[0].clipRoleID == a.id && cues[1].clipRoleID == b.id, "roles_inherit_across_range_boundary_and_switch_on_marker")
+        let inherited = store.projects[0].styledCaptions(for: range, inheritingAt: second.id)
+        try require(inherited.last?.clipRoleID == a.id && store.projects[0].captions(for: range).last?.clipRoleID == b.id,
+                    "inspector_can_display_inheritance_without_writing_a_role_marker")
+        var overlap = store.projects[0]
+        var overlapping = first
+        overlapping.id = UUID(); overlapping.start += 0.1
+        overlap.captions.append(overlapping)
+        var markerOnly = overlapping
+        markerOnly.original = "old draft"
+        markerOnly.assignClipRole(b.id)
+        overlap.setRoleMarker(from: markerOnly, in: range.id)
+        let edited = overlap.captions(for: range).first { $0.id == overlapping.id }
+        try require(edited?.clipRoleID == b.id && edited?.original == overlapping.original && edited?.end == overlapping.end,
+                    "role_menu_preserves_overlapping_caption_text_and_timing")
         var expected = base; expected.chinese = a.chinese; expected.japanese = a.japanese
         let resolved = base.resolving(cue: cues[0], roles: [a, b])
         try require(resolved == expected && base.resolving(cue: cues[0], roles: [b]) == base, "roles_override_typography_only_and_missing_role_uses_range")
@@ -39,6 +53,30 @@ enum ClipRoleRenderChecks {
         try require(style.lines(cues[0]).count == 1 && style.lines(cues[0]).first?.1 == a.japanese &&
                     style.position == base.position && style.mask == base.mask, "role_keeps_single_language_and_placement")
         let size = CGSize(width: 640, height: 360)
+        // Source masks and text backplates use the same rounded geometry at both resolutions.
+        for width in [640, 1280] {
+            let canvas = CGSize(width: width, height: width * 9 / 16)
+            var masked = base
+            masked.mask = .init(x: 0.5, y: 0.5, width: 0.8, height: 0.25, color: "#000000")
+            guard let image = ClipSubtitleRenderer.frame(nil, size: canvas, style: masked) else {
+                throw ClipError.message("Missing mask frame")
+            }
+            let mask = ClipSubtitleRenderer.maskRect(size: canvas, mask: masked.mask!)
+            let inset = CGFloat(width) / 320
+            let rep = NSBitmapImageRep(cgImage: image)
+            let alpha = rep.colorAt(x: Int(mask.minX + inset), y: Int(mask.minY + inset))?.alphaComponent ?? 1
+            let interior = rep.colorAt(x: Int(mask.midX), y: Int(mask.minY + inset))?.alphaComponent ?? 0
+            try require(alpha < 0.2 && interior > 0.95, "rounded_source_mask_preserves_corner_at_" + String(width))
+            var plate = base
+            plate.background = 1
+            guard let textImage = ClipSubtitleRenderer.overlay(cues[0], size: canvas, style: plate) else {
+                throw ClipError.message("Missing subtitle background")
+            }
+            let textRep = NSBitmapImageRep(cgImage: textImage)
+            let corner = textRep.colorAt(x: Int(inset), y: Int(inset))?.alphaComponent ?? 1
+            let top = textRep.colorAt(x: textImage.width / 2, y: Int(inset))?.alphaComponent ?? 0
+            try require(corner < 0.2 && top > 0.95, "rounded_text_backplate_preserves_corner_at_" + String(width))
+        }
         guard let overlay = ClipSubtitleRenderer.overlay(cues[0], size: size, style: resolved) else { throw ClipError.message("Missing preview") }
         let colors = ink(in: overlay, middleOnly: false)
         try require(colors.red > 50 && colors.green > 30, "preview_has_role_fill_and_independent_outline_pixels")

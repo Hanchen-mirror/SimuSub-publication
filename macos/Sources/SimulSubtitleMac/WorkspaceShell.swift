@@ -95,7 +95,7 @@ struct WorkspaceHome: View {
                 HStack(spacing: 16) {
                     mode(.subtitle, detail: "日语 → 中文字幕", actionTitle: "开始同传") { onSelect(.subtitle) }
                     mode(.recording, detail: "关注主播 · 监控与录制", actionTitle: "选择直播") { onSelect(.recording) }
-                    mode(.clips, detail: "选段 · 字幕 · 导出", actionTitle: "导入视频", action: onClips)
+                    mode(.clips, detail: "选段 · 字幕 · 导出", actionTitle: "打开视频", action: onClips)
                 }
                 VStack(alignment: .leading, spacing: 20) {
                     HStack { Text(L10n.text("关注的直播")).interfaceFont(size: 15, weight: .semibold); Spacer(); Button { onSelect(.recording) } label: { Label(L10n.text("添加主播"), systemImage: "plus") }.buttonStyle(.plain).foregroundStyle(ThemeColor.primaryInk) }

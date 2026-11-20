@@ -57,7 +57,7 @@ struct ClipLibrarySheet: View {
                 }
             }
             HStack {
-                Button(action: onImport) { Label(L10n.text("导入视频"), systemImage: "plus") }
+                Button(action: onImport) { Label(L10n.text("打开视频"), systemImage: "plus") }
                     .buttonStyle(ThemeActionButtonStyle()).disabled(clips.isBusy)
                 Spacer()
                 Button(L10n.text("完成"), action: onClose).buttonStyle(ThemeActionButtonStyle(prominent: true))
