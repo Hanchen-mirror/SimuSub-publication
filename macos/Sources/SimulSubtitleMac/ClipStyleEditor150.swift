@@ -209,6 +209,7 @@ struct ClipCaptionRoleMenu: View {
                                     .accessibilityLabel(L10n.text("编辑") + " " + roleTitle(role))
                                 if deleting == role.id {
                                     tool("checkmark", L10n.text("确认删除"), "clips.confirmDeleteRole") {
+                                        if let cue, cue.wrappedValue.clipRoleID == role.id { cue.wrappedValue.assignClipRole(nil) }
                                         clips.update(projectID) { $0.removeCaptionRole(role.id) }
                                         deleting = nil
                                     }
