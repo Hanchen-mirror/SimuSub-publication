@@ -994,9 +994,10 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func testConnection(for profile: ServiceProfile) async -> String {
+    func testConnection(for profile: ServiceProfile, draftKey: String = "") async -> String {
         do {
-            let key = try credential(for: profile)
+            let entered = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = entered.isEmpty ? try credential(for: profile) : entered
             if profile.purpose == .translation {
                 let result = try await OpenAICompatibleTranslator(profile: profile, apiKey: key)
                     .translate(sourceLanguage.preview, from: sourceLanguage.name, to: targetLanguage.name)

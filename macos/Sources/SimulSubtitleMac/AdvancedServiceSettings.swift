@@ -308,24 +308,27 @@ private struct ServiceConfigurationEditor: View {
                     .accessibilityLabel("API Key")
                     .accessibilityIdentifier("services.apiKey")
             }
-            Stepper(L10n.text("超时 \(profile.timeoutSeconds) 秒"), value: $profile.timeoutSeconds, in: 5...180, step: 5)
-                .font(.caption)
             if !error.isEmpty { Text(error).font(.caption).foregroundStyle(ThemeColor.muted).textSelection(.enabled).accessibilityIdentifier("services.validation") }
             HStack {
-                if existing { Button(L10n.text(testing ? "测试中…" : "测试连接")) { test() }.disabled(testing).buttonStyle(ThemeActionButtonStyle()) }
+                Button(L10n.text(testing ? "测试中…" : "测试连接"), action: test)
+                    .buttonStyle(ThemeActionButtonStyle()).accessibilityIdentifier("services.testConnection")
                 Spacer()
                 Button(L10n.text("保存")) { if save() { dismiss() } }.buttonStyle(ThemeActionButtonStyle(prominent: true))
             }
-        }.padding(24).frame(width: 420).disabled(model.isBusy).appTheme()
+        }.padding(24).frame(width: 420).disabled(model.isBusy || testing).appTheme()
     }
     private func field(_ title: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 8) { Text(L10n.text(title)).font(.caption).foregroundStyle(ThemeColor.muted); TextField(L10n.text(title), text: text).textFieldStyle(ClipFieldStyle()) }
     }
-    private func save() -> Bool {
+    private func validate(requireName: Bool) -> Bool {
         profile.name = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
         profile.model = profile.model.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !profile.name.isEmpty, !profile.model.isEmpty else { error = L10n.text("请填写名称和模型 ID。"); return false }
+        guard (!requireName || !profile.name.isEmpty), !profile.model.isEmpty else { error = L10n.text("请填写名称和模型 ID。"); return false }
         guard (try? profile.validatedBaseURL()) != nil else { error = L10n.text("请输入有效的 http:// 或 https:// 接口地址。"); return false }
+        return true
+    }
+    private func save() -> Bool {
+        guard validate(requireName: true) else { return false }
         do {
             if !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { try model.saveAPIKey(key, for: profile); key = "" }
             if let index = model.profiles.firstIndex(where: { $0.id == profile.id }) { model.profiles[index] = profile }
@@ -334,7 +337,12 @@ private struct ServiceConfigurationEditor: View {
         } catch { self.error = error.localizedDescription; return false }
     }
     private func test() {
-        guard save() else { return }; testing = true
-        Task { error = await model.testConnection(for: profile); testing = false }
+        guard validate(requireName: false) else { return }
+        testing = true
+        error = ""
+        Task {
+            error = await model.testConnection(for: profile, draftKey: key)
+            testing = false
+        }
     }
 }
