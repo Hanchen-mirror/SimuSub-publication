@@ -36,18 +36,7 @@ struct AppearanceSettings: View {
                     }.buttonStyle(.plain).accessibilityIdentifier("appearance.mode." + mode.rawValue)
                 }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 8)], spacing: 8) {
-                ForEach(AppTheme.allCases) { theme in
-                    Button { appearance.theme = theme } label: {
-                        HStack(spacing: 9) {
-                            Circle().fill(Color(nsColor: ThemePalette.color(theme, dark: false, role: .primary))).frame(width: 20, height: 20)
-                                .overlay { if appearance.theme == theme { Image(systemName: "checkmark").interfaceFont(size: 10, weight: .bold).foregroundStyle(.white) } }
-                            Text(L10n.text(theme.title)).interfaceFont(size: 12)
-                        }.padding(.horizontal, 12).frame(height: 40)
-                            .background(appearance.theme == theme ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 10))
-                    }.buttonStyle(.plain).accessibilityIdentifier("appearance.theme." + theme.rawValue)
-                }
-            }
+            ThemeColorChoices(compact: false)
             Toggle(L10n.text("SimuSub 字标扫光"), isOn: $appearance.wordmarkSheen)
                 .toggleStyle(DesignToggleStyle()).frame(height: 32)
                 .accessibilityIdentifier("appearance.wordmarkSheen")

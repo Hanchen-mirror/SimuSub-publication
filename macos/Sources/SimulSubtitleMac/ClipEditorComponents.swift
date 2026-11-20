@@ -341,8 +341,8 @@ struct ClipStyleDrawer: View {
                         ForEach(library.presets) { item in preset(item.name, item.style) }
                     } else {
                         HStack(alignment: .top, spacing: 12) {
-                            language("中文", text: $style.chinese)
-                            language("日语", text: $style.japanese)
+                            language("中文", role: "translation", text: $style.chinese)
+                            language("日语", role: "original", text: $style.japanese)
                         }
                         VStack(alignment: .leading, spacing: 12) {
                             Text(L10n.text("布局设置")).font(.headline)
@@ -372,21 +372,24 @@ struct ClipStyleDrawer: View {
             Text(L10n.text("样式即时预览，应用后用于内嵌字幕导出。")).font(.system(size: 10)).foregroundStyle(ThemeColor.muted)
         }.buttonStyle(ClipActionButtonStyle()).padding(20)
     }
-    private func language(_ name: String, text: Binding<ClipTextStyle>) -> some View {
+    private func language(_ name: String, role: String, text: Binding<ClipTextStyle>) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(L10n.text(name)).font(.headline)
             Picker(L10n.text("字体"), selection: text.font) {
                 ForEach(fonts(including: text.wrappedValue.font), id: \.self) { Text($0).tag($0) }
             }.font(.caption)
             Stepper(value: text.size, in: 12...120, step: 1) { Text(L10n.text("字号  \(Int(text.wrappedValue.size)) px")).font(.caption) }
-            color("颜色", value: text.color)
+            color("颜色", value: text.color, role: role)
             Toggle(L10n.text("加粗"), isOn: text.bold).font(.caption).toggleStyle(.switch).controlSize(.mini)
-            color("描边颜色", value: text.outlineColor)
+            color("描边颜色", value: text.outlineColor, role: role + "Outline", defaultColor: "#000000")
             Stepper(value: text.outline, in: 0...10, step: 0.5) { Text(String(format: "描边  %.1f px", text.wrappedValue.outline)).font(.caption) }
         }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(ThemeColor.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
     }
-    private func color(_ title: String, value: Binding<String>) -> some View {
-        ColorPicker(title, selection: Binding(get: { Color(nsColor: .clipHex(value.wrappedValue)) }, set: { value.wrappedValue = NSColor($0).clipHex }), supportsOpacity: false).font(.caption)
+    private func color(_ title: String, value: Binding<String>, role: String, defaultColor: String = "#FFFFFF") -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L10n.text(title)).font(.caption)
+            ClipColorPalette150(value: value, role: role, title: title, defaultColor: defaultColor)
+        }
     }
     private func slider(_ label: String, value: Binding<Double>, in range: ClosedRange<Double>) -> some View {
         HStack { Text(L10n.text(label)).font(.caption).frame(width: 58, alignment: .leading); Slider(value: value, in: range, step: 1); Text("\(Int(value.wrappedValue)) px").font(.caption).monospacedDigit().frame(width: 48) }

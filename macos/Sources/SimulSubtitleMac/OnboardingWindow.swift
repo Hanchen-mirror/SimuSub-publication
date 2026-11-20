@@ -82,17 +82,7 @@ struct OnboardingWindow: View {
             Spacer()
             VStack(alignment: .leading, spacing: 16) {
                 Text(L10n.text("主题")).font(.system(size: 12)).foregroundStyle(ThemeColor.muted)
-                HStack(spacing: 10) {
-                    ForEach(AppTheme.allCases) { theme in
-                        Button { appearance.theme = theme } label: {
-                            Circle().fill(Color(nsColor: ThemePalette.color(theme, dark: false, role: .primary)))
-                                .frame(width: 28, height: 28)
-                                .padding(3)
-                                .overlay(Circle().strokeBorder(appearance.theme == theme ? ThemeColor.primary : .clear, lineWidth: 1))
-                        }.buttonStyle(.plain).help(theme.title).accessibilityLabel(L10n.text("主题：\(theme.title)"))
-                            .accessibilityAddTraits(appearance.theme == theme ? .isSelected : [])
-                    }
-                }
+                ThemeColorChoices(compact: true)
             }.padding(.horizontal, 23).padding(.bottom, 30)
         }.padding(.top, 38).background(ThemeColor.sidebar.ignoresSafeArea())
     }

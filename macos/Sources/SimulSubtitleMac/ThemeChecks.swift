@@ -51,6 +51,17 @@ enum ThemeChecks {
                 saved.wordmarkSheen = true
                 let offDefaults = UserDefaults(suiteName: suite + ".SheenOff")!
                 let savedOff = HomeAppearance(defaults: offDefaults, backgroundFile: wallpaper)
+                savedOff.hideTheme(.purple)
+                try require(savedOff.theme == .blue && !savedOff.visibleThemes.contains(.purple),
+                            "removing_an_inactive_theme_preserves_current_appearance")
+                for theme in savedOff.visibleThemes { savedOff.hideTheme(theme) }
+                let emptyPalette = HomeAppearance(defaults: offDefaults, backgroundFile: wallpaper)
+                try require(emptyPalette.visibleThemes.isEmpty && emptyPalette.theme == .yellow,
+                            "removing_all_theme_choices_keeps_the_last_theme_on_relaunch")
+                emptyPalette.restoreTheme(.purple)
+                let restoredPalette = HomeAppearance(defaults: offDefaults, backgroundFile: wallpaper)
+                try require(restoredPalette.visibleThemes == [.purple] && restoredPalette.theme == .purple,
+                            "restoring_one_hidden_theme_selects_and_persists_it")
                 savedOff.wordmarkSheen = true
                 savedOff.wordmarkSheen = false
                 try require(!HomeAppearance(defaults: offDefaults, backgroundFile: wallpaper).wordmarkSheen, "wordmark_sheen_restores_off_after_being_disabled")

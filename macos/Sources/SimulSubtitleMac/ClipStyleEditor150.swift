@@ -43,7 +43,7 @@ struct ClipStyleEditor150: View {
                     ClipTextStyleControls(title: "原文", text: $style.japanese, role: "original", inheritedShadow: style.shadow ? 0.8 : 0)
                     ClipTextStyleControls(title: "译文", text: $style.chinese, role: "translation", inheritedShadow: style.shadow ? 0.8 : 0)
                 }.padding(.horizontal, 2)
-            }.frame(height: min(344, max(154, (NSScreen.main?.visibleFrame.height ?? 760) - 348)))
+            }.frame(height: min(368, max(154, (NSScreen.main?.visibleFrame.height ?? 760) - 348)))
             HStack {
                 Spacer()
                 Button(L10n.text("完成"), action: onClose)
@@ -109,6 +109,7 @@ struct ClipCaptionRoleMenu: View {
     var badgeOnly = false
     @EnvironmentObject private var clips: ClipStore
     @State private var presented = false
+    @State private var managingFromCue = false
     @State private var draft: ClipCaptionRole?
     @State private var deleting: UUID?
 
@@ -136,23 +137,21 @@ struct ClipCaptionRoleMenu: View {
 
     @ViewBuilder var body: some View {
         if cue == nil {
-            Button { presented = true } label: {
-                ZStack {
-                    badge(2, size: 14).offset(x: 4, y: -3)
-                    badge(1, size: 14).offset(x: -3, y: 3)
-                }.frame(width: 32, height: 32).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            Button { presented = true } label: { CaptionInspectorIcon("person.2") }
+            .buttonStyle(CaptionToolButtonStyle(expanded: presented))
             .help(L10n.text("多角色")).accessibilityLabel(L10n.text("多角色"))
             .accessibilityIdentifier("clips.multipleRoles")
             .popover(isPresented: $presented) { manager }
         } else {
-            Button { presented = true } label: { badge(number(effectiveRole), size: 26) }
-                .buttonStyle(.plain)
+            Button {
+                managingFromCue = false
+                presented = true
+            } label: { Text(verbatim: String(number(effectiveRole))).font(.system(size: 12, weight: .semibold)).monospacedDigit() }
+                .buttonStyle(CaptionToolButtonStyle(size: 26))
                 .help(selectedTitle).accessibilityLabel(L10n.text("角色样式"))
                 .accessibilityValue(selectedTitle)
                 .accessibilityIdentifier(badgeOnly ? "clips.roleBadge." + (sample?.id.uuidString ?? "") : "clips.selectCaptionRole")
-                .popover(isPresented: $presented) { choices }
+                .popover(isPresented: $presented) { if managingFromCue { manager } else { choices } }
         }
     }
 
@@ -161,15 +160,14 @@ struct ClipCaptionRoleMenu: View {
             .font(.system(size: size < 20 ? 9 : 13, weight: .semibold))
             .frame(width: size, height: size)
             .foregroundStyle(ThemeColor.primaryInk)
-            .background(ThemeColor.surface, in: RoundedRectangle(cornerRadius: size / 4))
-            .overlay { RoundedRectangle(cornerRadius: size / 4).strokeBorder(ThemeColor.primaryInk.opacity(0.6)) }
+            .background(ThemeColor.control, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(ThemeColor.line) }
     }
 
     private func tool(_ image: String, _ label: String, _ id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: image).font(.system(size: 13, weight: .medium))
-                .frame(width: 27, height: 27).contentShape(Rectangle())
-        }.buttonStyle(.plain).foregroundStyle(ThemeColor.primaryInk)
+        }.buttonStyle(CaptionToolButtonStyle(size: 26))
             .help(label).accessibilityLabel(label).accessibilityIdentifier(id)
     }
     private var close: some View {
@@ -178,7 +176,10 @@ struct ClipCaptionRoleMenu: View {
     }
     private var manager: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 3) {
+            HStack(spacing: 5) {
+                if cue != nil {
+                    tool("chevron.left", L10n.text("返回"), "clips.backToRoleChoices") { deleting = nil; managingFromCue = false }
+                }
                 Text(L10n.text("多角色")).font(.headline)
                 Spacer()
                 tool(badgesVisible ? "eye" : "eye.slash", L10n.text(badgesVisible ? "隐藏角色编号" : "显示角色编号"), "clips.toggleRoleBadges") {
@@ -191,7 +192,6 @@ struct ClipCaptionRoleMenu: View {
                 close
             }
             if !roles.isEmpty {
-                Divider()
                 ScrollView {
                     VStack(spacing: 3) {
                         ForEach(roles) { role in
@@ -216,13 +216,13 @@ struct ClipCaptionRoleMenu: View {
                                 } else {
                                     tool("trash", L10n.text("删除") + " " + roleTitle(role), "clips.deleteRole." + role.id.uuidString) { deleting = role.id }
                                 }
-                            }.padding(.horizontal, 7).frame(height: 35)
+                            }.padding(.horizontal, 6).frame(height: 36)
                                 .background(ThemeColor.soft, in: RoundedRectangle(cornerRadius: 8))
                         }
                     }
-                }.frame(height: min(225, CGFloat(roles.count) * 38 - 3))
+                }.frame(height: min(225, CGFloat(roles.count) * 39 - 3))
             }
-        }.padding(12).frame(width: 225).background(ThemeColor.surface)
+        }.padding(12).frame(width: 240).background(ThemeColor.surface)
             .foregroundStyle(ThemeColor.ink)
             .onDisappear { deleting = nil }
             .sheet(item: $draft) { role in
@@ -243,6 +243,7 @@ struct ClipCaptionRoleMenu: View {
                 HStack {
                     Text(L10n.text("角色样式")).font(.headline)
                     Spacer()
+                    tool("person.2", L10n.text("多角色"), "clips.manageRolesFromCue") { managingFromCue = true }
                     close
                 }
                 ScrollView {
@@ -272,6 +273,7 @@ struct ClipCaptionRoleMenu: View {
                 .foregroundStyle(selected ? ThemeColor.primaryInk : ThemeColor.ink)
                 .background(selected ? ThemeColor.selection : ThemeColor.soft, in: RoundedRectangle(cornerRadius: 7))
         }.buttonStyle(.plain).help(help).accessibilityLabel(help)
+            .accessibilityIdentifier("clips.assignRole." + (title ?? "inherit"))
             .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -423,13 +425,10 @@ private struct ClipTextStyleControls: View {
                 fieldLabel("颜色")
                 ClipColorPalette150(value: $text.color, role: role, title: title + "颜色")
             }
-            HStack {
-                fieldLabel("描边颜色"); Spacer()
-                ColorPicker(L10n.text("描边颜色"), selection: Binding(get: {
-                    Color(nsColor: .clipHex(text.outlineColor))
-                }, set: { text.outlineColor = NSColor($0).clipHex }), supportsOpacity: false)
-                    .labelsHidden().controlSize(.small)
-                    .accessibilityLabel(L10n.text(title) + " " + L10n.text("描边颜色"))
+            VStack(alignment: .leading, spacing: 4) {
+                fieldLabel("描边颜色")
+                ClipColorPalette150(value: $text.outlineColor, role: role + "Outline",
+                                    title: L10n.text(title) + " " + L10n.text("描边颜色"), defaultColor: "#000000")
             }
             ClipStyleSlider(title: "描边宽度", section: title, value: $text.outline, limits: 0...10, step: 0.1,
                             readout: text.outline.formatted(.number.precision(.fractionLength(0...1))) + " px")
@@ -517,7 +516,7 @@ struct ClipStyleSlider: View {
 }
 
 /// Mask and text palettes keep their own built-in and saved swatches.
-private struct ClipColorPalette150: View {
+struct ClipColorPalette150: View {
     @Binding var value: String
     let title: String
     @AppStorage private var storedColors: String
@@ -531,17 +530,17 @@ private struct ClipColorPalette150: View {
     private let fallback: String
     private let role: String
 
-    init(value: Binding<String>, role: String, title: String) {
+    init(value: Binding<String>, role: String, title: String, defaultColor: String = "#FFFFFF") {
         _value = value
         self.role = role
         self.title = title
         let textColors = ["#FFFFFF", "#F6E4B5", "#BEDDF4"]
-        let maskColor = ClipSubtitleMask().color
         switch role {
-        case "mask": fallback = maskColor; presets = textColors + [maskColor]
-        case "maskBorder": fallback = "#000000"; presets = textColors + ["#000000"]
-        default: fallback = textColors[0]; presets = textColors
+        case "mask": fallback = ClipSubtitleMask().color
+        case "maskBorder": fallback = "#000000"
+        default: fallback = ClipSubtitleStyle.isColor(defaultColor) ? defaultColor.uppercased() : textColors[0]
         }
+        presets = textColors.contains(fallback) ? textColors : textColors + [fallback]
         _storedColors = AppStorage(wrappedValue: "", "clip.style.colors.v150." + role)
         _hiddenColors = AppStorage(wrappedValue: "", "clip.style.colors.hidden." + role)
     }
@@ -562,30 +561,22 @@ private struct ClipColorPalette150: View {
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 26, maximum: 26), spacing: 8)], alignment: .leading, spacing: 8) {
             ForEach(colors, id: \.self) { color in
-                ZStack(alignment: .topTrailing) {
-                    swatch(color)
-                        .simultaneousGesture(LongPressGesture(minimumDuration: 0.55).onEnded { _ in
-                            editingColor = color
-                        })
-                        .contextMenu {
-                            Button(L10n.text("删除颜色"), role: .destructive) { remove(color) }
-                        }
-                        .accessibilityAction(named: Text(L10n.text("删除颜色"))) { editingColor = color }
-                    if editingColor == color {
-                        Button { remove(color) } label: {
-                            Image(systemName: "xmark").font(.system(size: 6, weight: .semibold)).frame(width: 12, height: 12)
-                                .foregroundStyle(ThemeColor.ink).background(ThemeColor.control, in: Circle())
-                                .overlay(Circle().strokeBorder(ThemeColor.line))
-                        }.buttonStyle(.plain).offset(x: 2, y: -2)
-                            .accessibilityLabel(L10n.text("删除颜色"))
-                            .accessibilityIdentifier("clip.color." + role + ".remove." + color)
-                    }
+                RemovableSwatch(value: color, editing: $editingColor, removeID: "clip.color." + role + ".remove." + color,
+                                onSelect: { value = color }, onRemove: { remove(color) }) {
+                    Circle().fill(Color(nsColor: .clipHex(color))).frame(width: 18, height: 18)
+                        .frame(width: 26, height: 26)
+                        .overlay(Circle().strokeBorder(value.uppercased() == color ? ThemeColor.primary : .clear))
+                        .contentShape(Rectangle())
+                        .accessibilityLabel(L10n.text(colorName(color)))
+                        .accessibilityIdentifier("clip.color." + role + "." + color)
+                        .accessibilityAddTraits(value.uppercased() == color ? .isSelected : [])
                 }
             }
             Button { editingColor = nil; pendingColor = Color(nsColor: .clipHex(value)); adding = true } label: {
                 Image(systemName: "plus").font(.system(size: 11, weight: .medium)).frame(width: 26, height: 26)
                     .foregroundStyle(ThemeColor.muted).overlay(Circle().strokeBorder(ThemeColor.line))
             }.buttonStyle(.plain).accessibilityLabel(L10n.text("自定义颜色"))
+                .accessibilityIdentifier("clip.color." + role + ".add")
                 .popover(isPresented: $adding, arrowEdge: .bottom) {
                     VStack(alignment: .leading, spacing: 16) {
                         ColorPicker(L10n.text("自定义颜色"), selection: $pendingColor, supportsOpacity: false).font(.system(size: 12))
@@ -616,23 +607,6 @@ private struct ClipColorPalette150: View {
         }.accessibilityElement(children: .contain).accessibilityLabel(L10n.text(title))
             .onExitCommand { editingColor = nil; adding = false }
     }
-    private func swatch(_ color: String) -> some View {
-        Button {
-            // The release ending a long press must leave the delete control available.
-            guard editingColor != color else { return }
-            value = color
-            editingColor = nil
-        } label: {
-            Circle().fill(Color(nsColor: .clipHex(color))).frame(width: 18, height: 18)
-                .frame(width: 26, height: 26)
-                .overlay(Circle().strokeBorder(value.uppercased() == color ? ThemeColor.primary : .clear, lineWidth: 1))
-                .contentShape(Rectangle())
-        }.buttonStyle(.plain)
-            .modifier(ClipColorJiggle150(enabled: editingColor == color && !appearance.reduceMotion && !systemReduceMotion))
-            .accessibilityLabel(L10n.text(colorName(color)))
-            .accessibilityIdentifier("clip.color." + role + "." + color)
-            .accessibilityAddTraits(value.uppercased() == color ? .isSelected : [])
-    }
     private var motion: Animation? { appearance.reduceMotion || systemReduceMotion ? nil : .easeInOut(duration: 0.16) }
     private func addColor(_ color: String) {
         let color = color.uppercased()
@@ -654,7 +628,57 @@ private struct ClipColorPalette150: View {
     }
 }
 
-private struct ClipColorJiggle150: ViewModifier {
+struct RemovableSwatch<Content: View>: View {
+    let value: String
+    @Binding var editing: String?
+    let removeID: String
+    let onSelect: () -> Void
+    let onRemove: () -> Void
+    @ViewBuilder var label: () -> Content
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @EnvironmentObject private var appearance: HomeAppearance
+
+    init(value: String, editing: Binding<String?>, removeID: String, onSelect: @escaping () -> Void,
+         onRemove: @escaping () -> Void, @ViewBuilder label: @escaping () -> Content) {
+        self.value = value
+        _editing = editing
+        self.removeID = removeID
+        self.onSelect = onSelect
+        self.onRemove = onRemove
+        self.label = label
+    }
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Button {
+                // Mouse-up after a long press leaves the delete target available.
+                guard editing != value else { return }
+                editing = nil
+                onSelect()
+            } label: { label() }
+                .buttonStyle(.plain)
+                .modifier(ClipColorJiggle150(enabled: editing == value && !appearance.reduceMotion && !systemReduceMotion))
+                .simultaneousGesture(LongPressGesture(minimumDuration: 0.55).onEnded { _ in editing = value })
+                .contextMenu { Button(L10n.text("删除颜色"), role: .destructive, action: remove) }
+                .accessibilityAction(named: Text(L10n.text("删除颜色"))) { editing = value }
+            if editing == value {
+                Button(action: remove) {
+                    Image(systemName: "xmark").font(.system(size: 6, weight: .semibold)).frame(width: 12, height: 12)
+                        .foregroundStyle(ThemeColor.ink).background(ThemeColor.control, in: Circle())
+                        .overlay(Circle().strokeBorder(ThemeColor.line))
+                }.buttonStyle(.plain).offset(x: 2, y: -2)
+                    .accessibilityLabel(L10n.text("删除颜色")).accessibilityIdentifier(removeID)
+            }
+        }
+    }
+
+    private func remove() {
+        editing = nil
+        onRemove()
+    }
+}
+
+struct ClipColorJiggle150: ViewModifier {
     let enabled: Bool
     @State private var phase = false
     func body(content: Content) -> some View {

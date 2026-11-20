@@ -10,6 +10,22 @@ final class HomeAppearance: ObservableObject {
     @Published var importError: String?
     @Published private(set) var isDark: Bool
     @Published var theme: AppTheme { didSet { defaults.set(theme.rawValue, forKey: "appearance.theme.v128"); apply() } }
+    @Published private(set) var hiddenThemes: [AppTheme] {
+        didSet { defaults.set(hiddenThemes.map(\.rawValue), forKey: "appearance.hiddenThemes") }
+    }
+    var visibleThemes: [AppTheme] { AppTheme.allCases.filter { !hiddenThemes.contains($0) } }
+
+    func hideTheme(_ choice: AppTheme) {
+        guard !hiddenThemes.contains(choice) else { return }
+        hiddenThemes.append(choice)
+        if theme == choice, let next = visibleThemes.first { theme = next }
+    }
+
+    func restoreTheme(_ choice: AppTheme) {
+        hiddenThemes.removeAll { $0 == choice }
+        theme = choice
+    }
+
     @Published var mode: AppearanceMode { didSet { defaults.set(mode.rawValue, forKey: "appearance.mode.v128"); apply() } }
     @Published var captionStyle: LiveCaptionStyles {
         didSet {
@@ -52,6 +68,8 @@ final class HomeAppearance: ObservableObject {
 
     init(defaults: UserDefaults = .standard, backgroundFile: URL? = nil) {
         self.defaults = defaults
+        let hiddenIDs = defaults.stringArray(forKey: "appearance.hiddenThemes") ?? []
+        hiddenThemes = AppTheme.allCases.filter { hiddenIDs.contains($0.rawValue) }
         theme = AppTheme(rawValue: defaults.string(forKey: "appearance.theme.v128") ?? "") ?? .blue
         mode = AppearanceMode(rawValue: defaults.string(forKey: "appearance.mode.v128") ?? "")
             ?? (defaults.object(forKey: "home.dark.v099") == nil ? .system : (defaults.bool(forKey: "home.dark.v099") ? .dark : .light))

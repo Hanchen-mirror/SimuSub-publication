@@ -158,23 +158,45 @@ struct ClipWorkspace: View {
 
 struct CaptionInspectorIcon: View {
     let symbol: String
-    var accented = false
-    @Environment(\.isEnabled) private var isEnabled
-    @State private var hovered = false
-
-    init(_ symbol: String, accented: Bool = false) {
-        self.symbol = symbol
-        self.accented = accented
-    }
+    init(_ symbol: String) { self.symbol = symbol }
 
     var body: some View {
         Image(systemName: symbol)
+            .symbolRenderingMode(.monochrome)
             .font(.system(size: 16, weight: .medium))
-            .foregroundStyle(accented ? ThemeColor.primaryInk : ThemeColor.ink)
-            .frame(width: 32, height: 32)
-            .background(accented || (hovered && isEnabled) ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 8))
-            .contentShape(Rectangle())
-            .onHover { hovered = $0 }
+            .frame(width: 20, height: 20)
+    }
+}
+
+struct CaptionToolButtonStyle: ButtonStyle {
+    var size: CGFloat = 30
+    var expanded = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        Surface(label: configuration.label, pressed: configuration.isPressed, size: size, expanded: expanded)
+    }
+
+    private struct Surface: View {
+        let label: ButtonStyleConfiguration.Label
+        let pressed: Bool
+        let size: CGFloat
+        let expanded: Bool
+        @Environment(\.isEnabled) private var enabled
+        @State private var hovered = false
+
+        var body: some View {
+            let shape = RoundedRectangle(cornerRadius: size > 26 ? 8 : 6, style: .continuous)
+            let active = enabled && (hovered || expanded)
+            let idleFill: Color = size < 30 ? ThemeColor.control : .clear
+            let idleStroke: Color = size < 30 ? ThemeColor.line.opacity(0.8) : .clear
+            label.frame(width: size, height: size)
+                .foregroundStyle(enabled ? ThemeColor.primaryInk : ThemeColor.muted)
+                .background(pressed ? ThemeColor.selection : (active ? ThemeColor.soft : idleFill), in: shape)
+                .overlay { shape.strokeBorder(active && size < 30 ? ThemeColor.primary.opacity(0.65) : idleStroke) }
+                .contentShape(shape)
+                .opacity(enabled ? 1 : 0.46)
+                .onHover { hovered = $0 }
+        }
     }
 }
 
@@ -606,11 +628,11 @@ struct ClipEditor: View {
             Button(action: openSubtitleStyle) { CaptionInspectorIcon("paintbrush") }
                 .help(L10n.text("字幕样式")).accessibilityLabel(L10n.text("字幕样式"))
                 .accessibilityIdentifier("clips.customStyle").disabled(!hasRange)
-            Button(action: transcribe) { CaptionInspectorIcon("lightbulb", accented: true) }
+            Button(action: transcribe) { CaptionInspectorIcon("lightbulb") }
                 .help(L10n.text("识别并翻译当前选段")).accessibilityLabel(L10n.text("生成字幕"))
                 .accessibilityIdentifier("clips.transcribe").disabled(!hasRange || !project.media.hasAudio)
             ClipCaptionRoleMenu(projectID: project.id, baseStyle: active.style, sample: cues.first)
-        }.buttonStyle(.plain).disabled(clips.isBusy)
+        }.buttonStyle(CaptionToolButtonStyle()).disabled(clips.isBusy)
     }
 
     private func openSubtitleStyle() {

@@ -132,24 +132,38 @@ struct LiveCaptionStylePicker: View {
                 tab(original: true)
                 tab(original: false)
             }
-            ColorPicker(L10n.text("文字颜色"), selection: Binding(get: {
-                line.wrappedValue.fill.map { Color(nsColor: .clipHex($0)) } ?? (editingOriginal ? ThemeColor.muted : ThemeColor.ink)
-            }, set: { line.wrappedValue.fill = NSColor($0).clipHex }), supportsOpacity: false)
-            ColorPicker(L10n.text("描边颜色"), selection: Binding(get: {
-                Color(nsColor: .clipHex(line.wrappedValue.outline))
-            }, set: {
-                line.wrappedValue.outline = NSColor($0).clipHex
-                if line.wrappedValue.width == 0 { line.wrappedValue.width = 1 }
-            }), supportsOpacity: false)
-            ClipStyleSlider(title: "描边宽度", section: section, value: line.width, limits: 0...2.5,
-                            step: 0.1, readout: points(line.wrappedValue.width))
-            ClipStyleSlider(title: "阴影强度", section: section, value: line.shadow, limits: 0...1,
-                            step: 0.05, readout: line.wrappedValue.shadow.formatted(.percent))
-            ClipStyleSlider(title: "阴影高度", section: section,
-                            value: Binding(get: { line.wrappedValue.effectiveShadowHeight },
-                                           set: { line.wrappedValue.shadowHeight = $0 }),
-                            limits: -6...6, step: 0.1, readout: points(line.wrappedValue.effectiveShadowHeight))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    colorControls
+                    ClipStyleSlider(title: "描边宽度", section: section, value: line.width, limits: 0...2.5,
+                                    step: 0.1, readout: points(line.wrappedValue.width))
+                    ClipStyleSlider(title: "阴影强度", section: section, value: line.shadow, limits: 0...1,
+                                    step: 0.05, readout: line.wrappedValue.shadow.formatted(.percent))
+                    ClipStyleSlider(title: "阴影高度", section: section,
+                                    value: Binding(get: { line.wrappedValue.effectiveShadowHeight },
+                                                   set: { line.wrappedValue.shadowHeight = $0 }),
+                                    limits: -6...6, step: 0.1, readout: points(line.wrappedValue.effectiveShadowHeight))
+                }.padding(.trailing, 3)
+            }.frame(height: 265)
         }.padding(16).frame(width: 310).appTheme()
+    }
+
+    private var colorControls: some View {
+        let style = line
+        let role = editingOriginal ? "live.original" : "live.translation"
+        let themeFill = ThemePalette.color(appearance.theme, dark: appearance.isDark,
+                                          role: editingOriginal ? .muted : .ink).clipHex
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(L10n.text("文字颜色")).interfaceFont(size: 11).foregroundStyle(ThemeColor.muted)
+            ClipColorPalette150(value: Binding(get: { style.wrappedValue.fill ?? themeFill }, set: { color in
+                style.wrappedValue.fill = color == themeFill ? nil : color
+            }), role: role + ".fill", title: "文字颜色", defaultColor: themeFill)
+            Text(L10n.text("描边颜色")).interfaceFont(size: 11).foregroundStyle(ThemeColor.muted)
+            ClipColorPalette150(value: Binding(get: { style.wrappedValue.outline }, set: { color in
+                style.wrappedValue.outline = color
+                if style.wrappedValue.width == 0 { style.wrappedValue.width = 1 }
+            }), role: role + ".outline", title: "描边颜色", defaultColor: LiveCaptionStyle.standard.outline)
+        }.id(role)
     }
 
     private func points(_ value: Double) -> String {
