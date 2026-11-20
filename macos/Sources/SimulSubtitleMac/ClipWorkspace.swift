@@ -156,27 +156,22 @@ struct ClipWorkspace: View {
     }
 }
 
-private struct CaptionInspectorIcon: View {
+struct CaptionInspectorIcon: View {
     let symbol: String
-    let caption: String?
     var accented = false
     @Environment(\.isEnabled) private var isEnabled
     @State private var hovered = false
 
-    init(_ symbol: String, _ caption: String? = nil, accented: Bool = false) {
-        self.caption = caption
+    init(_ symbol: String, accented: Bool = false) {
         self.symbol = symbol
         self.accented = accented
     }
 
     var body: some View {
-        VStack(spacing: 3) {
-            Image(systemName: symbol).font(.system(size: 15, weight: .medium))
-            if let caption { Text(verbatim: caption).interfaceFont(size: 10).lineLimit(1).fixedSize() }
-        }
+        Image(systemName: symbol)
+            .font(.system(size: 16, weight: .medium))
             .foregroundStyle(accented ? ThemeColor.primaryInk : ThemeColor.ink)
-            .padding(.horizontal, caption == nil ? 0 : 4)
-            .frame(minWidth: caption == nil ? 30 : 34, minHeight: caption == nil ? 30 : 38)
+            .frame(width: 32, height: 32)
             .background(accented || (hovered && isEnabled) ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
             .onHover { hovered = $0 }
@@ -594,15 +589,16 @@ struct ClipEditor: View {
         HStack(spacing: 5) {
             Text(L10n.text("字幕")).interfaceFont(size: 16, weight: .semibold)
             Spacer(minLength: 8)
-            Button(action: importSubtitles) { CaptionInspectorIcon("doc.badge.plus", L10n.text("导入")) }
+            Button(action: importSubtitles) { CaptionInspectorIcon("doc.badge.plus") }
                 .help(L10n.text("导入字幕")).accessibilityLabel(L10n.text("导入字幕"))
-                .accessibilityIdentifier("clips.importSubtitles")
-            Button(action: openSubtitleStyle) { CaptionInspectorIcon("textformat", L10n.text("样式")) }
+                .accessibilityIdentifier("clips.importSubtitles").disabled(!hasRange)
+            Button(action: openSubtitleStyle) { CaptionInspectorIcon("paintbrush") }
                 .help(L10n.text("字幕样式")).accessibilityLabel(L10n.text("字幕样式"))
-                .accessibilityIdentifier("clips.customStyle")
-            Button(action: transcribe) { CaptionInspectorIcon("waveform", L10n.text("生成"), accented: true) }
+                .accessibilityIdentifier("clips.customStyle").disabled(!hasRange)
+            Button(action: transcribe) { CaptionInspectorIcon("waveform", accented: true) }
                 .help(L10n.text("生成字幕")).accessibilityLabel(L10n.text("生成字幕"))
-                .accessibilityIdentifier("clips.transcribe")
+                .accessibilityIdentifier("clips.transcribe").disabled(!hasRange)
+            ClipCaptionRoleMenu(projectID: project.id, baseStyle: active.style, sample: cues.first, toolbarOnly: true)
             Menu {
                 Button(L10n.text("核对译文")) { showingProofread = true }
                     .disabled(cues.isEmpty).accessibilityIdentifier("clips.proofread")
@@ -618,7 +614,7 @@ struct ClipEditor: View {
             .help(L10n.text("更多字幕操作")).accessibilityLabel(L10n.text("更多字幕操作"))
             .accessibilityIdentifier("clips.moreSubtitleActions")
             .disabled(cues.isEmpty)
-        }.buttonStyle(.plain).disabled(!hasRange || clips.isBusy)
+        }.buttonStyle(.plain).disabled(clips.isBusy)
     }
 
     private func openSubtitleStyle() {
@@ -654,7 +650,6 @@ struct ClipEditor: View {
                 VStack(spacing: 10) {
                     ForEach(cues) { cue in
                         insertCaptionButton(at: max(active.start, cue.start))
-                        let roleName = effectiveRoles[cue.id].flatMap { id in project.captionRoles?.first { $0.id == id }?.name } ?? L10n.text("片段默认")
                         HStack(alignment: .top, spacing: 6) {
                             ClipCaptionRoleMenu(projectID: project.id, baseStyle: active.style, sample: cue,
                                                 cue: Binding(get: { cue }, set: { changed in
@@ -672,9 +667,6 @@ struct ClipEditor: View {
 
                                     Button { remember(); withAnimation(.easeInOut(duration: 0.18)) { clips.deleteSegmentCaption(project.id, rangeID: active.id, cueID: cue.id) } } label: { Image(systemName: "xmark").font(.system(size: 7, weight: .medium)).frame(width: 21, height: 21).overlay(Circle().stroke(ThemeColor.line, lineWidth: 1)) }.buttonStyle(.plain).help(L10n.text("删除字幕"))
                                 }
-                                Text(verbatim: roleName)
-                                    .interfaceFont(size: 11, weight: .medium).foregroundStyle(ThemeColor.primaryInk)
-                                    .lineLimit(1).truncationMode(.tail).help(roleName)
                                 TextField(L10n.text("原文"), text: cueText(cue, original: true), axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).interfaceFont(size: 12).foregroundStyle(ThemeColor.muted).accessibilityIdentifier("clips.original")
                                 TextField(L10n.text("译文"), text: cueText(cue, original: false), axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).interfaceFont(size: 13).accessibilityIdentifier("clips.translation")
                         }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
