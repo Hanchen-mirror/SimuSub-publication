@@ -87,11 +87,6 @@ struct UsageAboutSettingsView: View {
                     }
                 }
             }
-            VStack(alignment: .leading, spacing: 9) {
-                sectionHeading(copy.originTitle, symbol: "captions.bubble")
-                paragraph(copy.originBody)
-            }
-            separator
             VStack(alignment: .leading, spacing: 10) {
                 sectionHeading(copy.licenseTitle, symbol: "doc.text")
                 paragraph(copy.licenseSummary)
@@ -101,6 +96,11 @@ struct UsageAboutSettingsView: View {
                 }
                 .buttonStyle(ThemeActionButtonStyle())
                 .accessibilityIdentifier("usage.readLicense")
+            }
+            separator
+            VStack(alignment: .leading, spacing: 9) {
+                sectionHeading(copy.originTitle, symbol: "captions.bubble")
+                paragraph(copy.originBody)
             }
             separator
             VStack(alignment: .leading, spacing: 9) {
