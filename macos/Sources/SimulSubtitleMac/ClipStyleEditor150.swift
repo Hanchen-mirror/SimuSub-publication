@@ -400,7 +400,7 @@ private struct ClipTextStyleControls: View {
     let role: String
     var inheritedShadow: Double?
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(L10n.text(title)).font(.system(size: 13, weight: .semibold))
             VStack(alignment: .leading, spacing: 8) {
                 fieldLabel("字体")

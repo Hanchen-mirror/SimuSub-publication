@@ -109,7 +109,8 @@ enum ClipChecks {
             try require(ClipStore(root: crash.root).jobs[0].state == .interrupted, "clip_interrupted_job_recovered_for_retry")
             let fake = ClipServices(recognizer: ClipFixtureRecognizer(), translator: ClipFixtureTranslator())
             store.update(id) { $0.captions = [] }
-            store.start(ClipJob(projectID: id, kind: .transcribe, range: ClipRange(title: "whole", start: 0, end: 10), recommendationCount: 1), model: nil, services: fake)
+            let analysisRange = ClipRange(title: "whole", start: 0, end: 10, importedCaptions: [])
+            store.start(ClipJob(projectID: id, kind: .transcribe, range: analysisRange, recommendationCount: 1), model: nil, services: fake)
             try await wait(store)
             try require(store.jobs[0].state == .completed && !store.projects[0].captions.isEmpty, "clip_real_audio_vad_to_timed_transcription_pipeline")
             try require(store.projects[0].captions.allSatisfy { $0.start >= 0 && $0.end <= 10 && $0.end > $0.start && !$0.translated.isEmpty }, "clip_timed_speech_cues_inside_media_bounds")

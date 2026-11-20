@@ -269,7 +269,9 @@ final class ClipStore: ObservableObject {
                 }
                 if job.kind == .transcribe, let count = job.recommendationCount,
                    let analyzed = self.projects.first(where: { $0.id == job.projectID }) {
-                    try await self.recommendHighlights(for: analyzed, range: job.range, maximum: count)
+                    // This job was started because the displayed transcript was empty.
+                    // Rank the speech it produced even if the range still has an empty imported track.
+                    try await self.recommendHighlights(for: analyzed, range: nil, maximum: count)
                 }
                 self.updateJob(jobID) {
                     $0.state = .completed; $0.progress = 1
