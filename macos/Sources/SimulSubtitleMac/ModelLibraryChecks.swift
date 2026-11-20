@@ -141,7 +141,7 @@ enum ModelLibraryChecks {
                     let id = try await clip.importVideo(movie)
                     live.setSourceLanguage(.english); live.setTargetLanguage(.simplifiedChinese)
                     live.selectedASRProfileID = live.profiles.first { $0.localModelID == "whisper-base" }!.id
-                    clip.start(ClipJob(projectID: id, kind: .transcribe, range: clip.selected!.ranges[0]), model: live)
+                    clip.start(ClipJob(projectID: id, kind: .transcribe, range: ClipRange(title: "英语", start: 0, end: min(60, clip.selected!.media.duration))), model: live)
                     for _ in 0..<1200 where clip.isBusy { try await Task.sleep(nanoseconds: 100_000_000) }
                     let project = clip.projects[0]
                     try require(!clip.isBusy && clip.jobs[0].state == .completed && !project.captions.isEmpty

@@ -46,8 +46,7 @@ final class ClipStore: ObservableObject {
     @discardableResult func importVideo(_ url: URL, creatorID: UUID? = nil, name: String? = nil, outputGrouping: [String]? = nil) async throws -> UUID {
         let media = try await ClipMediaEngine.inspect(url)
         if let match = projects.first(where: { $0.media == media }) { selectedID = match.id; return match.id }
-        let project = ClipProject(name: name ?? url.deletingPathExtension().lastPathComponent, creatorID: creatorID, outputGrouping: outputGrouping, media: media,
-                                  ranges: [ClipRange(title: "切片 1", start: 0, end: min(60, media.duration))])
+        let project = ClipProject(name: name ?? url.deletingPathExtension().lastPathComponent, creatorID: creatorID, outputGrouping: outputGrouping, media: media)
         projects.insert(project, at: 0); selectedID = project.id; persist()
         let posters = root.appendingPathComponent("Posters")
         try? FileManager.default.createDirectory(at: posters, withIntermediateDirectories: true)
@@ -67,8 +66,8 @@ final class ClipStore: ObservableObject {
         }
         projects[index].updatedAt = Date(); persist()
     }
-    func saveRange(_ id: UUID, range: ClipRange) {
-        guard let p = projects.first(where: { $0.id == id }) else { return }
+    @discardableResult func saveRange(_ id: UUID, range: ClipRange) -> Bool {
+        guard let p = projects.first(where: { $0.id == id }) else { return false }
         do {
             try range.validate(duration: p.media.duration)
             update(id) { p in
@@ -79,11 +78,14 @@ final class ClipStore: ObservableObject {
                 else { p.ranges.append(range) }
                 p.candidates?.removeAll { $0.id == range.id }
             }
-        } catch { notice = error.localizedDescription }
+            return true
+        } catch { notice = error.localizedDescription; return false }
     }
     func removeProject(_ id: UUID) {
         guard !isBusy else { return }
-        removePreview(projects.first { $0.id == id }?.previewPath)
+        guard let project = projects.first(where: { $0.id == id }) else { return }
+        removePreview(project.previewPath)
+        try? FileManager.default.removeItem(at: ClipPlaybackSource.cachedURL(for: project.media))
         projects.removeAll { $0.id == id }; jobs.removeAll { $0.projectID == id }
         if selectedID == id { selectedID = projects.first?.id }; persist()
     }
@@ -167,7 +169,13 @@ final class ClipStore: ObservableObject {
         }
         // Retry uses saved current ranges, with one consistent project snapshot.
         // Receipts are retained only when their content fingerprint still matches.
-        if jobs.contains(where: { $0.id == job.id }) {
+        let retry = jobs.contains { $0.id == job.id }
+        if job.kind == .export && !retry {
+            let requested = Set(job.ranges.map(\.id))
+            pending.ranges = project.ranges.filter { requested.contains($0.id) && $0.selected }
+            guard !pending.ranges.isEmpty else { notice = "请勾选至少一个要导出的选段。"; return }
+        }
+        if retry {
             if job.kind == .export {
                 guard job.ranges.allSatisfy({ old in project.ranges.contains { $0.id == old.id } }) else {
                     notice = "原任务中的选段已移除，请重新选择选段导出。"; return

@@ -6,19 +6,23 @@ import CoreText
 /// Every decoder input is a local user-chosen file. External playlist protocols
 /// are disabled, and every output is new, never the source path.
 enum ClipMediaEngine {
-    private struct Probe: Decodable {
-        struct Stream: Decodable { var codec_type: String?; var width: Int?; var height: Int? }
+    struct Probe: Decodable {
+        struct Stream: Decodable { var codec_type: String?; var codec_name: String?; var width: Int?; var height: Int? }
         struct Format: Decodable { var duration: String? }
         var streams: [Stream]; var format: Format?
     }
-    static func inspect(_ url: URL) async throws -> ClipMedia {
+    static func probe(_ url: URL) async throws -> Probe {
         guard url.isFileURL else { throw ClipError.message("请选择本机视频文件。") }
         guard FileManager.default.fileExists(atPath: url.path) else { throw ClipFailure.tool("no such file", operation: "读取视频") }
         guard FileManager.default.isReadableFile(atPath: url.path) else { throw ClipFailure.tool("permission denied", operation: "读取视频") }
         let output = try await LiveTools.run("ffprobe", arguments: ["-v", "error", "-protocol_whitelist", "file,crypto", "-show_streams", "-show_format", "-of", "json", url.path], timeout: 30)
         guard output.status == 0 else { throw ClipFailure.tool(output.error, operation: "读取视频") }
-        guard let probe = try? JSONDecoder().decode(Probe.self, from: output.data),
-              let video = probe.streams.first(where: { $0.codec_type == "video" }),
+        guard let probe = try? JSONDecoder().decode(Probe.self, from: output.data) else { throw ClipFailure.tool("invalid data", operation: "读取视频") }
+        return probe
+    }
+    static func inspect(_ url: URL) async throws -> ClipMedia {
+        let probe = try await probe(url)
+        guard let video = probe.streams.first(where: { $0.codec_type == "video" }),
               let width = video.width, let height = video.height, width >= 16, height >= 16,
               width <= 8192, height <= 8192, let duration = Double(probe.format?.duration ?? ""),
               duration.isFinite, duration > 0, duration <= 48 * 3600 else {

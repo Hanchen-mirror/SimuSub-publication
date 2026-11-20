@@ -4,16 +4,47 @@ import AVKit
 @MainActor
 final class ClipPlayback: ObservableObject {
     let player: AVPlayer
+    @Published private(set) var ready = false
+    @Published private(set) var failure: String?
+    private var itemObservation: NSKeyValueObservation?
     @Published var time: Double = 0
     @Published var speed: Double = 1 { didSet { player.defaultRate = Float(speed); if player.rate != 0 { player.rate = Float(speed) } } }
     private var observer: Any?
     private var boundaryObserver: Any?
     private var playbackRequest = UUID()
     var selection: ClosedRange<Double>?
-    init(url: URL) {
-        player = AVPlayer(url: url)
+    init() {
+        player = AVPlayer()
         observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1.0 / 30, preferredTimescale: 600), queue: .main) { [weak self] t in
             Task { @MainActor [weak self] in if t.seconds.isFinite { self?.time = t.seconds } }
+        }
+    }
+    func prepare(_ media: ClipMedia, cache: URL = ClipPlaybackSource.cache, rebuild: Bool = false) async {
+        if ready && !rebuild { return }
+        failure = nil
+        ready = false
+        itemObservation = nil
+        do {
+            let url = try await ClipPlaybackSource.resolve(media, cache: cache, rebuild: rebuild)
+            try Task.checkCancellation()
+            let item = AVPlayerItem(url: url)
+            itemObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.player.currentItem === item else { return }
+                    switch item.status {
+                    case .readyToPlay: self.ready = true
+                    case .failed:
+                        self.ready = false
+                        self.failure = ClipFailure.message(item.error ?? ClipFailure.tool("invalid data", operation: "播放视频"), operation: "播放视频")
+                    default: break
+                    }
+                }
+            }
+            let position = time
+            player.replaceCurrentItem(with: item)
+            seek(position)
+        } catch {
+            if !Task.isCancelled { failure = ClipFailure.message(error, operation: "准备视频播放") }
         }
     }
     func seek(_ time: Double) { playbackRequest = UUID(); self.time = max(0, time); player.seek(to: CMTime(seconds: max(0, time), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
@@ -29,6 +60,7 @@ final class ClipPlayback: ObservableObject {
     }
     func clearSelection() { player.pause(); selection = nil; if let boundaryObserver { player.removeTimeObserver(boundaryObserver) }; boundaryObserver = nil; seek(0) }
     func toggle() {
+        guard ready else { return }
         if player.rate != 0 { playbackRequest = UUID(); player.pause(); return }
         if let selection, time < selection.lowerBound || time >= selection.upperBound - 0.02 {
             let request = UUID(); playbackRequest = request; time = selection.lowerBound

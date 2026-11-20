@@ -9,7 +9,9 @@ enum LiveTools {
             && ["yt-dlp", "ffmpeg", "ffprobe", "deno"].allSatisfy { FileManager.default.isExecutableFile(atPath: root.appendingPathComponent($0).path) }
     }
     static func executable(_ name: String) throws -> URL {
-        guard ["yt-dlp", "ffmpeg", "ffprobe", "deno"].contains(name), available else {
+        guard ["yt-dlp", "ffmpeg", "ffprobe", "deno"].contains(name),
+              FileManager.default.isExecutableFile(atPath: launcher.path),
+              FileManager.default.isExecutableFile(atPath: root.appendingPathComponent(name).path) else {
             throw LiveMonitorError.unavailable("直播处理组件缺失，请完整解压最新版 SimuSub。")
         }
         return root.appendingPathComponent(name)

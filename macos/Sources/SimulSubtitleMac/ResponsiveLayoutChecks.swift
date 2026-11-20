@@ -93,6 +93,7 @@ enum ResponsiveLayoutChecks {
             try await checkLayout(clip, 1200, 680, .normal, "clip-import-1200-100")
             try await checkLayout(clip, 640, 420, .extraLarge, "clip-import-640-200")
             let project = try await clips.importVideo(fixture)
+            clips.saveRange(project, range: ClipRange(title: "选段 1", start: 0, end: 4))
             if let originalName = clips.selected?.name {
                 let previousLanguage = AppLocalization.shared.language
                 defer {

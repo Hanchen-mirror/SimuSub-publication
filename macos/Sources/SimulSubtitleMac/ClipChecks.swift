@@ -42,6 +42,7 @@ enum ClipChecks {
             try require(ClipTime.parse("00:70:01") == nil && ClipTime.parse("nan") == nil && ClipTime.parse("-2") == nil, "clip_invalid_times_rejected")
             try await Release136Checks.translation()
             checks.append("v136_translation_cache_position_and_folders")
+            checks += try await ClipPlaybackImportChecks.run(directory: directory.appendingPathComponent("playback-import"), fixture: fixture)
             let store = ClipStore(root: directory.appendingPathComponent("store"))
             let id = try await store.importVideo(fixture)
             let again = try await store.importVideo(fixture)

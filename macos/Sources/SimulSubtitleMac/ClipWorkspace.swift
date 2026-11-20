@@ -257,11 +257,12 @@ struct ClipEditor: View {
     @State private var showingExport = false
     @State private var showingTimes = false
     @State private var textUndoCue: UUID?
+    @State private var playbackAttempt = 0
     @StateObject private var playback: ClipPlayback
     init(project: ClipProject, onImport: @escaping () -> Void = {}, onBack: @escaping () -> Void = {}, onLibrary: @escaping () -> Void = {}, onRemove: @escaping () -> Void = {}) {
         self.project = project; self.onImport = onImport; self.onBack = onBack; self.onLibrary = onLibrary; self.onRemove = onRemove
         _working = State(initialValue: project.ranges.first ?? ClipRange(title: "选段 1", start: 0, end: min(60, project.media.duration)))
-        _playback = StateObject(wrappedValue: ClipPlayback(url: project.media.url))
+        _playback = StateObject(wrappedValue: ClipPlayback())
     }
     private var active: ClipRange {
         var value = project.ranges.first(where: { $0.id == working.id }) ?? working
@@ -295,6 +296,17 @@ struct ClipEditor: View {
                                     draggedStyle = style
                                     if commit { finishGesture(); applyStyle(style); draggedStyle = nil }
                                 }, onRoleResize: resizeRole)
+                                .overlay {
+                                    if let failure = playback.failure {
+                                        VStack {
+                                            Text(L10n.text(failure)).font(.callout)
+                                            Button(L10n.text("重试")) { playbackAttempt += 1 }
+                                        }.padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                                    } else if !playback.ready {
+                                        ProgressView(L10n.text("正在准备视频播放…"))
+                                            .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                                    }
+                                }
                                 .frame(height: videoHeight).clipShape(RoundedRectangle(cornerRadius: 16))
                             HStack {
                                 Text(ClipTime.label(playback.time) + " / " + ClipTime.label(project.media.duration)).font(.caption).monospacedDigit().foregroundStyle(ThemeColor.muted)
@@ -302,7 +314,7 @@ struct ClipEditor: View {
                                 DesignMenuField(title: String(format: "%g×", playback.speed), height: 30) {
                                     ForEach([0.5, 0.75, 1, 1.25, 1.5, 2], id: \.self) { rate in Button(String(format: "%g×", rate)) { playback.speed = rate } }
                                 }.frame(width: 62)
-                                editorIcon(playback.player.rate == 0 ? "play" : "pause", title: "播放 / 暂停", action: playback.toggle)
+                                editorIcon(playback.player.rate == 0 ? "play" : "pause", title: "播放 / 暂停", action: playback.toggle).disabled(!playback.ready)
                             }
                         }.frame(maxWidth: .infinity).accessibilityIdentifier("clips.videoPanel")
                         VStack(alignment: .leading, spacing: 20) {
@@ -318,6 +330,7 @@ struct ClipEditor: View {
             }.accessibilityIdentifier(metrics.stacked ? "clips.layout.stacked" : "clips.layout.columns")
         }
             .onAppear { syncTimes(); if !project.ranges.isEmpty { playback.select(working.start...working.end) } }
+            .task(id: playbackAttempt) { await playback.prepare(project.media, rebuild: playbackAttempt > 0) }
             .onDisappear { playback.player.pause() }
             .onChange(of: clips.jobs.first?.state) { state in
                 if let count = pendingRecommendation, let job = clips.jobs.first, job.projectID == project.id, job.kind == .transcribe, state != .running {
@@ -767,7 +780,8 @@ struct ClipEditor: View {
     private func duplicate(_ range: ClipRange) {
         remember()
         var next = range; next.id = UUID(); next.title = "选段 \((project.ranges.compactMap { Int($0.title.split(separator: " ").last ?? "") }.max() ?? project.ranges.count) + 1)"; next.proofreadCandidates = nil
-        clips.saveRange(project.id, range: next); working = next; syncTimes(); playback.select(next.start...next.end)
+        guard clips.saveRange(project.id, range: next) else { return }
+        working = next; syncTimes(); playback.select(next.start...next.end)
     }
     private func resizeRole(_ id: UUID, chinese: Double, japanese: Double) {
         remember()
