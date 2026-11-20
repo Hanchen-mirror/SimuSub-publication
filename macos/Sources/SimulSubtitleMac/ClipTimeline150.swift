@@ -77,18 +77,18 @@ struct ClipTimeline150: View {
                 }.frame(height: Self.laneHeight + extraHeight, alignment: .topLeading)
                     .coordinateSpace(name: "timeline150")
                 GeometryReader { rail in
-                    let x = max(14, min(rail.size.width - 14, rail.size.width * time / total))
+                    let x = max(15, min(rail.size.width - 15, rail.size.width * time / total))
                     ZStack(alignment: .leading) {
                         Capsule().fill(ThemeColor.line).frame(height: 3)
                         RocketMarker(time: time)
-                            .frame(width: 28, height: 20).offset(x: x - 14)
-                    }.frame(height: 24).contentShape(Rectangle())
+                            .frame(width: 30, height: 28).offset(x: x - 15)
+                    }.frame(height: 28).contentShape(Rectangle())
                         .gesture(DragGesture(minimumDistance: 0).onChanged { v in seek(max(0, min(total, v.location.x / max(1, rail.size.width) * total))) })
                         .accessibilityElement().accessibilityLabel(L10n.text("播放位置"))
                         .accessibilityValue(ClipTime.label(time)).accessibilityAdjustableAction { dir in seek(max(0, min(total, time + (dir == .increment ? 0.1 : -0.1)))) }
-                }.frame(height: 24)
+                }.frame(height: 28)
             }
-        }.frame(height: 94 + extraHeight)
+        }.frame(height: 98 + extraHeight)
     }
     private func segment(_ range: ClipRange, width: CGFloat, lanes: [UUID: Int]) -> some View {
         let active = range.id == selected
@@ -249,11 +249,7 @@ private struct RocketMarker: View {
 
     var body: some View {
         ZStack {
-            RocketPlayhead()
-                .fill(ThemeColor.surface)
-                .overlay {
-                    RocketPlayhead().stroke(ThemeColor.primary, style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
-                }
+            RocketIllustration()
             if moving && !reduceMotion {
                 TimelineView(.animation(minimumInterval: 1.0 / 30)) { tick in
                     let phase = tick.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.42) / 0.42
@@ -263,7 +259,7 @@ private struct RocketMarker: View {
                 .transition(.opacity)
             }
         }
-        .rotationEffect(.degrees(facingLeft ? -180 : 0))
+        .rotationEffect(.degrees(facingLeft ? -52 : 52))
         .onChange(of: time) { next in
             let delta = next - previousTime
             previousTime = next
@@ -296,37 +292,62 @@ private struct RocketMarker: View {
 private struct RocketExhaust: Shape {
     let pulse: Double
     func path(in rect: CGRect) -> Path {
-        let nozzle = CGPoint(x: rect.minX + rect.width * 0.23, y: rect.midY)
-        let tip = CGPoint(x: nozzle.x - rect.width * (0.12 + 0.09 * pulse), y: nozzle.y)
-        let height = rect.height * 0.12
-        var path = Path()
-        path.move(to: CGPoint(x: nozzle.x, y: nozzle.y - height))
-        path.addQuadCurve(to: tip, control: CGPoint(x: tip.x + 1.5, y: nozzle.y - height))
-        path.addQuadCurve(to: CGPoint(x: nozzle.x, y: nozzle.y + height), control: CGPoint(x: tip.x + 1.5, y: nozzle.y + height))
-        path.closeSubpath()
-        return path
+        // Shared 30-by-28 grid with the hull. Exhaust begins directly at the nozzle lip.
+        var flame = Path()
+        flame.move(to: CGPoint(x: 13.2, y: 21.8))
+        flame.addQuadCurve(to: CGPoint(x: 15, y: 24.8 + 2.3 * pulse), control: CGPoint(x: 12.8, y: 23.7))
+        flame.addQuadCurve(to: CGPoint(x: 16.8, y: 21.8), control: CGPoint(x: 17.2, y: 23.7))
+        flame.closeSubpath()
+        return flame.applying(CGAffineTransform(scaleX: rect.width / 30, y: rect.height / 28))
     }
 }
 
-private struct RocketPlayhead: Shape {
-    func path(in rect: CGRect) -> Path {
-        // A right-facing rocket drawn on a 28 × 20 point grid.
-        let scale = min(rect.width / 28, rect.height / 20)
-        let origin = CGPoint(x: rect.midX - 14 * scale, y: rect.midY - 10 * scale)
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: origin.x + x * scale, y: origin.y + y * scale)
-        }
-        var path = Path()
-        path.move(to: point(7, 7.2))
-        path.addLine(to: point(6, 2.5))
-        path.addQuadCurve(to: point(13.8, 5.5), control: point(10.6, 2.6))
-        path.addQuadCurve(to: point(26.5, 10), control: point(21, 5))
-        path.addQuadCurve(to: point(13.8, 14.5), control: point(21, 15))
-        path.addQuadCurve(to: point(6, 17.5), control: point(10.6, 17.4))
-        path.addLine(to: point(7, 12.8))
-        path.closeSubpath()
+/// The nose cone, cabin, and bell have distinct silhouettes at the rail's actual size.
+private struct RocketIllustration: View {
+    var body: some View {
+        Canvas { context, size in
+            context.scaleBy(x: size.width / 30, y: size.height / 28)
+            let ink = ThemeColor.primaryInk
+            let bodyColor = ThemeColor.surface
+            let pen = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
+            func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x, y: y) }
 
-        path.addEllipse(in: CGRect(origin: point(15.2, 8.2), size: CGSize(width: 3.6 * scale, height: 3.6 * scale)))
-        return path
+            var fins = Path()
+            fins.move(to: point(11.8, 12.2))
+            fins.addQuadCurve(to: point(7.6, 21.4), control: point(7.4, 14.7))
+            fins.addLine(to: point(11.7, 18.2))
+            fins.closeSubpath()
+            fins.move(to: point(18.2, 12.2))
+            fins.addQuadCurve(to: point(22.4, 21.4), control: point(22.6, 14.7))
+            fins.addLine(to: point(18.3, 18.2))
+            fins.closeSubpath()
+            context.fill(fins, with: .color(ThemeColor.primary))
+            context.stroke(fins, with: .color(ink), style: pen)
+
+            var bell = Path()
+            bell.addLines([point(13, 18.2), point(12.4, 21.3), point(17.6, 21.3), point(17, 18.2)])
+            bell.closeSubpath()
+            context.fill(bell, with: .color(bodyColor))
+            context.stroke(bell, with: .color(ink), style: pen)
+
+            var hull = Path()
+            hull.move(to: point(15, 0.9))
+            hull.addCurve(to: point(18.0, 18.6), control1: point(19.6, 5.7), control2: point(19.9, 13.7))
+            hull.addQuadCurve(to: point(12.0, 18.6), control: point(15, 19.3))
+            hull.addCurve(to: point(15, 0.9), control1: point(10.1, 13.7), control2: point(10.4, 5.7))
+            hull.closeSubpath()
+            context.fill(hull, with: .color(bodyColor))
+            context.stroke(hull, with: .color(ink), style: pen)
+
+            var nose = Path()
+            nose.move(to: point(15, 1.3))
+            nose.addQuadCurve(to: point(17.6, 6.2), control: point(17, 3.9))
+            nose.addQuadCurve(to: point(12.4, 6.2), control: point(15, 7.2))
+            nose.addQuadCurve(to: point(15, 1.3), control: point(13, 3.9))
+            context.fill(nose, with: .color(ink))
+            let window = Path(ellipseIn: CGRect(x: 12.9, y: 9.1, width: 4.2, height: 4.2))
+            context.fill(window, with: .color(ThemeColor.primary))
+            context.stroke(window, with: .color(ink), style: StrokeStyle(lineWidth: 0.8))
+        }
     }
 }
