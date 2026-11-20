@@ -53,6 +53,7 @@ enum ClipChecks {
             try await Release136Checks.positionedVideo(media: media, directory: directory)
             checks.append("v136_positioned_subtitle_real_video_export")
             try require(media.width == 640 && media.height == 360 && media.hasAudio && abs(media.duration - 10) < 0.1, "clip_probe_real_h264_audio_duration")
+            checks += try await ClipMaskRenderChecks.run(directory: directory.appendingPathComponent("mask"), fixture: fixture)
             checks += try await ClipRoleRenderChecks.run(directory: directory.appendingPathComponent("roles"), fixture: fixture)
             checks += try await ClipV120Checks.run(fixture: fixture, directory: directory, model: model, monitor: monitor)
             checks += try await ClipV121Checks.run(fixture: fixture, directory: directory)

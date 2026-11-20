@@ -32,7 +32,14 @@ struct ClipSubtitleMask: Codable, Equatable {
     var height: Double = 0.12
     var color = "#17151C"
     var opacity: Double = 1
-    var valid: Bool { [x, y, width, height, opacity].allSatisfy { $0.isFinite && (0...1).contains($0) } && width >= 0.02 && height >= 0.02 && ClipSubtitleStyle.isColor(color) }
+    var borderWidth: Double?
+    var borderColor: String?
+    var valid: Bool {
+        [x, y, width, height, opacity].allSatisfy { $0.isFinite && (0...1).contains($0) }
+            && width >= 0.02 && height >= 0.02 && ClipSubtitleStyle.isColor(color)
+            && (borderWidth.map { $0.isFinite && (0...12).contains($0) } ?? true)
+            && (borderColor.map(ClipSubtitleStyle.isColor) ?? true)
+    }
 }
 struct ClipSubtitleStyle: Codable, Equatable {
     var mode: ClipLanguageMode = .bilingual
@@ -204,10 +211,22 @@ enum ClipSubtitleRenderer {
         return CGPoint(x: min(max(0, size.width * position.x - overlay.width / 2), max(0, size.width - overlay.width)),
             y: min(max(0, size.height * (1 - position.y) - overlay.height / 2), max(0, size.height - overlay.height)))
     }
-    private static func fillRoundedMask(in ctx: CGContext, rect: CGRect, videoWidth: CGFloat) {
+    private static func fillRoundedMask(in ctx: CGContext, rect: CGRect, videoWidth: CGFloat,
+                                        mask: ClipSubtitleMask? = nil) {
         let radius = min(min(rect.width, rect.height) * 0.26, videoWidth / 1920 * 32)
-        ctx.addPath(CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil))
+        let outer = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        ctx.addPath(outer)
         ctx.fillPath()
+        guard let mask, let width = mask.borderWidth, width > 0 else { return }
+        let inset = width * videoWidth / 1920
+        let inner = rect.insetBy(dx: inset, dy: inset)
+        ctx.setFillColor(NSColor.clipHex(mask.borderColor ?? "#000000").cgColor)
+        ctx.addPath(outer)
+        if !inner.isEmpty {
+            let innerRadius = max(0, radius - inset)
+            ctx.addPath(CGPath(roundedRect: inner, cornerWidth: innerRadius, cornerHeight: innerRadius, transform: nil))
+        }
+        ctx.drawPath(using: .eoFill)
     }
     static func maskRect(size: CGSize, mask: ClipSubtitleMask) -> CGRect {
         let w = size.width * mask.width, h = size.height * mask.height
@@ -218,7 +237,7 @@ enum ClipSubtitleRenderer {
         guard let ctx = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         if let mask = style.mask, mask.valid, mask.enabled {
             ctx.setFillColor(NSColor.clipHex(mask.color).withAlphaComponent(mask.opacity).cgColor)
-            fillRoundedMask(in: ctx, rect: maskRect(size: size, mask: mask), videoWidth: size.width)
+            fillRoundedMask(in: ctx, rect: maskRect(size: size, mask: mask), videoWidth: size.width, mask: mask)
         }
         if let cue, let overlay = overlay(cue, size: size, style: style) {
             let overlaySize = CGSize(width: overlay.width, height: overlay.height)
