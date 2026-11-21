@@ -86,6 +86,9 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
     private let lock = NSLock()
     private var stopping = false
     private var workerFinished = false
+    private var downloadedSeconds = 0.0
+    private var verifiedVideo = false
+    var sustainedRecording: Bool { lock.withLock { verifiedVideo && downloadedSeconds >= 30 } }
     private let process = LiveToolProcess()
     private let session: URLSession
     private let advertisementTimeout: Double
@@ -99,10 +102,42 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
         config.timeoutIntervalForRequest = 8; config.timeoutIntervalForResource = 12
         self.session = session ?? URLSession(configuration: config)
     }
-    func requestStop() { lock.withLock { stopping = true }; process.requestStop() }
-    func cancel() { lock.withLock { stopping = true }; process.cancel() }
+    func requestStop() { lock.withLock { stopping = true } }
+    func cancel() { requestStop() }
     private var shouldStop: Bool { lock.withLock { stopping } }
     private func markFinished() { lock.withLock { workerFinished = true } }
+
+    /// Only the last segment can still be open after FFmpeg exits. Validate
+    /// a replacement before publishing it at the path used by recording history.
+    static func finalizeMKV(output: URL, segmented: Bool) async throws {
+        guard output.pathExtension == "mkv" else { return }
+        let folder = output.deletingLastPathComponent()
+        var file = output
+        if segmented {
+            let pattern = output.lastPathComponent
+            let candidates = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+                .filter { url in
+                    guard let number = url.deletingPathExtension().lastPathComponent.split(separator: "-").last,
+                          number.count == 6, number.allSatisfy(\.isNumber) else { return false }
+                    return url.lastPathComponent == pattern.replacingOccurrences(of: "%06d", with: number)
+                }
+            guard let last = candidates.max(by: { $0.lastPathComponent < $1.lastPathComponent }) else { return }
+            file = last
+        }
+        guard LiveRecordingEngine.fileSize(file.path) > 0 else { return }
+        let probe = try await ClipMediaEngine.probe(file)
+        if let duration = Double(probe.format?.duration ?? ""), duration.isFinite, duration > 0 { return }
+        let temporary = folder.appendingPathComponent(".finalize-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let mux = try await LiveTools.run("ffmpeg", arguments: ["-nostdin", "-v", "error", "-n", "-protocol_whitelist", "file",
+            "-i", file.path, "-map", "0", "-c", "copy", "-f", "matroska", temporary.path], timeout: 600)
+        guard mux.status == 0 else { throw LiveMonitorError.unavailable("录像封装修复失败，原分段已保留。") }
+        let media = try await ClipMediaEngine.inspect(temporary)
+        guard media.hasAudio == probe.streams.contains(where: { $0.codec_type == "audio" }) else {
+            throw LiveMonitorError.unavailable("录像音轨校验失败，原分段已保留。")
+        }
+        _ = try FileManager.default.replaceItemAt(file, withItemAt: temporary)
+    }
 
     func run(_ input: ResolvedLiveInput, output: URL, maximumSeconds: Double, segmentSeconds: Int? = 300,
              onState: @escaping @MainActor @Sendable (TwitchContentState) -> Void) async throws -> LiveToolOutput {
@@ -114,17 +149,25 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
         let progress = LiveRecordingProgress(), start = Date(), deadline = Date().addingTimeInterval(maximumSeconds)
         var worker: Task<LiveToolOutput, Error>?
         var lastState: TwitchContentState?, lastSequence: Int?, lastAdvance = Date(), adSince: Date?, firstContent: Date?
-        var contentCount = 0, discontinuityCount = 0, pendingDiscontinuity = false, sourceEnded = false
+        var contentCount = 0, discontinuityCount = 0, pendingDiscontinuity = false
+        var endReason = "stopped"
         var entries: [(number: Int, duration: Double, discontinuity: Bool)] = []
         var retained: [Int] = []
-        func event(_ state: TwitchContentState, seconds: Double? = nil) async throws {
-            guard state != lastState else { return }; lastState = state
-            var row: [String: Any] = ["state": state.rawValue, "at": ISO8601DateFormatter().string(from: Date()), "elapsedSeconds": Date().timeIntervalSince(start)]
-            if let seconds { row["unavailableSeconds"] = seconds }
+        func log(_ fields: [String: Any]) throws {
+            var row = fields
+            row["at"] = ISO8601DateFormatter().string(from: Date())
+            row["elapsedSeconds"] = Date().timeIntervalSince(start)
             let data = try JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]) + Data([10])
             if !FileManager.default.fileExists(atPath: events.path) { FileManager.default.createFile(atPath: events.path, contents: nil) }
             let handle = try FileHandle(forWritingTo: events); defer { try? handle.close() }
             try handle.seekToEnd(); try handle.write(contentsOf: data)
+        }
+        func event(_ state: TwitchContentState, seconds: Double? = nil) async throws {
+            guard state != lastState else { return }
+            lastState = state
+            var fields: [String: Any] = ["state": state.rawValue]
+            if let seconds { fields["unavailableSeconds"] = seconds }
+            try log(fields)
             await onState(state)
         }
         func publish(ended: Bool = false) throws {
@@ -137,40 +180,61 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
             if ended { text += "#EXT-X-ENDLIST\n" }
             try text.write(to: playlist, atomically: true, encoding: .utf8)
         }
-        func fetch(_ url: URL, limit: Int) async throws -> Data {
+        func fetch(_ url: URL, kind: String, limit: Int) async throws -> Data {
             var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
             for (key, value) in track.headers where key.lowercased() == "user-agent" { request.setValue(value, forHTTPHeaderField: key) }
-            // Download to disk first, so a bad response cannot allocate an unbounded Data.
-            let (temporary, response) = try await session.download(for: request)
-            defer { try? FileManager.default.removeItem(at: temporary) }
-            guard (response as? HTTPURLResponse)?.statusCode == 200,
-                  LiveRecordingEngine.fileSize(temporary.path) <= Int64(limit) else {
-                throw LiveMonitorError.unavailable("Twitch 清单或分片请求失败，正在刷新播放地址。")
+            for attempt in 1...3 {
+                try Task.checkCancellation()
+                if shouldStop || Date() >= deadline { throw CancellationError() }
+                var retryable = false
+                var reason = "invalidResponse"
+                do {
+                    let (temporary, response) = try await session.download(for: request)
+                    defer { try? FileManager.default.removeItem(at: temporary) }
+                    guard let status = (response as? HTTPURLResponse)?.statusCode else { throw LiveMonitorError.invalidResponse }
+                    guard status == 200 else {
+                        reason = "HTTP " + String(status)
+                        retryable = [408, 429, 500, 502, 503, 504].contains(status)
+                        throw LiveMonitorError.request("Twitch " + kind + "请求失败（" + reason + "）。")
+                    }
+                    let bytes = LiveRecordingEngine.fileSize(temporary.path)
+                    guard bytes > 0, bytes <= Int64(limit) else { throw LiveMonitorError.invalidResponse }
+                    return try Data(contentsOf: temporary)
+                } catch {
+                    if let network = error as? URLError {
+                        reason = "URL " + String(network.errorCode)
+                        retryable = [.timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost,
+                                     .cannotFindHost, .dnsLookupFailed].contains(network.code)
+                    }
+                    try log(["state": "requestFailed", "request": kind, "attempt": attempt, "reason": reason])
+                    guard retryable, attempt < 3 else {
+                        if error is URLError { throw LiveMonitorError.request("Twitch " + kind + "连接失败（" + reason + "）。") }
+                        throw error
+                    }
+                    try await Task.sleep(nanoseconds: UInt64(attempt) * 500_000_000)
+                }
             }
-            return try Data(contentsOf: temporary)
+            throw LiveMonitorError.invalidResponse
         }
         defer {
-            if FileManager.default.fileExists(atPath: events.path), let handle = try? FileHandle(forWritingTo: events) {
-                var row: [String: Any] = ["state": "ended", "elapsedSeconds": Date().timeIntervalSince(start)]
-                if let adSince { row["unavailableSeconds"] = Date().timeIntervalSince(adSince) }
-                if let data = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]) {
-                    _ = try? handle.seekToEnd(); try? handle.write(contentsOf: data + Data([10]))
-                }
-                try? handle.close()
-            }
+            var row: [String: Any] = ["state": "ended", "reason": endReason]
+            if let adSince { row["unavailableSeconds"] = Date().timeIntervalSince(adSince) }
+            try? log(row)
             try? FileManager.default.removeItem(at: spool)
         }
+        var inputError: Error?
         do {
             while !shouldStop && Date() < deadline {
                 try Task.checkCancellation()
-                if lock.withLock({ workerFinished }), let worker { return try await worker.value }
+                if lock.withLock({ workerFinished }) { endReason = "muxerExit"; break }
                 try LiveRecordingEngine.checkSpace(spool, minimum: 250_000_000)
-                let manifest = try await fetch(track.url, limit: 1_048_576)
+                let manifest = try await fetch(track.url, kind: "清单", limit: 1_048_576)
                 let remote = try TwitchPlaylist(String(decoding: manifest, as: UTF8.self), base: track.url)
                 // Begin at the same small live edge as a player. Never replay a whole stale window.
                 let fresh = remote.segments.filter { $0.sequence > (lastSequence ?? max(-1, (remote.segments.last?.sequence ?? 0) - 3)) }
                 if let first = fresh.first, let lastSequence, first.sequence > lastSequence + 1 {
-                    throw LiveMonitorError.unavailable("Twitch 清单已跳过尚未保存的分片，正在重连；录像存在缺口。")
+                    pendingDiscontinuity = true
+                    try log(["state": "gap", "missingSegments": first.sequence - lastSequence - 1])
                 }
                 for segment in fresh {
                     if shouldStop || Date() >= deadline { break }
@@ -180,7 +244,7 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
                         pendingDiscontinuity = true
                         try await event(.advertisement)
                     } else {
-                        let data = try await fetch(segment.url, limit: 32 * 1_048_576)
+                        let data = try await fetch(segment.url, kind: "分片", limit: 32 * 1_048_576)
                         guard !data.isEmpty else { throw LiveMonitorError.invalidResponse }
                         try data.write(to: spool.appendingPathComponent("\(contentCount).ts"), options: .atomic)
                         entries.append((contentCount, segment.duration, pendingDiscontinuity || segment.discontinuity))
@@ -193,6 +257,7 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
                         while entries.count > 60 { if entries.removeFirst().discontinuity { discontinuityCount += 1 } }
                         while retained.count > 120 { try? FileManager.default.removeItem(at: spool.appendingPathComponent("\(retained.removeFirst()).ts")) }
                         try publish()
+                        lock.withLock { downloadedSeconds += segment.duration }
                         if worker == nil {
                             var args = ["-hide_banner", "-loglevel", "error", "-nostats", "-n", "-progress", progressURL.path,
                                         "-stats_period", "0.5", "-protocol_whitelist", "file", "-live_start_index", "0",
@@ -214,24 +279,44 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
                     lastSequence = segment.sequence; lastAdvance = Date()
                 }
                 _ = progress.poll(progressURL)
-                if progress.hasVideo, adSince == nil { try await event(.recording) }
+                if progress.hasVideo, adSince == nil {
+                    lock.withLock { verifiedVideo = true }
+                    try await event(.recording)
+                }
                 if let adSince, Date().timeIntervalSince(adSince) > advertisementTimeout { throw LiveMonitorError.unavailable("Twitch 广告占位已持续 6 分钟，仍未取得主播画面；正在刷新播放地址。") }
                 if Date().timeIntervalSince(lastAdvance) > stallTimeout { throw LiveMonitorError.unavailable("Twitch 清单停滞 30 秒，正在重新连接。") }
                 if let firstContent, !progress.hasVideo, Date().timeIntervalSince(firstContent) > 20, adSince == nil {
                     throw LiveMonitorError.unavailable("Twitch 非广告分片未能生成画面，正在重新连接。")
                 }
-                if remote.ended { sourceEnded = true; break }
+                if remote.ended { endReason = "endList"; break }
                 try await Task.sleep(nanoseconds: UInt64(min(2, max(0.25, remote.targetDuration / 2)) * 1_000_000_000))
             }
-            try publish(ended: true)
-            if !sourceEnded { process.requestStop() }
-            if let worker { return try await worker.value }
-            return .init(status: 0, data: Data(), error: "")
         } catch {
-            process.requestStop()
-            if let worker { _ = try? await worker.value }
-            if shouldStop && !Task.isCancelled { return .init(status: 0, data: Data(), error: "") }
-            throw error
+            if (!shouldStop && Date() < deadline) || Task.isCancelled {
+                inputError = error
+                endReason = "inputError"
+            }
         }
+        if Date() >= deadline && endReason == "stopped" { endReason = "timeLimit" }
+        // FFmpeg is reading a local live playlist. Give it EOF even when the
+        // remote request fails, so it consumes buffered packets and writes the trailer.
+        do { try publish(ended: true) }
+        catch { inputError = inputError ?? error; process.requestStop() }
+        let fallback = Task {
+            try await Task.sleep(nanoseconds: 12_000_000_000)
+            process.requestStop()
+        }
+        defer { fallback.cancel() }
+        guard let worker else {
+            if let inputError { throw inputError }
+            return LiveToolOutput(status: 0, data: Data(), error: "")
+        }
+        let muxResult = await worker.result
+        fallback.cancel()
+        try await Self.finalizeMKV(output: output, segmented: segmentSeconds != nil)
+        let result = try muxResult.get()
+        if result.status != 0 { endReason = "muxerError" }
+        if let inputError { throw inputError }
+        return result
     }
 }

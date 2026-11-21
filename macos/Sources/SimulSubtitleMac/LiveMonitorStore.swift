@@ -171,8 +171,8 @@ final class LiveMonitorStore: ObservableObject {
         catch { notice = "无法打开保存目录，请更换文件夹。" }
     }
     func revealRecording(_ recording: LiveRecording) {
-        guard FileManager.default.fileExists(atPath: recording.path) else { notice = "这个录制文件已被移动或删除。"; return }
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: recording.path)])
+        guard let file = recording.mediaURLs.first else { notice = "这个录制文件已被移动或删除。"; return }
+        NSWorkspace.shared.activateFileViewerSelecting([file])
     }
 
     func startMonitoring() {
@@ -323,23 +323,25 @@ final class LiveMonitorStore: ObservableObject {
         var finalError: Error?
         var cleanEnd = false
         var twitchHadAdvertisement = false
-        var attempts = 0
-        for attempt in 1...4 {
+        var attempt = 0
+        var consecutiveFailures = 0
+        while consecutiveFailures < 4 && Date() < deadline {
+            attempt += 1
+            var twitchAttempt: TwitchRecordingJob?
             do {
                 try Task.checkCancellation()
                 guard !shutdownRequested, recordings.first(where: { $0.id == id })?.state != .stopping else { break }
                 if attempt > 1 {
+                    updateRecording(id) { $0.state = .preparing; $0.message = (finalError.map { Self.message($0) } ?? "连接中断。") + " 正在重连（\(consecutiveFailures)/3）。" }
+                    try await Task.sleep(nanoseconds: UInt64([0, 2, 5, 15][consecutiveFailures]) * 1_000_000_000)
                     let access = try credentials.context(creator.platform)
                     let snapshot = try await service.status(creator, access: access)
                     applySnapshot(snapshot, to: creator.id)
                     if snapshot.state == .offline { throw LiveExtractionError.offline }
                     if snapshot.state == .upcoming { throw LiveExtractionError.upcoming }
-                    updateRecording(id) { $0.state = .preparing; $0.message = (finalError.map { Self.message($0) } ?? "连接中断。") + " 正在重连（\(attempt - 1)/3）。" }
-                    try await Task.sleep(nanoseconds: UInt64([0, 2, 5, 15][attempt - 1]) * 1_000_000_000)
                 }
                 var access = try credentials.context(creator.platform)
                 access.recordingQuality = quality
-                attempts = attempt
                 let current = creators.first(where: { $0.id == creator.id }) ?? creator
                 let input = try await service.recordingInput(current, access: access)
                 try Task.checkCancellation()
@@ -363,7 +365,7 @@ final class LiveMonitorStore: ObservableObject {
                         }
                     } onCancel: { job.cancel() }
                 } else if input.twitchHLS {
-                    let job = TwitchRecordingJob(); jobs[id] = job
+                    let job = TwitchRecordingJob(); jobs[id] = job; twitchAttempt = job
                     defer { if jobs[id] === job { jobs[id] = nil } }
                     updateRecording(id) { $0.title = input.title; $0.state = .preparing; $0.message = "正在检查 Twitch 直播内容。" }
                     result = try await withTaskCancellationHandler {
@@ -433,6 +435,10 @@ final class LiveMonitorStore: ObservableObject {
             } catch {
                 await service.invalidateRecordingInput(creator)
                 finalError = error
+                if twitchAttempt?.sustainedRecording == true {
+                    consecutiveFailures = 0
+                }
+                consecutiveFailures += 1
                 if Task.isCancelled || shutdownRequested || recordings.first(where: { $0.id == id })?.state == .stopping || Date() >= deadline { break }
             }
         }
@@ -451,7 +457,7 @@ final class LiveMonitorStore: ObservableObject {
             } else {
                 $0.state = $0.bytes > 0 ? .interrupted : (Task.isCancelled ? .cancelled : .failed)
                 let cause = finalError.map { Self.message($0) } ?? "录制任务意外结束。"
-                $0.message = cause + (attempts > 1 ? " 已重试 \(attempts - 1) 次，仍未恢复。" : "")
+                $0.message = cause + (consecutiveFailures > 1 ? " 已重试 \(consecutiveFailures - 1) 次，仍未恢复。" : "")
                     + ($0.bytes > 0 ? " 已有录像保留。" : " 未生成录像。")
             }
         }
