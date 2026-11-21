@@ -362,7 +362,7 @@ final class AppModel: ObservableObject {
         self.defaults = defaults
         self.modelStore = modelStore
         self.modelDownloadsAllowed = modelDownloadsAllowed
-        self.localModels = LocalModelLibrary(defaults: defaults, defaultRoot: modelStore.root, downloadsAllowed: modelDownloadsAllowed)
+        self.localModels = LocalModelLibrary(defaults: defaults, defaultRoot: modelStore.root, bundledRoot: modelStore.bundledRoot, downloadsAllowed: modelDownloadsAllowed)
         let interfaceLanguage = AppLocalization.preferredLanguage(defaults: defaults)
         sourceLanguage = defaults.string(forKey: "subtitle.sourceLanguage.v141").flatMap(SubtitleLanguage.init(rawValue:))
             ?? (interfaceLanguage == .japanese ? .english : .japanese)
@@ -1181,7 +1181,7 @@ final class AppModel: ObservableObject {
         if let definition = LocalModelDefinition.catalog.first(where: { $0.id == profile.localModelID }) {
             return localModels.folder(for: definition)
         }
-        return profile.purpose == .speechRecognition ? modelStore.managedSpeechFiles.folder :
+        return profile.purpose == .speechRecognition ? modelStore.speechFolder :
             URL(fileURLWithPath: modelStore.translationModelPath).deletingLastPathComponent()
     }
 
@@ -1199,12 +1199,13 @@ final class AppModel: ObservableObject {
         let files: ManagedModelFiles
         if let definition = LocalModelDefinition.catalog.first(where: { $0.id == profile.localModelID }) {
             if localModels.isImported(definition) { return .importedFolder(definition) }
-            files = ManagedModelFiles(folder: localModels.folder(for: definition), filenames: definition.files.map(\.name))
+            files = ManagedModelFiles(folder: localModels.userFolder(for: definition), filenames: definition.files.map(\.name))
         } else {
             // The built-in translation model is a shared, read-only installation.
             guard profile.purpose == .speechRecognition, profile.localModelID == nil else { return nil }
             files = modelStore.managedSpeechFiles
         }
+        guard !LocalModelStore.isInsideApplication(files.folder) else { return nil }
         return files.hasFiles ? .files(files) : nil
     }
 

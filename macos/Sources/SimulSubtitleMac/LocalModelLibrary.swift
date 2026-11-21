@@ -34,25 +34,58 @@ final class LocalModelLibrary: ObservableObject {
     private var downloadTask: Task<Void, Never>?
     private let defaults: UserDefaults
     private let downloadsAllowed: Bool
+    private let bundledRoot: URL?
     var onChange: (() -> Void)?
 
-    init(defaults: UserDefaults, defaultRoot: URL, downloadsAllowed: Bool = !AppLaunchOptions.isDiagnostic) {
+    init(defaults: UserDefaults, defaultRoot: URL, bundledRoot: URL? = nil, downloadsAllowed: Bool = !AppLaunchOptions.isDiagnostic) {
+        self.bundledRoot = bundledRoot
         self.defaults = defaults; self.downloadsAllowed = downloadsAllowed
         directory = defaults.string(forKey: "models.directory.v142").map { URL(fileURLWithPath: $0) } ?? defaultRoot
         locations = defaults.dictionary(forKey: "models.locations.v142") as? [String: String] ?? [:]
     }
-    func folder(for model: LocalModelDefinition) -> URL {
+    func userFolder(for model: LocalModelDefinition) -> URL {
         locations[model.id].map { URL(fileURLWithPath: $0) } ?? directory.appendingPathComponent(model.id)
     }
-    func isImported(_ model: LocalModelDefinition) -> Bool { importedVerified.contains(model.id) }
+
+    private func isUnlinked(_ model: LocalModelDefinition, folder: URL) -> Bool {
+        let unlinked = defaults.dictionary(forKey: "models.unlinkedFolders") as? [String: String]
+        return unlinked?[model.id] == folder.standardizedFileURL.path
+    }
+
+    private func ready(_ model: LocalModelDefinition, in folder: URL, requireMarkers: Bool) -> Bool {
+        model.files.allSatisfy { file in
+            let url = folder.appendingPathComponent(file.name)
+            guard FileManager.default.isReadableFile(atPath: url.path),
+                  (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) == file.byteCount
+            else { return false }
+            return !requireMarkers || (try? String(contentsOfFile: url.path + ".sha256", encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)) == file.sha256
+        }
+    }
+
+    func folder(for model: LocalModelDefinition) -> URL {
+        let user = userFolder(for: model)
+        guard let bundled = bundledRoot?.appendingPathComponent(model.id) else { return user }
+        if !isUnlinked(model, folder: user), ready(model, in: user, requireMarkers: !importedVerified.contains(model.id)) {
+            return user
+        }
+        let managed = directory.appendingPathComponent(model.id)
+        if managed.standardizedFileURL.path != user.standardizedFileURL.path, !isUnlinked(model, folder: managed),
+           ready(model, in: managed, requireMarkers: true) { return managed }
+        return ready(model, in: bundled, requireMarkers: true) ? bundled : user
+    }
+
+    func isImported(_ model: LocalModelDefinition) -> Bool {
+        importedVerified.contains(model.id)
+    }
 
     func unlink(_ model: LocalModelDefinition) {
         guard isImported(model) else { return }
-        let previous = folder(for: model)
+        let previous = userFolder(for: model)
         locations.removeValue(forKey: model.id)
         defaults.set(locations, forKey: "models.locations.v142")
         importedVerified.remove(model.id)
-        if previous.standardizedFileURL.path == folder(for: model).standardizedFileURL.path {
+        if previous.standardizedFileURL.path == userFolder(for: model).standardizedFileURL.path {
             // An explicitly imported folder may also be the normal download destination.
             var unlinked = defaults.dictionary(forKey: "models.unlinkedFolders") as? [String: String] ?? [:]
             unlinked[model.id] = previous.standardizedFileURL.path
@@ -63,17 +96,11 @@ final class LocalModelLibrary: ObservableObject {
 
     func isInstalled(_ model: LocalModelDefinition) -> Bool {
         let folder = folder(for: model)
-        if let unlinked = defaults.dictionary(forKey: "models.unlinkedFolders") as? [String: String],
-           unlinked[model.id] == folder.standardizedFileURL.path { return false }
-        return model.files.allSatisfy { file in
-            let url = folder.appendingPathComponent(file.name)
-            return FileManager.default.isReadableFile(atPath: url.path)
-                && (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) == file.byteCount
-                && (try? String(contentsOfFile: url.path + ".sha256", encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)) == file.sha256
-        }
+        return !isUnlinked(model, folder: folder) && ready(model, in: folder, requireMarkers: true)
     }
     func setDirectory(_ url: URL) {
         // Changing the destination never moves, copies or removes installed files.
+        guard !LocalModelStore.isInsideApplication(url) else { message = CocoaError(.fileWriteNoPermission).localizedDescription; return }
         directory = url.standardizedFileURL
         defaults.set(directory.path, forKey: "models.directory.v142"); onChange?()
     }
@@ -85,12 +112,15 @@ final class LocalModelLibrary: ObservableObject {
     func openDirectory(_ url: URL? = nil) {
         let target = url ?? directory
         do {
-            try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: target.path) {
+                guard !LocalModelStore.isInsideApplication(target) else { throw CocoaError(.fileWriteNoPermission) }
+                try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+            }
             NSWorkspace.shared.open(target)
         } catch { message = error.localizedDescription }
     }
     func download(_ model: LocalModelDefinition) {
-        guard downloadsAllowed, downloadingID == nil else { return }
+        guard downloadsAllowed, downloadingID == nil, !isUsable(model) else { return }
         downloadingID = model.id; progress = 0; message = ""
         downloadTask = Task {
             defer { downloadingID = nil; downloadTask = nil; onChange?() }
@@ -117,13 +147,19 @@ final class LocalModelLibrary: ObservableObject {
     }
 
     func install(_ model: LocalModelDefinition, onProgress: (@MainActor @Sendable (Double) -> Void)? = nil) async throws {
+        if isUsable(model) { onProgress?(1); return }
         guard downloadsAllowed else { throw ClipError.message("诊断模式禁止下载模型。") }
-        let destination = folder(for: model)
+        guard !importedVerified.contains(model.id) else { throw ServiceError.modelNotInstalled(model.name) }
+        let destination = userFolder(for: model)
+        guard !LocalModelStore.isInsideApplication(destination) else { throw CocoaError(.fileWriteNoPermission) }
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         var completed: Int64 = 0
         for file in model.files {
             try Task.checkCancellation()
             let target = destination.appendingPathComponent(file.name)
+            guard !LocalModelStore.isInsideApplication(target),
+                  !LocalModelStore.isInsideApplication(URL(fileURLWithPath: target.path + ".sha256"))
+            else { throw CocoaError(.fileWriteNoPermission) }
             if FileManager.default.fileExists(atPath: target.path) {
                 try await verify(file, at: target)
                 // Existing model files and markers stay read only.
@@ -164,13 +200,10 @@ final class LocalModelLibrary: ObservableObject {
         set { defaults.set(Array(newValue), forKey: "models.importedVerified.v142") }
     }
     func isUsable(_ model: LocalModelDefinition) -> Bool {
-        if isInstalled(model) { return true }
-        guard importedVerified.contains(model.id) else { return false }
-        return model.files.allSatisfy { file in
-            let url = folder(for: model).appendingPathComponent(file.name)
-            return FileManager.default.isReadableFile(atPath: url.path)
-                && (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) == file.byteCount
-        }
+        let folder = folder(for: model)
+        guard !isUnlinked(model, folder: folder) else { return false }
+        let isExternal = importedVerified.contains(model.id) && folder.standardizedFileURL.path == userFolder(for: model).standardizedFileURL.path
+        return ready(model, in: folder, requireMarkers: !isExternal)
     }
     func importFolder(_ model: LocalModelDefinition) {
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
@@ -186,7 +219,8 @@ final class LocalModelLibrary: ObservableObject {
         defaults.set(locations, forKey: "models.locations.v142"); onChange?()
     }
     func verifyReady(_ model: LocalModelDefinition) async throws {
-        for file in model.files { try await verify(file, at: folder(for: model).appendingPathComponent(file.name)) }
+        let folder = folder(for: model)
+        for file in model.files { try await verify(file, at: folder.appendingPathComponent(file.name)) }
     }
     private func verify(_ file: LocalModelDefinition.File, at url: URL) async throws {
         try await Task.detached {

@@ -11,10 +11,20 @@ struct ASRModelFile: Hashable {
 
 final class LocalModelStore: @unchecked Sendable {
     let root: URL
+    let bundledRoot: URL?
+    static var applicationModels: URL? { Bundle.main.sharedSupportURL?.appendingPathComponent("Models") }
+
+    static func isInsideApplication(_ url: URL) -> Bool {
+        let path = url.resolvingSymlinksInPath().standardizedFileURL.path
+        let app = Bundle.main.bundleURL.resolvingSymlinksInPath().standardizedFileURL.path
+        return path == app || path.hasPrefix(app + "/")
+    }
+
     private let files: [ASRModelFile]
     private let translationModel: ASRModelFile
 
-    init(root: URL? = nil) {
+    init(root: URL? = nil, bundledRoot: URL? = nil) {
+        self.bundledRoot = bundledRoot ?? (root == nil ? Self.applicationModels : nil)
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appending(path: "SimulSubtitle/models")
         let base = "https://huggingface.co/csukuangfj/reazonspeech-k2-v2/resolve/c273a8666b943526a37e6facb1f9c2cf6739d710"
@@ -40,29 +50,37 @@ final class LocalModelStore: @unchecked Sendable {
     var asrDownloadBytes: Int64 { files.reduce(0) { $0 + $1.byteCount } }
     var translationDownloadBytes: Int64 { translationModel.byteCount }
 
+    private func readableRoot(for requested: [ASRModelFile]) -> URL {
+        if let bundledRoot, !requested.allSatisfy({ matches($0, in: root) }),
+           requested.allSatisfy({ matches($0, in: bundledRoot) }) { return bundledRoot }
+        return root
+    }
+
+    var speechFolder: URL { readableRoot(for: files).appendingPathComponent("asr-ja") }
     var isASRInstalled: Bool {
-        files.allSatisfy { matches($0) }
+        let location = readableRoot(for: files)
+        return files.allSatisfy { matches($0, in: location) }
     }
-
-    var isTranslationInstalled: Bool {
-        return matches(translationModel)
-    }
-
-    var translationModelPath: String { root.appending(path: translationModel.relativePath).path }
+    var isTranslationInstalled: Bool { matches(translationModel, in: readableRoot(for: [translationModel])) }
+    var translationModelPath: String { readableRoot(for: [translationModel]).appending(path: translationModel.relativePath).path }
 
     func missingDownloadBytes(for purpose: ServicePurpose) throws -> Int64 {
         let requested = purpose == .speechRecognition ? files : [translationModel]
+        let location = readableRoot(for: requested)
         return try requested.reduce(0) { count, file in
-            let path = root.appending(path: file.relativePath).path
+            let path = location.appending(path: file.relativePath).path
             guard FileManager.default.fileExists(atPath: path) else { return count + file.byteCount }
-            guard FileManager.default.isReadableFile(atPath: path), matches(file) else {
+            guard FileManager.default.isReadableFile(atPath: path), matches(file, in: location) else {
                 throw ModelStoreError.checksumFailed(file.relativePath)
             }
             return count
         }
     }
 
-    func path(_ relative: String) -> String { root.appending(path: relative).path }
+    func path(_ relative: String) -> String {
+        let location = relative.hasPrefix("asr-ja/") ? readableRoot(for: files) : root
+        return location.appending(path: relative).path
+    }
 
     typealias Progress = @Sendable (Double, String) -> Void
 
@@ -78,11 +96,12 @@ final class LocalModelStore: @unchecked Sendable {
     func verifyInstalled(for purpose: ServicePurpose) async throws -> Bool {
         let requested = purpose == .speechRecognition ? files : [translationModel]
         return try await Task.detached { [self] in
+            let location = readableRoot(for: requested)
             var complete = true
             for file in requested {
-                let url = root.appending(path: file.relativePath)
+                let url = location.appending(path: file.relativePath)
                 guard FileManager.default.fileExists(atPath: url.path) else { complete = false; continue }
-                guard matches(file), FileManager.default.isReadableFile(atPath: url.path),
+                guard matches(file, in: location), FileManager.default.isReadableFile(atPath: url.path),
                       let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
                       Int64(size) == file.byteCount, try Self.sha256(of: url) == file.sha256 else {
                     throw ModelStoreError.checksumFailed(file.relativePath)
@@ -93,12 +112,15 @@ final class LocalModelStore: @unchecked Sendable {
     }
 
     private func download(_ requested: [ASRModelFile], control: ModelDownloadControl?, progress: @escaping Progress) async throws {
+        let location = readableRoot(for: requested)
+        if requested.allSatisfy({ matches($0, in: location) }) { return }
         let total = requested.reduce(Int64(0)) { $0 + $1.byteCount }
         var completed: Int64 = 0
         for file in requested {
             try Task.checkCancellation()
-            if matches(file) { completed += file.byteCount; continue }
+            if matches(file, in: root) { completed += file.byteCount; continue }
             let destination = root.appending(path: file.relativePath)
+            guard !Self.isInsideApplication(destination) else { throw CocoaError(.fileWriteNoPermission) }
             // Never overwrite an existing model, including one with an invalid marker.
             if FileManager.default.fileExists(atPath: destination.path) {
                 throw ModelStoreError.checksumFailed(file.relativePath)
@@ -121,7 +143,7 @@ final class LocalModelStore: @unchecked Sendable {
             try Task.checkCancellation()
             // Another process may have installed it while this request was in flight.
             guard !FileManager.default.fileExists(atPath: destination.path) else {
-                if matches(file) { completed += file.byteCount; continue }
+                if matches(file, in: root) { completed += file.byteCount; continue }
                 throw ModelStoreError.checksumFailed(file.relativePath)
             }
             try FileManager.default.moveItem(at: temporary, to: destination)
@@ -141,6 +163,8 @@ final class LocalModelStore: @unchecked Sendable {
                 guard FileManager.default.fileExists(atPath: source.path) else { continue }
                 guard try Self.sha256(of: source) == file.sha256 else { throw ModelStoreError.checksumFailed(file.relativePath) }
                 let destination = root.appending(path: file.relativePath)
+                guard !Self.isInsideApplication(destination), !Self.isInsideApplication(URL(fileURLWithPath: destination.path + ".sha256"))
+                else { throw CocoaError(.fileWriteNoPermission) }
                 try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
                 if source.standardizedFileURL != destination.standardizedFileURL {
                     try? FileManager.default.removeItem(at: destination)
@@ -153,10 +177,11 @@ final class LocalModelStore: @unchecked Sendable {
         }.value
     }
 
-    private func matches(_ file: ASRModelFile) -> Bool {
-        let url = root.appending(path: file.relativePath)
+    private func matches(_ file: ASRModelFile, in location: URL) -> Bool {
+        let url = location.appending(path: file.relativePath)
         let marker = URL(fileURLWithPath: url.path + ".sha256")
-        guard let saved = try? String(contentsOf: marker, encoding: .utf8),
+        guard FileManager.default.isReadableFile(atPath: url.path),
+              let saved = try? String(contentsOf: marker, encoding: .utf8),
               saved.trimmingCharacters(in: .whitespacesAndNewlines) == file.sha256,
               let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
               let size = values.fileSize else { return false }

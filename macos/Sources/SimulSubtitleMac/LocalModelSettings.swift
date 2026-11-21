@@ -39,6 +39,9 @@ struct LocalModelActions: View {
 
     @ViewBuilder private var metadata: some View {
         if let size { Text(size).font(.caption).foregroundStyle(ThemeColor.muted) }
+        if model.localProfileInstalled(profile), LocalModelStore.isInsideApplication(model.modelFolder(for: profile)) {
+            Label(L10n.text("随应用安装"), systemImage: "shippingbox").font(.caption).foregroundStyle(ThemeColor.muted)
+        }
     }
 
     private var actions: some View {

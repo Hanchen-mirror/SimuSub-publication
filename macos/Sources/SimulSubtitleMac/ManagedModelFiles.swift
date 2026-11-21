@@ -18,8 +18,12 @@ struct ManagedModelFiles {
         let files = existingFiles
         guard !files.isEmpty else { throw CocoaError(.fileNoSuchFile) }
         // Never follow a redirected model folder or discard a directory disguised as a model.
-        guard !(try folder.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink ?? false),
-              try files.allSatisfy({ try $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true }) else {
+        guard !LocalModelStore.isInsideApplication(folder),
+              !(try folder.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink ?? false),
+              try files.allSatisfy({ url in
+                  guard !LocalModelStore.isInsideApplication(url) else { return false }
+                  return try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true
+              }) else {
             throw CocoaError(.fileWriteNoPermission)
         }
         var moved: [(source: URL, trash: URL)] = []
