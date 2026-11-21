@@ -38,9 +38,22 @@ final class AppModel: ObservableObject {
             && !modelsAreDownloading && subtitlePreparationBytes == nil
     }
 
-    func applySubtitleLanguages(source: SubtitleLanguage, target: SubtitleLanguage) async {
+    var liveTranslationTarget: SubtitleLanguage? { originalOnly ? nil : targetLanguage }
+
+    func applySubtitleLanguages(source: SubtitleLanguage, target: SubtitleLanguage?) async {
         guard canChangeSubtitleLanguages, source != target,
-              source != sourceLanguage || target != targetLanguage else { return }
+              source != sourceLanguage || target != liveTranslationTarget else { return }
+        let mode: SubtitleDisplayMode = target == nil ? .original : (originalOnly ? .bilingual : subtitleDisplayMode)
+        // Toggling translation does not interrupt the audio stream or reset ASR.
+        if source == sourceLanguage, target == nil || originalOnly {
+            if let target {
+                targetLanguage = target
+                defaults.set(target.rawValue, forKey: "subtitle.targetLanguage.v141")
+            }
+            subtitleDisplayMode = mode
+            return
+        }
+        if target == nil { subtitleDisplayMode = .original }
         let resume = isCapturing
         if resume {
             // Finalize the old language's audio and queued translations before changing its engines.
@@ -52,8 +65,9 @@ final class AppModel: ObservableObject {
             pendingLanguageChange = nil
         }
         guard canBeginSubtitleCapture else { return }
+        targetLanguage = target ?? (source == targetLanguage ? sourceLanguage : targetLanguage)
         sourceLanguage = source
-        targetLanguage = target
+        subtitleDisplayMode = mode
         persistLanguages()
         if resume { startCapture(showSubtitles: isSubtitleOnly) }
     }
@@ -148,7 +162,10 @@ final class AppModel: ObservableObject {
             defaults.set(subtitleDisplayMode.rawValue, forKey: "subtitleDisplayMode.v101")
             if subtitleDisplayMode == .original, oldValue != .original {
                 cancelTranslationPreview()
+                activeFinalTranslation?.cancel()
                 translationQueue?.discardPending()
+                prefixTranslations.removeAll()
+                prefixConfirmations.removeAll()
                 for i in captions.indices where captions[i].isDraft && revisionGuards[captions[i].id] == nil {
                     captions[i].translated = ""; captions[i].isDraft = false
                 }
@@ -250,6 +267,7 @@ final class AppModel: ObservableObject {
     private var textTranslator: TextTranslating?
     private var pipelineTask: Task<Void, Never>?
     private var translationTask: Task<Void, Never>?
+    private var activeFinalTranslation: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
     private var pendingPreview: TranslationSegment?
     private var translatingFinal = false
@@ -1303,6 +1321,9 @@ final class AppModel: ObservableObject {
         data.append(contentsOf: try encoder.encode([source, target]))
         data.append(contentsOf: try encoder.encode(glossary))
         data.append(asrHotwordsEnabled ? 1 : 0)
+        if source == .japanese, asr.kind == .local, asr.localModelID == nil {
+            data.append(contentsOf: "clip-ja-gap-verification-v1".utf8)
+        }
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
@@ -1729,7 +1750,10 @@ final class AppModel: ObservableObject {
             for await _ in queue.wakeups {
                 while let item = queue.take(), let self {
                     self.translatingFinal = true
-                    await self.translateCaption(item)
+                    let work = Task { await self.translateCaption(item) }
+                    self.activeFinalTranslation = work
+                    await work.value
+                    self.activeFinalTranslation = nil
                     self.translatingFinal = false
                 }
             }

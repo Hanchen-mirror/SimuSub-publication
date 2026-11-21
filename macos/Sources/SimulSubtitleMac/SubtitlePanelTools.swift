@@ -62,9 +62,11 @@ enum SubtitlePanelGlyph: Shape {
 
 struct SubtitleLanguagePicker: View {
     @State var source: SubtitleLanguage
-    @State var target: SubtitleLanguage
+    @State var target: SubtitleLanguage?
     var onCancel: () -> Void
-    var onApply: (SubtitleLanguage, SubtitleLanguage) -> Void
+    var onApply: (SubtitleLanguage, SubtitleLanguage?) -> Void
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @EnvironmentObject private var appearance: HomeAppearance
     private let options: [SubtitleLanguage] = [.japanese, .english, .simplifiedChinese, .traditionalChinese]
 
     var body: some View {
@@ -75,13 +77,14 @@ struct SubtitleLanguagePicker: View {
                 Text(L10n.text("翻译语言")).font(.headline)
                 Spacer()
                 Button {
-                    (source, target) = (target, source)
+                    if let target { (source, self.target) = (target, source) }
                 } label: {
                     Image(systemName: "arrow.left.arrow.right").frame(width: 30, height: 26)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).help(L10n.text("交换语言")).accessibilityLabel(L10n.text("交换语言"))
                 .accessibilityIdentifier("subtitle.languages.swap")
+                .disabled(target == nil)
             }
             choices(isSource: true)
             choices(isSource: false)
@@ -112,8 +115,10 @@ struct SubtitleLanguagePicker: View {
                         if isSource {
                             if language == target { target = source }
                             source = language
+                        } else if language == target {
+                            target = nil
                         } else {
-                            if language == source { source = target }
+                            if language == source, let target { source = target }
                             target = language
                         }
                     } label: {
@@ -122,12 +127,16 @@ struct SubtitleLanguagePicker: View {
                             .background(selected ? ThemeColor.selection : .clear, in: Capsule())
                             .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain).accessibilityLabel(title + " " + L10n.text(language.name))
+                    .buttonStyle(.plain)
+                    .disabled(!isSource && target == nil && language == source)
+                    .accessibilityLabel(title + " " + L10n.text(language.name))
                     .accessibilityAddTraits(selected ? .isSelected : [])
                     .accessibilityIdentifier("subtitle.languages." + (isSource ? "source." : "target.") + language.rawValue)
                 }
             }
             .padding(3).background(ThemeColor.soft, in: Capsule())
+            .animation(systemReduceMotion || appearance.reduceMotion ? nil : .easeInOut(duration: 0.15),
+                       value: isSource ? source : target)
         }
     }
 }

@@ -59,7 +59,7 @@ struct SubtitleStrip: View {
     var sourceLanguage: SubtitleLanguage = .japanese
     var targetLanguage: SubtitleLanguage = .simplifiedChinese
     var canChangeLanguages = false
-    var onApplyLanguages: ((SubtitleLanguage, SubtitleLanguage) -> Void)? = nil
+    var onApplyLanguages: ((SubtitleLanguage, SubtitleLanguage?) -> Void)? = nil
     var idleText: String = "等待字幕…"
     var isCapturing = false
     var isBusy = false
@@ -82,6 +82,7 @@ struct SubtitleStrip: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var fullCaption: FullCaption?
+    @State private var followingHistory = true
     private var logicalHeight: CGFloat { zoom.logicalSize(size).height }
     private var compact: Bool { logicalHeight < 80 }
     private var layout: SubtitleToolbarLayout {
@@ -118,24 +119,37 @@ struct SubtitleStrip: View {
                     let bottomInset = max(compactInset, (paper.height - content) / 2)
                     let visibleRows = max(1, floor((paper.height - bottomInset + 0.001) / row))
                     let viewport = min(content, visibleRows * row)
-                    ScrollView(.vertical, showsIndicators: content > viewport) {
-                        LazyVStack(spacing: 0) {
-                            ForEach(captions) { caption in
-                                captionView(caption, layout: cueLayout(caption))
-                                    .frame(maxWidth: .infinity).frame(height: row)
+                    // While reading one live cue, paint both lines from the same
+                    // caption. SwiftUI can paint between lazy rows during revisions.
+                    let paintLivePair = content > viewport && visibleRows == 1 && followingHistory
+                    ZStack {
+                        ScrollView(.vertical, showsIndicators: content > viewport) {
+                            LazyVStack(spacing: 0) {
+                                ForEach(captions) { caption in
+                                    captionView(caption, layout: cueLayout(caption))
+                                        .frame(maxWidth: .infinity).frame(height: row)
+                                }
+                            }
+                            .frame(height: content, alignment: .top)
+                            .opacity(paintLivePair ? 0 : 1)
+                            .accessibilityHidden(paintLivePair)
+                            .background(alignment: .topLeading) {
+                                SubtitleHistoryScroll(latestID: captions.last?.id,
+                                    size: CGSize(width: paper.width, height: viewport), rowHeight: row,
+                                    onFollowingChanged: { followingHistory = $0 })
+                                    .frame(width: 1, height: 1)
+                                    .allowsHitTesting(false).accessibilityHidden(true)
                             }
                         }
-                        .frame(height: content)
-                        .background(alignment: .topLeading) {
-                            SubtitleHistoryScroll(latestID: captions.last?.id, size: CGSize(width: paper.width, height: viewport), rowHeight: row)
-                                .frame(width: 1, height: 1)
-                                .allowsHitTesting(false).accessibilityHidden(true)
+                        .accessibilityIdentifier("subtitle.history")
+                        if paintLivePair, let latest = captions.last {
+                            captionView(latest, layout: cueLayout(latest)).frame(height: row)
                         }
                     }
+                    .accessibilityElement(children: .contain)
                     .frame(height: viewport)
                     .padding(.bottom, bottomInset)
                     .frame(height: paper.height, alignment: .bottom)
-                    .accessibilityIdentifier("subtitle.history")
                 }
             }
             .frame(width: paper.width, height: paper.height)
@@ -152,6 +166,7 @@ struct SubtitleStrip: View {
         .contentShape(Rectangle())
         .background { SubtitlePointerTracking(isInside: $pointerInside) }
         .onDisappear { pointerInside = false }
+        .onChange(of: captions.isEmpty) { if $0 { followingHistory = true } }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.text(displayMode == .original ? "原文字幕" : displayMode == .chinese ? "译文字幕" : "双语字幕"))
         .accessibilityIdentifier(compact ? "subtitle.layout.compact" : "subtitle.layout.regular")
@@ -265,10 +280,10 @@ struct SubtitleStrip: View {
     private var languagesButton: some View {
         toolButton(.languages, title: "翻译语言") { showingLanguages.toggle() }
             .disabled(!canChangeLanguages)
-            .accessibilityValue(L10n.text(sourceLanguage.name) + " → " + L10n.text(targetLanguage.name))
+            .accessibilityValue(L10n.text(sourceLanguage.name) + " → " + L10n.text(displayMode == .original ? "仅原文" : targetLanguage.name))
             .accessibilityIdentifier("subtitle.languages")
             .popover(isPresented: $showingLanguages, arrowEdge: .bottom) {
-                SubtitleLanguagePicker(source: sourceLanguage, target: targetLanguage,
+                SubtitleLanguagePicker(source: sourceLanguage, target: displayMode == .original ? nil : targetLanguage,
                     onCancel: { showingLanguages = false },
                     onApply: { source, target in
                         showingLanguages = false

@@ -41,8 +41,11 @@ enum ClipSpeechPipeline {
                     try Task.checkCancellation()
                     let phrases: [TimedCaptionPhrase]
                     if services.sourceLanguage == .japanese {
-                        phrases = JapaneseCaptionPhrase.split(hypothesis, duration: end - start,
-                            forTranslation: services.targetLanguage.isChinese)
+                        let initial = JapaneseCaptionPhrase.split(hypothesis, duration: end - start, forTranslation: services.targetLanguage.isChinese)
+                        if services.recognizer is JapaneseWindowRecognizing {
+                            phrases = try await ClipJapaneseRecovery.fill(initial, samples: segment.samples,
+                                forTranslation: services.targetLanguage.isChinese, recognize: services.recognizer.recognizeDetailed(samples:))
+                        } else { phrases = initial }
                     } else if services.sourceLanguage.isChinese {
                         phrases = ChineseCaptionPhrases.split(hypothesis, duration: end - start, language: services.sourceLanguage)
                     } else {

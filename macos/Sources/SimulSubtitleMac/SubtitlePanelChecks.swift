@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import SwiftUI
+import Vision
 
 /// Explicit opt-in UI checks. No audio, model downloads or authorization prompts.
 @MainActor
@@ -31,6 +32,38 @@ enum SubtitlePanelChecks {
             try await Task.sleep(nanoseconds: 250_000_000)
             guard let panel = controller.panel, let home = controller.homeWindow else { throw CheckFailure("missing_windows") }
             try require(panel.isVisible && !home.isVisible, "independent_panel_home_hidden", &checks)
+            if CommandLine.arguments.contains("--history-follow-only") {
+                try await checkCompactLiveHistory(model, panel: panel, directory: directory, checks: &checks)
+                try await checkHistoryScrolling(model, panel: panel, checks: &checks)
+                try await checkFullCue(model, panel: panel, checks: &checks)
+                try await checkFullCue(model, panel: panel, checks: &checks, withHistory: true)
+                panel.setContentSize(NSSize(width: 800, height: 96))
+                try write(["passed": true, "checks": checks], to: directory.appendingPathComponent("panel-checks.json"))
+                if CommandLine.arguments.contains("--hold-panel") {
+                    for tick in 0..<180 {
+                        if tick > 0 && tick.isMultiple(of: 12) {
+                            let number = model.captions.count + 1
+                            model.captions.append(Caption(start: Double(number), end: Double(number + 1),
+                                                          original: "字幕 \(number)", translated: "译文 \(number)"))
+                        }
+                        if let scroll = subview(NSScrollView.self, in: panel.contentView), let doc = scroll.documentView {
+                            try write(["offset": scroll.contentView.bounds.minY, "tail": doc.bounds.height - scroll.contentView.bounds.height,
+                                       "cueCount": model.captions.count, "windowID": panel.windowNumber],
+                                      to: directory.appendingPathComponent("manual-scroll-position.json"))
+                        }
+                        try await Task.sleep(nanoseconds: 500_000_000)
+                    }
+                }
+                NSApp.terminate(nil)
+                return true
+            }
+            if CommandLine.arguments.contains("--language-target-only") {
+                model.captions = [Caption(start: 0, end: 2, original: "今日は日本語の字幕をテストしています。", translated: "今天正在测试日语字幕。")]
+                try await checkLanguagePicker(model, panel: panel, checks: &checks, directory: directory)
+                try write(["passed": true, "checks": checks], to: directory.appendingPathComponent("panel-checks.json"))
+                NSApp.terminate(nil)
+                return true
+            }
             if CommandLine.arguments.contains("--clear-confirmation-only"), let appearance {
                 try await checkClearConfirmation(model, controller: controller, appearance: appearance, panel: panel,
                                                  directory: directory, checks: &checks)
@@ -70,6 +103,7 @@ enum SubtitlePanelChecks {
                 try await checkCaptionStyle(appearance, panel: panel, directory: directory, checks: &checks)
             }
             try await checkPendingPair(model, panel: panel, directory: directory, checks: &checks)
+            try await checkCompactLiveHistory(model, panel: panel, directory: directory, checks: &checks)
             model.captions = (0..<20).map { index in
                 Caption(start: Double(index * 4), end: Double(index * 4 + 3),
                     original: "字幕 \(index + 1)：今日は一緒に配信を楽しみましょう。",
@@ -681,6 +715,58 @@ enum SubtitlePanelChecks {
         }
     }
 
+    private static func checkCompactLiveHistory(_ model: AppModel, panel: NSPanel, directory: URL, checks: inout [String]) async throws {
+        panel.setContentSize(NSSize(width: 800, height: 96))
+        model.subtitleDisplayMode = .bilingual
+        model.captions = []
+        try await Task.sleep(nanoseconds: 100_000_000)
+        try require(accessible("subtitle.idleText") != nil, "empty_compact_panel_has_accessible_idle_text", &checks)
+        for index in 0..<24 {
+            model.captions.append(Caption(start: Double(index), end: Double(index + 1),
+                                          original: "今日はいい天気ですね。 SOURCE LINE \(index + 1)", translated: "", isDraft: true))
+            try await Task.sleep(nanoseconds: 50_000_000)
+            model.captions[index].translated = "今天的天气真好。 TARGET LINE \(index + 1)"
+            model.captions[index].isDraft = false
+            try await Task.sleep(nanoseconds: 50_000_000)
+            guard let scroll = subview(NSScrollView.self, in: panel.contentView),
+                  let document = scroll.documentView else { throw CheckFailure("missing_compact_history") }
+            let clip = scroll.contentView
+            let tail = document.isFlipped ? max(0, document.bounds.height - clip.bounds.height) : 0
+            guard abs(clip.bounds.minY - tail) <= 1 else { throw CheckFailure("compact_history_lost_new_cue_\(index + 1)") }
+            if index == 14 {
+                // Reproduce the half-row offset left by a late layout pass with no
+                // user gesture. It must heal even when the speaker pauses here.
+                let half = clip.bounds.height / 2
+                clip.scroll(to: NSPoint(x: clip.bounds.minX, y: document.isFlipped ? tail - half : tail + half))
+                scroll.reflectScrolledClipView(clip)
+                try await Task.sleep(nanoseconds: 180_000_000)
+                try require(abs(clip.bounds.minY - tail) <= 1, "compact_history_recovers_live_edge_after_layout", &checks)
+            }
+        }
+        // Geometry alone cannot detect a lazy stack that paints adjacent cue
+        // halves. Read the actual glyphs in the compact viewport in screen order.
+        func readPanel(_ name: String) throws -> [String] {
+            let shot = try snapshot(panel, to: directory.appendingPathComponent(name + ".png"))
+            guard let image = shot.cgImage else { throw CheckFailure("missing_compact_panel_image") }
+            let recognition = VNRecognizeTextRequest()
+            recognition.recognitionLanguages = ["en-US", "ja-JP", "zh-Hans"]
+            try VNImageRequestHandler(cgImage: image).perform([recognition])
+            return (recognition.results ?? []).sorted { $0.boundingBox.midY > $1.boundingBox.midY }
+                .compactMap { $0.topCandidates(1).first?.string.uppercased() }
+        }
+        let readout = try readPanel("compact-live-pair").filter { $0.contains("LINE") }
+        try require(readout.count == 2 && readout[0].contains("SOURCE LINE 24") && readout[1].contains("TARGET LINE 24"),
+                    "compact_live_paints_matching_latest_original_above_translation_\(readout)", &checks)
+        model.subtitleDisplayMode = .original
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let original = try readPanel("compact-live-original")
+        try require(original.contains { $0.contains("SOURCE LINE 24") } && !original.contains { $0.contains("TARGET LINE") },
+                    "original_only_paints_latest_japanese_without_translation", &checks)
+        model.subtitleDisplayMode = .bilingual
+        try await Task.sleep(nanoseconds: 200_000_000)
+        checks.append("compact_panel_follows_24_draft_and_final_cues")
+    }
+
     private static func checkHistoryScrolling(_ model: AppModel, panel: NSPanel, checks: inout [String]) async throws {
         guard let scroll = subview(NSScrollView.self, in: panel.contentView), let document = scroll.documentView else {
             throw CheckFailure("missing_history_scroll_view")
@@ -689,31 +775,60 @@ enum SubtitlePanelChecks {
         func liveOffset() -> CGFloat {
             document.isFlipped ? max(0, document.bounds.height - clip.bounds.height) : 0
         }
-        func wheel(_ lines: Int32) async throws {
-            guard let input = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
-                                      wheel1: lines, wheel2: 0, wheel3: 0),
-                  let event = NSEvent(cgEvent: input) else { throw CheckFailure("cannot_create_scroll_wheel_event") }
-            scroll.scrollWheel(with: event)
-            try await Task.sleep(nanoseconds: 450_000_000)
+        // Deliver at the middle of the caption text through the same floating
+        // window event dispatcher that receives wheel and trackpad input.
+        func wheel(_ delta: Int32, units: CGScrollEventUnit = .line, phase: CGScrollPhase? = nil) throws {
+            guard let input = CGEvent(scrollWheelEvent2Source: nil, units: units, wheelCount: 1,
+                                      wheel1: delta, wheel2: 0, wheel3: 0) else { throw CheckFailure("cannot_create_wheel") }
+            let middle = scroll.convert(CGPoint(x: scroll.bounds.midX, y: scroll.bounds.midY), to: nil)
+            let global = panel.convertPoint(toScreen: middle)
+            input.location = CGPoint(x: global.x, y: CGDisplayBounds(CGMainDisplayID()).height - global.y)
+            if let phase { input.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue)) }
+            guard let event = NSEvent(cgEvent: input) else { throw CheckFailure("cannot_create_wheel_event") }
+            panel.sendEvent(event)
         }
         try require(abs(clip.bounds.minY - liveOffset()) < 4,
                     "enlarged_history_starts_at_latest_cue", &checks)
-        try await wheel(8)
-        let readPosition = clip.bounds.minY
+        try wheel(8)
+        try await Task.sleep(nanoseconds: 350_000_000)
+        var readPosition = clip.bounds.minY
         let tailBefore = liveOffset()
         try require(abs(readPosition - tailBefore) > 20 && readPosition >= 0,
                     "manual_scroll_reaches_valid_earlier_cue", &checks)
-        let row = document.bounds.height / CGFloat(model.captions.count)
-        let fromTop = document.isFlipped ? readPosition : document.bounds.height - clip.bounds.height - readPosition
-        try require(abs(fromTop - (fromTop / row).rounded() * row) <= 1,
-                    "history_rests_on_whole_cue_after_wheel", &checks)
+        let direction: CGFloat = document.isFlipped ? 1 : -1
+        for (step, delta) in [2, 3, 4, 5].enumerated() {
+            try wheel(-Int32(delta), units: .pixel, phase: step == 0 ? .began : .changed)
+            try await Task.sleep(nanoseconds: 45_000_000)
+            let next = clip.bounds.minY
+            guard abs((next - readPosition) * direction - CGFloat(delta)) <= 1 else {
+                throw CheckFailure("text_trackpad_delta_\(delta)_moved_\(next - readPosition)")
+            }
+            readPosition = next
+            if step == 1 {
+                model.captions.append(Caption(start: 30, end: 31, original: "追加草稿", translated: "", isDraft: true))
+                try await Task.sleep(nanoseconds: 75_000_000)
+                model.captions[model.captions.count - 1].translated = "补上译文"
+                model.captions[model.captions.count - 1].isDraft = false
+                try await Task.sleep(nanoseconds: 75_000_000)
+                try require(abs(clip.bounds.minY - readPosition) < 1,
+                            "draft_and_final_during_trackpad_keep_exact_reading_offset", &checks)
+            }
+        }
+        try wheel(0, units: .pixel, phase: .ended)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        try require(abs(clip.bounds.minY - readPosition) < 1, "text_downward_scroll_holds_at_200ms", &checks)
+        try await Task.sleep(nanoseconds: 800_000_000)
+        try require(abs(clip.bounds.minY - readPosition) < 1, "text_downward_scroll_holds_at_1s", &checks)
         model.captions.append(Caption(start: 33, end: 36, original: "New sentence", translated: "新的一句"))
         try await Task.sleep(nanoseconds: 300_000_000)
         guard abs(clip.bounds.minY - readPosition) < 4 && abs(clip.bounds.minY - liveOffset()) > 20 else {
             throw CheckFailure("incoming_cue_shifted_history_\(readPosition)_to_\(clip.bounds.minY)_tail_\(tailBefore)_to_\(liveOffset())")
         }
         checks.append("incoming_cue_preserves_manual_history_position")
-        for _ in 0..<8 where abs(clip.bounds.minY - liveOffset()) > 2 { try await wheel(-8) }
+        for _ in 0..<12 where abs(clip.bounds.minY - liveOffset()) > 0.5 {
+            try wheel(-8)
+            try await Task.sleep(nanoseconds: 120_000_000)
+        }
         try require(abs(clip.bounds.minY - liveOffset()) <= 2, "wheel_scroll_reaches_live_edge", &checks)
         model.captions.append(Caption(start: 37, end: 40, original: "Back to live", translated: "回到同传"))
         try await Task.sleep(nanoseconds: 300_000_000)
@@ -752,14 +867,16 @@ enum SubtitlePanelChecks {
                     && paragraph.original.contains("\n"), "flatten_only_display_and_keep_original_cue", &checks)
     }
 
-    private static func checkFullCue(_ model: AppModel, panel: NSPanel, checks: inout [String]) async throws {
+    private static func checkFullCue(_ model: AppModel, panel: NSPanel, checks: inout [String],
+                                     withHistory: Bool = false) async throws {
         let saved = model.captions
         let size = CGSize(width: 500, height: 76)
         defer { model.captions = saved }
         panel.setContentSize(size)
         let cue = Caption(start: 1, end: 3, original: String(repeating: "今日は配信を楽しみましょう。", count: 4),
                           translated: String(repeating: "今天一起开心地看直播。", count: 5))
-        model.captions = [cue]
+        let cues = withHistory ? [Caption(start: 0, end: 1, original: "先ほどの話です。", translated: "这是上一句。"), cue] : [cue]
+        model.captions = cues
         let paper = SubtitleToolbarLayout(size: size).paperFrame
         for hovered in [false, true] {
             try pointer(hovered, in: panel)
@@ -778,8 +895,8 @@ enum SubtitlePanelChecks {
             for _ in 0..<30 where accessible("subtitle.fullCaptionDetail") == nil {
                 try await Task.sleep(nanoseconds: 40_000_000)
             }
-            try require(accessible("subtitle.fullCaptionDetail") != nil && model.captions == [cue],
-                        "click_long_cue_reveals_full_text_with_tools_\(hovered ? "shown" : "hidden")", &checks)
+            try require(accessible("subtitle.fullCaptionDetail") != nil && model.captions == cues,
+                        "click_long_cue_reveals_full_text_with_tools_\(hovered ? "shown" : "hidden")_history_\(withHistory)", &checks)
             // Click blank space outside the popover to dismiss it like a user.
             try click(panel, at: NSPoint(x: 75, y: 8))
             for _ in 0..<30 where accessible("subtitle.fullCaptionDetail") != nil {
@@ -858,9 +975,10 @@ enum SubtitlePanelChecks {
         try require(reopen().askBeforeClearing, "clear_restored_preference_survives_reopen", &checks)
     }
 
-    private static func checkLanguagePicker(_ model: AppModel, panel: NSPanel, checks: inout [String]) async throws {
+    private static func checkLanguagePicker(_ model: AppModel, panel: NSPanel, checks: inout [String], directory: URL? = nil) async throws {
         model.setSourceLanguage(.japanese)
         model.setTargetLanguage(.simplifiedChinese)
+        model.subtitleDisplayMode = .bilingual
         let captions = model.captions
         func openPicker() async throws {
             let point = windowPoint(SubtitleToolbarLayout(size: panel.frame.size).languagesCenter, size: panel.frame.size)
@@ -877,6 +995,27 @@ enum SubtitlePanelChecks {
         try await pressAccessible("subtitle.languages.cancel")
         try require(model.sourceLanguage == .japanese && model.targetLanguage == .simplifiedChinese
                     && model.captions == captions, "cancel_language_draft_preserves_cue_and_direction", &checks)
+        try await openPicker()
+        try await pressAccessible("subtitle.languages.target.zh-Hans")
+        try require(accessible("subtitle.languages.swap")?.isAccessibilityEnabled?() == false && !model.originalOnly,
+                    "deselected_draft_disables_swap_without_changing_live_mode", &checks)
+        try await pressAccessible("subtitle.languages.cancel")
+        try require(model.liveTranslationTarget == .simplifiedChinese && model.captions == captions,
+                    "cancel_deselection_preserves_target_and_history", &checks)
+        try await openPicker()
+        try await pressAccessible("subtitle.languages.target.zh-Hans")
+        try await pressAccessible("subtitle.languages.apply")
+        try require(model.originalOnly && model.captions == captions && panel.isVisible,
+                    "apply_deselection_keeps_source_and_bilingual_history", &checks)
+        if let directory { try snapshot(panel, to: directory.appendingPathComponent("仅原文.png")) }
+        try await openPicker()
+        try require(accessible("subtitle.languages.swap")?.isAccessibilityEnabled?() == false,
+                    "reopened_picker_still_has_no_target", &checks)
+        try await pressAccessible("subtitle.languages.target.zh-Hans")
+        try await pressAccessible("subtitle.languages.apply")
+        try require(model.liveTranslationTarget == .simplifiedChinese && model.subtitleDisplayMode == .bilingual
+                    && model.captions == captions, "select_target_restores_bilingual_without_clearing", &checks)
+        if let directory { try snapshot(panel, to: directory.appendingPathComponent("恢复双语.png")) }
         try await openPicker()
         try await pressAccessible("subtitle.languages.source.en")
         try await pressAccessible("subtitle.languages.swap")

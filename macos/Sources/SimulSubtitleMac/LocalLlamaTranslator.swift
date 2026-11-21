@@ -161,7 +161,12 @@ final class LocalLlamaTranslator: TextTranslating, @unchecked Sendable {
                 throw LocalLlamaError.promptTooLong
             }
         }
-        return try await withTaskCancellationHandler(operation: { try await task.value }, onCancel: { task.cancel() })
+        let result = try await withTaskCancellationHandler(operation: { try await task.value }, onCancel: { task.cancel() })
+        if !useModelTemplate, text.contains("円"), SubtitleLanguage.resolve(source) == .japanese,
+           let language = SubtitleLanguage.resolve(target), language.isChinese {
+            return JapaneseYenAmount.preserve(in: result, source: text, target: language)
+        }
+        return result
     }
 
     /// One resident Gemma language model handles both PCM transcription and text translation.

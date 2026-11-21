@@ -3,6 +3,13 @@ import Combine
 import SwiftUI
 
 final class SubtitleFloatingPanel: NSPanel {
+    weak var historyAnchor: SubtitleHistoryScroll.Anchor?
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .scrollWheel, attachedSheet == nil, historyAnchor?.handleWheel(event) == true { return }
+        super.sendEvent(event)
+    }
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 }

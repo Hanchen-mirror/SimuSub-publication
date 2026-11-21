@@ -4,6 +4,7 @@ import AppKit
 final class ClipStore: ObservableObject {
     @Published private(set) var projects: [ClipProject]
     @Published private(set) var jobs: [ClipJob]
+    @Published private(set) var subtitleCompletion: (jobID: UUID, date: Date)?
     @Published var selectedID: UUID?
     @Published var notice: String?
     private let storage: LiveMonitorStorage
@@ -289,6 +290,13 @@ final class ClipStore: ObservableObject {
                     case .transcribe: $0.message = job.recommendationCount == nil ? "字幕处理已完成，可编辑后导出；未检测到的语音可手动补充。" : "候选已准备，勾选后加入选段，再预览与导出。"
                     case .export: $0.message = job.exportKind == .mp3 ? "MP3 已分别保存，原视频保留。" : "MP4 已保存，所有可生成的字幕文件已核验。原视频保留。"
                     case .proofread: $0.message = "模型核对完成，请比较建议后应用；原字幕尚未改动。"
+                    }
+                }
+                if job.kind == .transcribe, job.recommendationCount == nil, self.notice == nil {
+                    // Only a new completion announces itself. Reopening saved jobs stays quiet.
+                    self.subtitleCompletion = (jobID, Date())
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                        if self?.subtitleCompletion?.jobID == jobID { self?.subtitleCompletion = nil }
                     }
                 }
             } catch {

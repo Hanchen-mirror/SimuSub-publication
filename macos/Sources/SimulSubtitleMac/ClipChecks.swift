@@ -34,6 +34,15 @@ enum ClipChecks {
         }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            if CommandLine.arguments.contains("--clip-japanese-gap-only") {
+                guard let i = CommandLine.arguments.firstIndex(of: "--clip-real-models"), CommandLine.arguments.indices.contains(i + 1) else {
+                    throw ClipError.message("Pass --clip-real-models with the installed model root.")
+                }
+                checks = try await ClipJapaneseRecoveryChecks.run(fixture: fixture, root: URL(fileURLWithPath: CommandLine.arguments[i + 1]), output: directory)
+                try JSONSerialization.data(withJSONObject: ["passed": true, "checks": checks], options: [.prettyPrinted, .sortedKeys])
+                    .write(to: directory.appendingPathComponent("report.json"))
+                print("PASS: Japanese clip gap checks"); fflush(stdout); Darwin.exit(0)
+            }
             if CommandLine.arguments.contains("--chinese-phrases-only") {
                 let media = try await ClipMediaEngine.inspect(fixture)
                 checks = try await ChineseCaptionChecks.run(directory: directory, media: media)
@@ -77,6 +86,7 @@ enum ClipChecks {
             let noSpeech = inspectorStore.jobs[0]
             try require(noSpeech.noSpeechDetected == true && noSpeech.showsSubtitleResultInInspector,
                         "clip_empty_generation_shows_retry_in_inspector")
+            try require(inspectorStore.subtitleCompletion == nil, "clip_no_speech_does_not_flash_finished")
             try await inspectorSnapshot("inspector-no-speech")
             inspectorStore.start(noSpeech, model: nil, services: ClipServices(recognizer: ClipFixtureRecognizer(), translator: ClipFixtureTranslator()))
             try await wait(inspectorStore)
@@ -85,6 +95,19 @@ enum ClipChecks {
                         && inspectorStore.projects[0].ranges[0].generation?.captions.isEmpty == false,
                         "clip_retry_shows_completed_rows_in_inspector")
             try await inspectorSnapshot("inspector-subtitles-ready")
+            try require(inspectorStore.subtitleCompletion?.jobID == retried.id, "clip_finished_notice_for_current_completion")
+            try require(JapaneseYenAmount.preserve(in: "手机版八十四元，享受七折优惠。", source: "三十％オフで八百四十円です", target: .simplifiedChinese) == "手机版840日元，享受七折优惠。",
+                        "index_restores_dropped_place_in_spoken_yen_price")
+            for (source, result) in [("七百円から八百円", "七十元到八十元"), ("数百円", "几十元"),
+                                     ("一万二千円をドルに換算", "折合一百美元"), ("1.5円", "1.5日元"),
+                                     ("八百四十円", "八百四十日元"), ("五百円の三割引", "折后350元")] {
+                try require(JapaneseYenAmount.preserve(in: result, source: source, target: .simplifiedChinese) == result,
+                            "index_preserves_unaffected_price_" + source)
+            }
+            let reopenedInspector = ClipStore(root: inspectorStore.root)
+            try require(reopenedInspector.subtitleCompletion == nil, "clip_finished_notice_does_not_replay_from_disk")
+            try await Task.sleep(for: .seconds(2))
+            try require(inspectorStore.subtitleCompletion == nil, "clip_finished_notice_expires")
             var other = retried
             other.state = .paused
             try require(!other.showsSubtitleResultInInspector, "clip_pause_and_resume_stay_in_job_bar")

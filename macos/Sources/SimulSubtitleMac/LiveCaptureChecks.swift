@@ -25,8 +25,8 @@ enum LiveCaptureChecks {
                 result["languageSwitch"] = ["passed": false]
                 guard flag + 1 < arguments.count,
                       let requested = SubtitleLanguage(rawValue: arguments[flag + 1]),
-                      requested != model.targetLanguage, requested != model.sourceLanguage, !model.originalOnly else {
-                    throw DiagnosticError.failed("切换测试需要双语模式以及不同于当前源语言和目标语言的有效语言代码")
+                      requested != model.liveTranslationTarget, requested != model.sourceLanguage else {
+                    throw DiagnosticError.failed("请选择不同于当前源语言和已选目标的有效语言代码")
                 }
                 switchTarget = requested
             }
@@ -84,23 +84,26 @@ enum LiveCaptureChecks {
             var switchResult = true
             if let target = switchTarget {
                 let source = model.sourceLanguage, oldTarget = model.targetLanguage
-                func completedCues(for destination: SubtitleLanguage) -> [Caption] {
+                let startedWithoutMT = model.originalOnly
+                func completedCues(for destination: SubtitleLanguage?) -> [Caption] {
                     model.captions.filter {
                         !existingCueIDs.contains($0.id) && !$0.isDraft && !$0.original.isEmpty
-                            && $0.sourceLanguage == source && $0.targetLanguage == destination
-                            && SubtitleDocument.completedTranslation(SubtitleDocument.liveCaption($0)) != nil
+                            && $0.sourceLanguage == source && (destination == nil ? $0.isOriginalOnly :
+                                $0.targetLanguage == destination && SubtitleDocument.completedTranslation(SubtitleDocument.liveCaption($0)) != nil)
                     }
                 }
                 let beforeDeadline = Date().addingTimeInterval(duration)
-                while completedCues(for: oldTarget).isEmpty && model.isCapturing && Date() < beforeDeadline {
+                let initialTarget: SubtitleLanguage? = startedWithoutMT ? nil : oldTarget
+                while completedCues(for: initialTarget).isEmpty && model.isCapturing && Date() < beforeDeadline {
                     try await Task.sleep(nanoseconds: 120_000_000)
                 }
-                let before = completedCues(for: oldTarget)
+                let before = completedCues(for: initialTarget)
+                let samplesBefore = model.capturedSampleCount
                 var change: [String: Any] = ["passed": false, "sourceLanguage": source.rawValue,
-                    "oldTarget": oldTarget.rawValue, "newTarget": target.rawValue, "originalCueCount": before.count,
-                    "oldCaptureSampleCount": model.capturedSampleCount]
+                    "oldTarget": initialTarget?.rawValue ?? "original-only", "newTarget": target.rawValue, "originalCueCount": before.count,
+                    "oldCaptureSampleCount": samplesBefore]
                 result["languageSwitch"] = change
-                guard !before.isEmpty, model.isCapturing else { throw DiagnosticError.failed("切换前未收到本次采音产生的完整译文") }
+                guard !before.isEmpty, model.isCapturing else { throw DiagnosticError.failed("切换前未收到本次采音产生的完整字幕") }
                 await model.applySubtitleLanguages(source: source, target: target)
                 let restartDeadline = Date().addingTimeInterval(60)
                 while model.isStarting && Date() < restartDeadline { try await Task.sleep(nanoseconds: 120_000_000) }
@@ -120,6 +123,7 @@ enum LiveCaptureChecks {
                 let sameApp = model.selectedAppBundleID == bundleID
                 switchResult = historyPreserved && sameApp && !after.isEmpty
                     && model.capturedSampleCount > 0 && model.capturedPeak > 0.003
+                    && (!startedWithoutMT || model.capturedSampleCount > samplesBefore)
                 change["historyPreserved"] = historyPreserved
                 change["sameAudioApplication"] = sameApp
                 change["newCueCount"] = after.count

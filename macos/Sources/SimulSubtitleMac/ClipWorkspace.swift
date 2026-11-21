@@ -679,20 +679,18 @@ struct ClipEditor: View {
         VStack(alignment: .leading, spacing: 10) {
             if let job = subtitleResult {
                 let empty = job.noSpeechDetected == true || (job.generationServiceKey == nil && cues.isEmpty)
-                HStack(spacing: 6) {
-                    Image(systemName: empty ? "waveform.slash" : "checkmark")
-                        .accessibilityHidden(true)
-                    if empty {
+                if empty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "waveform.slash").accessibilityHidden(true)
                         Text(L10n.text("未检测到语音"))
                         Button(L10n.text("重试"), action: transcribe)
                             .buttonStyle(.link)
                             .accessibilityIdentifier("clips.retrySubtitleGeneration")
-                    } else {
-                        let count = active.generation?.captions.filter { $0.end > active.start && $0.start < active.end }.count ?? cues.count
-                        Text(L10n.text("字幕处理已完成 · \(count) 条"))
-                    }
-                }.interfaceFont(size: 12).foregroundStyle(ThemeColor.primaryInk)
-                    .accessibilityIdentifier("clips.subtitleResult")
+                    }.interfaceFont(size: 12).foregroundStyle(ThemeColor.primaryInk)
+                        .accessibilityIdentifier("clips.subtitleResult")
+                } else if let completion = clips.subtitleCompletion, completion.jobID == job.id {
+                    ClipFinishedNotice(started: completion.date)
+                }
             }
             if cues.isEmpty {
                 Button { insertCaption(at: playback.time) } label: {
@@ -924,6 +922,30 @@ struct ClipEditor: View {
         guard panel.runModal() == .OK, let folder = panel.url else { return }
         playback.player.pause()
         clips.start(ClipJob(projectID: project.id, kind: .export, ranges: ranges, burnSubtitles: subtitles, exportKind: kind, outputFolder: folder.path), model: nil)
+    }
+}
+
+private struct ClipFinishedNotice: View {
+    let started: Date
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.simuSubReduceMotion) private var appReduceMotion
+
+    var body: some View {
+        let reduceMotion = systemReduceMotion || appReduceMotion
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { frame in
+            let elapsed = max(0, frame.date.timeIntervalSince(started))
+            HStack(spacing: 6) {
+                Text(verbatim: "Finished!").interfaceFont(size: 12, weight: .semibold)
+                ZStack {
+                    Circle().stroke(ThemeColor.line, lineWidth: 1.5)
+                    Circle().trim(from: 0, to: 0.32)
+                        .stroke(ThemeColor.primaryInk, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                        .rotationEffect(.degrees(reduceMotion ? -90 : elapsed * 180 - 90))
+                }.frame(width: 12, height: 12).accessibilityHidden(true)
+            }
+            .foregroundStyle(ThemeColor.primaryInk)
+            .opacity(reduceMotion ? 1 : min(1, max(0, (2 - elapsed) / 0.18)))
+        }.accessibilityIdentifier("clips.subtitleResult")
     }
 }
 
