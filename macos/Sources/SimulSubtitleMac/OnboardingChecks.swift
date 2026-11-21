@@ -16,8 +16,11 @@ enum OnboardingChecks {
         var destination: WorkspaceDestination?
         var allowRequest = false
         var permissionEvents: [String] = []
-        let permissions = CapturePermissionCenter(readScreen: { granted }, probeScreen: {
+        let permissions = CapturePermissionCenter(readScreen: { granted }, requestConsent: {
             permissionEvents.append("request")
+            return allowRequest
+        }, probeScreen: {
+            permissionEvents.append("verify")
             if !allowRequest { throw CapturePermissionError.screenNotGranted }
         }, openPrivacyPane: {
             permissionEvents.append("settings")
@@ -45,14 +48,14 @@ enum OnboardingChecks {
             try check(!permissions.screenGranted && destination == nil && !model.onboardingCompleted, "No live subtitles before consent")
             try check(permissionEvents.isEmpty, "Visiting the guide does not request access or open Settings")
             await permissions.requestScreenSettings(manageGranted: true)
-            try check(permissionEvents == ["request", "settings"] && !permissions.screenGranted &&
+            try check(permissionEvents == ["request", "verify", "settings"] && !permissions.screenGranted &&
                       permissions.notice == CapturePermissionCenter.missingAppHint,
-                      "Settings button requests ScreenCaptureKit before opening the pane and explains how to add a missing app")
+                      "Settings button explicitly requests TCC, verifies ScreenCaptureKit before opening the pane and explains how to add a missing app")
             permissionEvents.removeAll()
             allowRequest = true
             await permissions.requestScreenSettings()
             setup.refreshPermission()
-            try check(permissionEvents == ["request"] && permissions.screenGranted,
+            try check(permissionEvents == ["request", "verify"] && permissions.screenGranted,
                       "Retrying from onboarding honors a ScreenCaptureKit grant without opening Settings")
             permissions.leaveSetup()
             setup.refreshPermission()

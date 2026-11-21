@@ -13,6 +13,7 @@ final class CapturePermissionCenter: ObservableObject {
     @Published var needsResetConfirmation = false
 
     private let readScreen: () -> Bool
+    private let requestConsent: () async -> Bool
     private let probeScreen: () async throws -> Void
     private let openPrivacyPane: () -> Bool
     private var setupGrantAwaitingPreflight = false
@@ -25,11 +26,15 @@ final class CapturePermissionCenter: ObservableObject {
     }
 
     init(readScreen: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() },
+         requestConsent: @escaping () async -> Bool = {
+             await Task.detached(priority: .userInitiated) { CGRequestScreenCaptureAccess() }.value
+         },
          probeScreen: @escaping () async throws -> Void = { _ = try await AudioCaptureEngine.shareableContent() },
          openPrivacyPane: @escaping () -> Bool = {
              NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
          }) {
         self.openPrivacyPane = openPrivacyPane
+        self.requestConsent = requestConsent
         self.readScreen = readScreen
         self.probeScreen = probeScreen
     }
@@ -38,13 +43,21 @@ final class CapturePermissionCenter: ObservableObject {
         screenGranted = screenAccessError.isEmpty && (readScreen() || verifiedScreenAccess)
     }
 
-    func authorizeScreen() async throws {
+    func authorizeScreen(requestConsentIfMissing: Bool = false) async throws {
         guard !isRequesting, !isRepairing else { throw CapturePermissionError.screenRequestInProgress }
         isRequesting = true
         defer { isRequesting = false }
         do {
-            // ScreenCaptureKit is the authority used by the actual capture path.
-            // A negative legacy preflight must not block its own consent request.
+            if requestConsentIfMissing && !readScreen() {
+                // On some systems, listing shareable content only preflights TCC.
+                // Request the entry explicitly, then verify access with the capture API.
+                setupGrantAwaitingPreflight = false
+                verifiedScreenAccess = false
+                screenAccessError = ""
+                notice = "正在检查应用音频访问，请处理系统授权弹窗。"
+                let granted = await requestConsent()
+                logger.info("Screen capture consent request returned \(granted)")
+            }
             try await probeScreen()
             verifiedScreenAccess = true
             screenGranted = true
@@ -134,7 +147,7 @@ final class CapturePermissionCenter: ObservableObject {
         guard !isRequesting, !isRepairing else { return }
         if manageGranted && readScreen() { openSettings(); return }
         do {
-            try await authorizeScreen()
+            try await authorizeScreen(requestConsentIfMissing: true)
             setupGrantAwaitingPreflight = !readScreen()
             notice = "应用音频访问已验证，可以选择应用。"
         } catch {
