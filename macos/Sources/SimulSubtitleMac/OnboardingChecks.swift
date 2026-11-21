@@ -14,7 +14,15 @@ enum OnboardingChecks {
         }
         var granted = false
         var destination: WorkspaceDestination?
-        let permissions = CapturePermissionCenter(readScreen: { granted }, probeScreen: { throw CapturePermissionError.screenNotGranted })
+        var allowRequest = false
+        var permissionEvents: [String] = []
+        let permissions = CapturePermissionCenter(readScreen: { granted }, probeScreen: {
+            permissionEvents.append("request")
+            if !allowRequest { throw CapturePermissionError.screenNotGranted }
+        }, openPrivacyPane: {
+            permissionEvents.append("settings")
+            return true
+        })
         let setup = OnboardingState(model: model, permissions: permissions)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 780), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -35,6 +43,20 @@ enum OnboardingChecks {
             setup.refreshPermission()
             setup.finish(at: .subtitle) { destination = $0 }
             try check(!permissions.screenGranted && destination == nil && !model.onboardingCompleted, "No live subtitles before consent")
+            try check(permissionEvents.isEmpty, "Visiting the guide does not request access or open Settings")
+            await permissions.requestScreenSettings(manageGranted: true)
+            try check(permissionEvents == ["request", "settings"] && !permissions.screenGranted &&
+                      permissions.notice == CapturePermissionCenter.missingAppHint,
+                      "Settings button requests ScreenCaptureKit before opening the pane and explains how to add a missing app")
+            permissionEvents.removeAll()
+            allowRequest = true
+            await permissions.requestScreenSettings()
+            setup.refreshPermission()
+            try check(permissionEvents == ["request"] && permissions.screenGranted,
+                      "Retrying from onboarding honors a ScreenCaptureKit grant without opening Settings")
+            permissions.leaveSetup()
+            setup.refreshPermission()
+            try check(!permissions.screenGranted, "Returning to the guide checks current permission again")
             try await capture("01-permissions")
             window.setContentSize(NSSize(width: 640, height: 420))
             try await capture("01-permissions-compact")
@@ -42,6 +64,9 @@ enum OnboardingChecks {
             granted = true
             setup.refreshPermission()
             try check(permissions.screenGranted && !model.onboardingCompleted, "Returning from System Settings enables live entry")
+            permissionEvents.removeAll()
+            await permissions.requestScreenSettings(manageGranted: true)
+            try check(permissionEvents == ["settings"], "Users with access can manage it directly in Settings")
             try await capture("02-permissions-ready")
             granted = false
             setup.finish(at: .subtitle) { destination = $0 }

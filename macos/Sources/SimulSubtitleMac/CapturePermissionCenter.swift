@@ -14,6 +14,9 @@ final class CapturePermissionCenter: ObservableObject {
 
     private let readScreen: () -> Bool
     private let probeScreen: () async throws -> Void
+    private let openPrivacyPane: () -> Bool
+    private var setupGrantAwaitingPreflight = false
+    static let missingAppHint = "列表里没有 SimuSub？点「屏幕与系统音频录制」下方的「＋」，选择已安装的 SimuSub.app。"
     private var verifiedScreenAccess = false
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.mirror.simusub", category: "permissions")
 
@@ -22,7 +25,11 @@ final class CapturePermissionCenter: ObservableObject {
     }
 
     init(readScreen: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() },
-         probeScreen: @escaping () async throws -> Void = { _ = try await AudioCaptureEngine.shareableContent() }) {
+         probeScreen: @escaping () async throws -> Void = { _ = try await AudioCaptureEngine.shareableContent() },
+         openPrivacyPane: @escaping () -> Bool = {
+             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+         }) {
+        self.openPrivacyPane = openPrivacyPane
         self.readScreen = readScreen
         self.probeScreen = probeScreen
     }
@@ -107,22 +114,34 @@ final class CapturePermissionCenter: ObservableObject {
     }
 
     func openSettings() {
-        let pane = "Privacy_ScreenCapture"
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") else { return }
-        if !NSWorkspace.shared.open(url) { notice = "请手动打开系统设置 → 隐私与安全性 → 屏幕与系统音频录制。" }
+        if !openPrivacyPane() { notice = "请手动打开系统设置 → 隐私与安全性 → 屏幕与系统音频录制。" }
     }
 
-    /// Setup only reads consent. It never probes audio or reuses an old session grant.
+    // Reading the guide never prompts. A successful ScreenCaptureKit request can
+    // precede the legacy preflight result, so honor it for this active visit.
     func refreshSetupConsent() {
-        screenGranted = readScreen()
+        let granted = readScreen()
+        if granted { setupGrantAwaitingPreflight = false }
+        screenGranted = granted || setupGrantAwaitingPreflight
         if screenGranted { screenAccessError = "" }
     }
 
-    func openSetupSettings() {
-        // Register this signed application in TCC on the user's explicit button press.
-        if !readScreen() { _ = CGRequestScreenCaptureAccess() }
-        openSettings()
-        refreshSetupConsent()
+    func leaveSetup() {
+        setupGrantAwaitingPreflight = false
+    }
+
+    func requestScreenSettings(manageGranted: Bool = false) async {
+        guard !isRequesting, !isRepairing else { return }
+        if manageGranted && readScreen() { openSettings(); return }
+        do {
+            try await authorizeScreen()
+            setupGrantAwaitingPreflight = !readScreen()
+            notice = "应用音频访问已验证，可以选择应用。"
+        } catch {
+            setupGrantAwaitingPreflight = false
+            notice = Self.missingAppHint
+            openSettings()
+        }
     }
 
     func restartApplication() {

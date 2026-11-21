@@ -32,6 +32,9 @@ private struct OnboardingHost: View {
                 if await OnboardingChecks.runIfRequested(model: setup.model, appearance: appearance) { return }
                 setup.refreshPermission()
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+                setup.permissions.leaveSetup()
+            }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 setup.refreshPermission()
             }
@@ -126,14 +129,17 @@ struct OnboardingWindow: View {
     }
 
     private var settingsInstruction: some View {
-        Text(L10n.text("打开 %@ 的开关，返回后会自动检查权限。").replacingOccurrences(of: "%@", with: CapturePermissionCenter.applicationName))
+        Text(L10n.text(setup.permissions.screenAccessError.isEmpty
+                       ? "点击申请，在 macOS 提示时允许 SimuSub。" : CapturePermissionCenter.missingAppHint))
             .font(.system(size: 14))
     }
 
     private var settingsButton: some View {
-        Button { setup.permissions.openSetupSettings() } label: {
-            Label(L10n.text("打开系统设置"), systemImage: "arrow.up.right")
-        }.buttonStyle(ThemeActionButtonStyle(prominent: true)).accessibilityIdentifier("onboarding.openSettings")
+        Button { Task { await setup.permissions.requestScreenSettings() } } label: {
+            Label(L10n.text("申请录制权限"), systemImage: "lock.open")
+        }.buttonStyle(ThemeActionButtonStyle(prominent: true))
+            .disabled(setup.permissions.isRequesting || setup.permissions.isRepairing)
+            .accessibilityIdentifier("onboarding.openSettings")
     }
 
     @ViewBuilder private var laterButton: some View {

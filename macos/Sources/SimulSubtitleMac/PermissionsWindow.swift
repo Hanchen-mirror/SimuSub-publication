@@ -14,7 +14,7 @@ struct SubtitlePermissionTools: View {
         VStack(alignment: .leading, spacing: 13) {
             Text(L10n.text("权限")).font(.headline)
             HStack(spacing: 14) {
-                Button(action: permissions.openSettings) {
+                Button { Task { await permissions.requestScreenSettings(manageGranted: true) } } label: {
                     Label(L10n.text("屏幕与系统音频录制"), systemImage: "display")
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }.buttonStyle(ThemeActionButtonStyle()).disabled(model.isBusy || busy)
