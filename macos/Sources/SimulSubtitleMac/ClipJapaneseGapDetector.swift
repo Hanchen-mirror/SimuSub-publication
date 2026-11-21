@@ -6,17 +6,22 @@ import Foundation
 /// shifted windows. A word on just one decode never becomes a subtitle.
 final class ClipJapaneseGapDetector {
     private let recognizer: any SpeechRecognizing
+    private let independent: (any SpeechRecognizing)?
+    private var confirmedHesitations: Set<UUID> = []
+    private var shortAudio: [UUID: ShortReactionAudio] = [:]
     private let origin: Double
     private let target: SubtitleLanguage
     private var pcm: [Float] = []
     private var base = 0, next = 0
     private var verified: [Caption] = []
     private var pending: [Caption] = []
+    private var pendingNumberReadings: [UUID: String] = [:]
     private var lastPrimaryStart: Double = 0
-    private static let reactions: Set<String> = ["あ", "あっ", "え", "えっ", "おっ", "うん", "うわ", "あれ", "えと", "んで"]
+    static let reactions: Set<String> = ["あ", "あっ", "え", "えっ", "おっ", "うん", "うわ", "あれ", "えと", "んで"]
     private static let rate = 16_000
 
-    init(recognizer: any SpeechRecognizing, start: Double, target: SubtitleLanguage) {
+    init(recognizer: any SpeechRecognizing, start: Double, target: SubtitleLanguage, independent: (any SpeechRecognizing)? = nil) {
+        self.independent = independent
         self.recognizer = recognizer; origin = start; self.target = target
     }
 
@@ -101,23 +106,66 @@ final class ClipJapaneseGapDetector {
                 }
                 if slice(next..<end).contains(where: { abs($0) > 0.003 }) {
                     let first = try await recognizer.recognizeDetailed(samples: Array(slice(narrow)))
-                    if !first.tokens.isEmpty {
+                    func seconds(_ count: Int) -> Double { Double(count) / Double(rate) }
+                    let owned = (origin + seconds(next))..<(origin + seconds(end))
+                    let narrowStart = origin + seconds(narrow.lowerBound)
+                    // All verification paths require a first-window token in this core.
+                    // Speech entirely in the neighboring context cannot add a cue.
+                    if first.tokens.contains(where: { owned.contains(narrowStart + $0.time) }) {
                         let other = try await recognizer.recognizeDetailed(samples: Array(slice(wide)))
-                        func seconds(_ count: Int) -> Double { Double(count) / Double(rate) }
-                        let owned = (origin + seconds(next))..<(origin + seconds(end))
                         func compare(_ a: RecognizedSpeech, _ sourceA: Range<Int>, _ b: RecognizedSpeech, _ sourceB: Range<Int>, short: Bool = false) -> [TimedCaptionPhrase] {
                             Self.agreement(a, start: origin + seconds(sourceA.lowerBound), duration: seconds(sourceA.count),
                                 second: b, otherStart: origin + seconds(sourceB.lowerBound), otherDuration: seconds(sourceB.count),
                                 owned: owned, limit: origin + seconds(available), shortOnly: short)
                         }
                         var agreed = compare(first, narrow, other, wide)
+                        var shortSamples: [Double: ShortReactionAudio] = [:]
+                        if let independent {
+                            let firstGroups = Self.utterances(first, offset: origin + seconds(narrow.lowerBound), duration: seconds(narrow.count))
+                            let otherGroups = Self.utterances(other, offset: origin + seconds(wide.lowerBound), duration: seconds(wide.count))
+                            // Hold only small original excerpts until the main decoder
+                            // has committed its overlapping cue. Most require no replay.
+                            for phrase in agreed where Self.alignedShortUtterance(phrase, first: firstGroups, other: otherGroups) {
+                                func sample(_ time: Double) -> Int { Int(((time - origin) * Double(rate)).rounded()) }
+                                let low = max(base, sample(phrase.start - 0.50)), high = min(available, sample(phrase.end + 0.55))
+                                let tightStart = max(low, sample(phrase.start - 0.18)), tightEnd = min(high, sample(phrase.end + 0.24))
+                                if low < tightStart, tightStart < tightEnd, tightEnd < high {
+                                    shortSamples[phrase.start] = .init(original: phrase.text, samples: Array(slice(low..<high)),
+                                                                      tight: (tightStart-low)..<(tightEnd-low))
+                                }
+                            }
+                            let disputed = Self.disputedReactions(firstGroups, otherGroups, owned: owned, end: origin + seconds(available))
+                            for candidate in disputed {
+                                let low = max(base, Int(((candidate.start - origin - 0.18) * Double(rate)).rounded()))
+                                let high = min(available, Int(((candidate.end - origin + 0.24) * Double(rate)).rounded()))
+                                guard low < high else { continue }
+                                try Task.checkCancellation()
+                                let heard = try await independent.recognize(samples: Array(slice(low..<high)))
+                                if let text = candidate.confirmed(by: heard) {
+                                    let cue = Caption(start: candidate.start, end: candidate.end, original: text, translated: "",
+                                                      sourceLanguage: .japanese, targetLanguage: target)
+                                    verified.append(cue)
+                                    if DisputedReaction.hesitation(candidate.first, candidate.second) { confirmedHesitations.insert(cue.id) }
+                                }
+                            }
+                        }
+                        agreed += ClipJapaneseNumberRecovery.agreement(first, start: origin + seconds(narrow.lowerBound), duration: seconds(narrow.count),
+                            second: other, otherStart: origin + seconds(wide.lowerBound), otherDuration: seconds(wide.count),
+                            owned: owned, limit: origin + seconds(available))
                         let short = compare(first, narrow, other, wide, short: true)
-                        if !short.isEmpty {
-                            // A third decode is reserved for a plausible standalone
-                            // reaction. Use different real context on both sides.
+                        let disputedDigits = ClipJapaneseNumberRecovery.disputedGroups(first, start: origin + seconds(narrow.lowerBound), duration: seconds(narrow.count),
+                            second: other, otherStart: origin + seconds(wide.lowerBound), otherDuration: seconds(wide.count), owned: owned)
+                        if !short.isEmpty || !disputedDigits.isEmpty {
+                            // Recheck a short reaction or a number missing one internal digit
+                            // with different real audio context on both sides.
                             let thirdWindow = max(0, next - 24_320)..<min(available, end + 33_920)
                             if thirdWindow != narrow, thirdWindow != wide {
                                 let third = try await recognizer.recognizeDetailed(samples: Array(slice(thirdWindow)))
+                                if !disputedDigits.isEmpty {
+                                    agreed += ClipJapaneseNumberRecovery.corroborate(disputedDigits, with: third,
+                                        start: origin + seconds(thirdWindow.lowerBound), duration: seconds(thirdWindow.count),
+                                        owned: owned, limit: origin + seconds(available))
+                                }
                                 let nearThird = compare(first, narrow, third, thirdWindow, short: true)
                                 let wideThird = compare(other, wide, third, thirdWindow, short: true)
                                 agreed += short.filter { cue in
@@ -125,9 +173,13 @@ final class ClipJapaneseGapDetector {
                                 }
                             }
                         }
-                        verified += agreed.map { Caption(start: $0.start, end: $0.end, original: $0.text,
+                        let captions = agreed.map { Caption(start: $0.start, end: $0.end, original: $0.text,
                                                         translated: $0.text.allSatisfy({ $0.isASCII && $0.isNumber }) ? $0.text : "",
                                                         sourceLanguage: .japanese, targetLanguage: target) }
+                        for cue in captions {
+                            if let audio = shortSamples[cue.start], audio.original == cue.original { shortAudio[cue.id] = audio }
+                        }
+                        verified += captions
                     }
                 }
             }
@@ -137,7 +189,8 @@ final class ClipJapaneseGapDetector {
         pcm.removeFirst(discard); base += discard
     }
 
-    func take(_ primary: [Caption], completedStart: Double?, finished: Bool) -> [Caption] {
+    func take(_ primary: [Caption], completedStart: Double?, finished: Bool, numberAlternates: [UUID: String] = [:]) async throws -> [Caption] {
+        pendingNumberReadings.merge(numberAlternates) { _, current in current }
         pending += primary
         if let completedStart { lastPrimaryStart = max(lastPrimaryStart, completedStart) }
         // Main VAD windows can stay open for up to 24 s. Commit only where no
@@ -148,9 +201,25 @@ final class ClipJapaneseGapDetector {
         var cutoff = finished ? Double.infinity : min(origin + Double(next) / Double(Self.rate), primaryThrough)
         let all = pending + verified
         while let start = all.filter({ $0.start < cutoff && cutoff < $0.end }).map(\.start).min() { cutoff = start }
-        let main = pending.filter { $0.end <= cutoff }, reviewed = verified.filter { $0.end <= cutoff }
+        let reviewed = verified.filter { $0.end <= cutoff }
+        let main = pending.filter { $0.end <= cutoff }.filter { cue in
+            guard let original = pendingNumberReadings.removeValue(forKey: cue.id) else { return true }
+            return !ClipJapaneseNumberRecovery.confirmsOriginalNumber(original, insteadOf: cue, verified: reviewed)
+        }
         pending.removeAll { $0.end <= cutoff }; verified.removeAll { $0.end <= cutoff }
-        return Self.combine(primary: main, verified: reviewed)
+        let confirmed = confirmedHesitations
+        confirmedHesitations.subtract(reviewed.map(\.id))
+        var corroborated: Set<UUID> = []
+        for cue in reviewed {
+            guard let audio = shortAudio.removeValue(forKey: cue.id), let independent,
+                  Self.shortConflict(cue, primary: main) else { continue }
+            try Task.checkCancellation()
+            let tight = try await independent.recognize(samples: Array(audio.samples[audio.tight]))
+            guard tight == cue.original else { continue }
+            let wider = try await independent.recognize(samples: audio.samples)
+            if wider == cue.original { corroborated.insert(cue.id) }
+        }
+        return Self.combine(primary: main, verified: reviewed, confirmedHesitations: confirmed, corroboratedShort: corroborated)
     }
 
     // Reazon often spells Japanese verbs in kana. A candidate such as
@@ -175,13 +244,13 @@ final class ClipJapaneseGapDetector {
         return after.contains(before)
     }
 
-    static func combine(primary: [Caption], verified: [Caption]) -> [Caption] {
+    static func combine(primary: [Caption], verified: [Caption], confirmedHesitations: Set<UUID> = [], corroboratedShort: Set<UUID> = []) -> [Caption] {
         func overlap(_ a: Caption, _ b: Caption) -> Bool { a.start < b.end && b.start < a.end }
         let codes = verified.filter { $0.original.count >= 3 && $0.original.allSatisfy(\.isNumber) }
         func repeatedCode(_ cue: Caption) -> Bool {
             codes.contains { $0.id != cue.id && $0.original == cue.original && abs($0.start - cue.start) < 3 }
         }
-        var retained = primary.filter { cue in
+        var retained = primary.map { anchoredReaction($0, verified: verified) }.filter { cue in
             // A recognizer can turn a repeated passcode into one large cardinal
             // number. Require a separately timed repetition and no currency/unit.
             if !cue.translated.isEmpty { return true }
@@ -192,11 +261,30 @@ final class ClipJapaneseGapDetector {
         for candidate in verified.sorted(by: { $0.start < $1.start }) {
             let conflicts = retained.indices.filter { overlap(retained[$0], candidate) }
             if conflicts.isEmpty { retained.append(candidate); continue }
+            if corroboratedShort.contains(candidate.id), conflicts.count == 1, let i = conflicts.first,
+               Self.shortConflict(candidate, primary: [retained[i]]) {
+                retained[i] = candidate
+                continue
+            }
+            if confirmedHesitations.contains(candidate.id), conflicts.count == 1, let i = conflicts.first {
+                let cue = retained[i]
+                // Only replace a short automatic filler when two different
+                // recognizers hear the last mora in this overlapping utterance.
+                if cue.translated.isEmpty, reactions.contains(cue.original), cue.end - cue.start <= 0.8,
+                   abs(cue.start - candidate.start) <= 0.5, abs(cue.end - candidate.end) <= 0.30,
+                   min(cue.end, candidate.end) - max(cue.start, candidate.start) >= 0.18 {
+                    retained[i] = candidate
+                    continue
+                }
+            }
             // Keep a complete existing cue unless the independently agreed
             // phrase includes all of it and adds genuinely omitted words.
             if conflicts.count == 1, let i = conflicts.first, retained[i].translated.isEmpty,
                retained[i].original.count >= 3, Self.containsOriginal(retained[i].original, candidate: candidate.original),
-               candidate.start <= retained[i].start + 0.15, candidate.end >= retained[i].end - 0.15 {
+               // The primary segment can include a short lead-in and tail from the
+               // original recording. Both independent windows must still cover its words.
+               candidate.start <= retained[i].start + 0.42, candidate.end >= retained[i].end - 0.48,
+               min(candidate.end, retained[i].end) - max(candidate.start, retained[i].start) >= min(0.28, (retained[i].end - retained[i].start) / 2) {
                 retained[i] = candidate
             }
         }

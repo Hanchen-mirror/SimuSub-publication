@@ -11,6 +11,7 @@ struct SubtitleProcessingOptions: Equatable, Sendable {
     var endpointSilence: Float = 0.72
     var liveEnglishToChinese = false
     var japanesePhraseBoundaries = false
+    var japaneseClipContext = false
 }
 
 protocol CaptionRevision: Identifiable, Sendable where ID == UUID {
@@ -26,6 +27,7 @@ struct AudioSegment: CaptionRevision {
     let timestamp: Date
     // Decoder-only context, outside the time range owned by this cue.
     var quietRecognitionTail: [Float] = []
+    var detectedSpeechRange: Range<Int>? = nil
     var continuesForcedWindow: UUID? = nil
 }
 
@@ -409,7 +411,12 @@ final class SpeechAudioFrontend: @unchecked Sendable {
                     let covered = Self.finalRange(vad: vadStart..<vadEnd, draft: emittedDraftRange)
                     let start = options.liveEnglishToChinese || options.japanesePhraseBoundaries
                         ? max(lastFinalEnd, covered.lowerBound) : covered.lowerBound
-                    let range = min(start, covered.upperBound)..<covered.upperBound
+                    var range = min(start, covered.upperBound)..<covered.upperBound
+                    // Continuous speech already has both phonetic context and
+                    // long-utterance gap recovery. Expand isolated short turns only.
+                    if options.japaneseClipContext, covered.count < 6 * Self.sampleRate {
+                        range = Self.contextualRange(range, previousEnd: lastFinalEnd, available: rawHistoryStart..<(rawHistoryStart + rawHistory.count), processed: processed)
+                    }
                     // A VAD preroll can reach into the preceding final's draft tail.
                     // Copy only this cue's samples, preserving physical ownership.
                     var complete = [Float](repeating: 0, count: range.count)
@@ -432,7 +439,9 @@ final class SpeechAudioFrontend: @unchecked Sendable {
                                                    processed: processed - rawHistoryStart,
                                                    cueLength: range.count)
                     }
-                    emit(complete, start: range.lowerBound, final: true, quietTail: quietTail, forcedEnd: forcedEnd && abs(range.upperBound - processed) <= 512)
+                    let core = covered.clamped(to: range)
+                    let detected = range == core ? nil : (core.lowerBound - range.lowerBound)..<(core.upperBound - range.lowerBound)
+                    emit(complete, start: range.lowerBound, final: true, quietTail: quietTail, detected: options.japaneseClipContext ? detected : nil, forcedEnd: forcedEnd && abs(range.upperBound - processed) <= 512)
                 }
                 SherpaOnnxDestroySpeechSegment(speech)
             }
@@ -443,6 +452,14 @@ final class SpeechAudioFrontend: @unchecked Sendable {
             emittedDraftRange = nil
             revision = 0
         }
+    }
+
+    // A natural endpoint is confirmed after observing silence. The original
+    // waveform around that decision often still contains quiet initial or final morae.
+    static func contextualRange(_ speech: Range<Int>, previousEnd: Int, available: Range<Int>, processed: Int) -> Range<Int> {
+        let first = max(previousEnd, max(available.lowerBound, speech.lowerBound - 4_480))
+        let last = min(processed, min(available.upperBound, speech.upperBound + 5_120))
+        return min(first, last)..<last
     }
 
     static func finalRange(vad: Range<Int>, draft: Range<Int>?) -> Range<Int> {
@@ -481,7 +498,7 @@ final class SpeechAudioFrontend: @unchecked Sendable {
         return Array(raw[tail])
     }
 
-    private func emit(_ samples: [Float], start: Int, final: Bool, quietTail: [Float] = [], forcedEnd: Bool = false) {
+    private func emit(_ samples: [Float], start: Int, final: Bool, quietTail: [Float] = [], detected: Range<Int>? = nil, forcedEnd: Bool = false) {
         guard !samples.isEmpty else { return }
         if activeID == nil { activeID = UUID() }
         revision += 1
@@ -497,7 +514,7 @@ final class SpeechAudioFrontend: @unchecked Sendable {
         }
         onSegment?(AudioSegment(id: activeID!, revision: revision, isFinal: final,
             samples: recognitionSamples, timestamp: epoch.addingTimeInterval(Double(start) / Double(Self.sampleRate)),
-            quietRecognitionTail: quietTail, continuesForcedWindow: predecessor))
+            quietRecognitionTail: quietTail, detectedSpeechRange: detected, continuesForcedWindow: predecessor))
     }
 
     enum FrontendError: LocalizedError {

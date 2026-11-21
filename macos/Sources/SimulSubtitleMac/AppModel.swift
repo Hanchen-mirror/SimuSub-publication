@@ -1339,7 +1339,7 @@ final class AppModel: ObservableObject {
         data.append(asrHotwordsEnabled ? 1 : 0)
         data.append(contentsOf: "clip-audio-presentation-time-v2".utf8)
         if source == .japanese, asr.kind == .local, asr.localModelID == nil {
-            data.append(contentsOf: "clip-ja-gap-verification-v5".utf8)
+            data.append(contentsOf: "clip-ja-gap-verification-v6".utf8)
             if let verifier = clipVerifierDefinition(for: asr, language: source) {
                 data.append(contentsOf: try encoder.encode(verifier.files.map(\.sha256)))
             }

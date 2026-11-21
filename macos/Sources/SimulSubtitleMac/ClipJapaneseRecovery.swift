@@ -3,6 +3,19 @@ import Foundation
 /// Reazon occasionally keeps only the end of a long utterance. Revisit empty
 /// media intervals, keeping the first pass intact wherever it already has cues.
 enum ClipJapaneseRecovery {
+    static func isBareNumber(_ text: String) -> Bool {
+        text.range(of: #"^[〇零一二三四五六七八九十百千万億兆0-9０-９]+$"#, options: .regularExpression) != nil
+    }
+
+    // Preserve the number exactly as heard in both decodes. An unpadded
+    // decode may additionally resolve a short preceding reaction.
+    static func numericReaction(number: String, alternate: RecognizedSpeech, offset: Double) -> RecognizedSpeech? {
+        guard isBareNumber(number), alternate.text.hasSuffix(number),
+              ["え", "えっ", "あ", "あっ", "あれ", "お", "おっ", "うん", "えっと"].contains(String(alternate.text.dropLast(number.count))),
+              !alternate.tokens.isEmpty, alternate.tokens.map(\.text).joined() == alternate.text else { return nil }
+        return .init(text: alternate.text, tokens: alternate.tokens.map { .init(text: $0.text, time: $0.time + offset) })
+    }
+
     static func fill(_ original: [TimedCaptionPhrase], samples: [Float], forTranslation: Bool,
                      recognize: ([Float]) async throws -> RecognizedSpeech) async throws -> [TimedCaptionPhrase] {
         let rate = 16_000

@@ -68,11 +68,33 @@ enum ClipSpeechTimingChecks {
     }
 
     static func run(directory: URL) async throws -> [String] {
-        var checks: [String] = []
+        var checks = try ClipJapaneseReactionChecks.run()
         func require(_ value: Bool, _ check: String) throws {
             guard value else { throw ClipError.message("CHECK FAILED: " + check) }
             checks.append(check)
         }
+        checks += try ClipJapaneseNumberRecoveryChecks.run()
+        let expanded = SpeechAudioFrontend.contextualRange(8_000..<16_000, previousEnd: 0, available: 0..<32_000, processed: 32_000)
+        let adjacent = SpeechAudioFrontend.contextualRange(17_000..<20_000, previousEnd: expanded.upperBound, available: 0..<20_912, processed: 22_000)
+        try require(expanded == 3_520..<21_120 && adjacent.isEmpty,
+                    "japanese_clip_context_never_duplicates_an_owned_sample")
+        try require(SpeechAudioFrontend.contextualRange(300..<8_000, previousEnd: 0, available: 0..<8_700, processed: 9_000) == 0..<8_700,
+                    "japanese_clip_context_stays_inside_source_audio")
+        var expandedNumber = Caption(start: 8, end: 9, original: "三百四十五", translated: "")
+        let coreNumber = Caption(start: 8.12, end: 8.90, original: "34", translated: "34")
+        try require(ClipJapaneseNumberRecovery.confirmsOriginalNumber("三十四", insteadOf: expandedNumber, verified: [coreNumber])
+                    && !ClipJapaneseNumberRecovery.confirmsOriginalNumber("三十三", insteadOf: expandedNumber, verified: [coreNumber])
+                    && !ClipJapaneseNumberRecovery.confirmsOriginalNumber("三十四円", insteadOf: expandedNumber, verified: [coreNumber])
+                    && !ClipJapaneseNumberRecovery.confirmsOriginalNumber("三十四", insteadOf: expandedNumber, verified: []),
+                    "japanese_changed_number_requires_exact_original_and_independent_timed_agreement")
+        expandedNumber.translated = "人工校对"
+        try require(!ClipJapaneseNumberRecovery.confirmsOriginalNumber("三十四", insteadOf: expandedNumber, verified: [coreNumber]),
+                    "japanese_numeric_arbitration_preserves_saved_translation")
+        let reply = RecognizedSpeech(text: "あれ三十五", tokens: [.init(text: "あれ", time: 0.12), .init(text: "三十五", time: 0.5)])
+        try require(ClipJapaneseRecovery.numericReaction(number: "三十五", alternate: reply, offset: 0.25)?.tokens.last?.time == 0.75
+                    && ClipJapaneseRecovery.numericReaction(number: "十五", alternate: reply, offset: 0.25) == nil
+                    && ClipJapaneseRecovery.numericReaction(number: "35円", alternate: reply, offset: 0.25) == nil,
+                    "japanese_short_numeric_reply_preserves_exact_number_and_acoustic_times")
         let digit = RecognizedSpeech(text: "七", tokens: [.init(text: "七", time: 3.2)])
         let one = JapaneseCaptionPhrase.split(digit, duration: 9)
         try require(one.count == 1 && one[0].start == 3.2 && one[0].end < 4.2,
@@ -122,9 +144,19 @@ enum ClipSpeechTimingChecks {
             let clock = ClipWindowProbeRecognizer(word, thirdWord: third, thirdShift: shift)
             let detector = ClipJapaneseGapDetector(recognizer: clock, start: 0, target: .simplifiedChinese)
             try await detector.accept([Float](repeating: 0.02, count: 16 * 16_000), finished: false)
-            let result = detector.take([], completedStart: 8, finished: false)
+            let result = try await detector.take([], completedStart: 8, finished: false)
             try require(await clock.calls == calls && result.map(\.original) == expected,
                         "japanese_third_window_candidate_and_timing_" + word)
+        }
+        for (replay, hasConflict, expected, calls) in [
+            ("やった", true, "やった", 2), ("やった", false, "やった", 0), ("やっぱり", true, "やっぱり", 1)] {
+            let first = ClipWindowProbeRecognizer("やった"), second = ClipWindowProbeRecognizer(replay)
+            let detector = ClipJapaneseGapDetector(recognizer: first, start: 0, target: .simplifiedChinese, independent: second)
+            try await detector.accept([Float](repeating: 0.02, count: 16 * 16_000), finished: false)
+            let primary = Caption(start: 0.75, end: 1.54, original: "やっぱり", translated: "")
+            let result = try await detector.take(hasConflict ? [primary] : [], completedStart: 8, finished: false)
+            try require(await second.calls == calls && result.map(\.original) == [expected],
+                        "japanese_short_conflict_replay_count_" + String(calls))
         }
         let clock = ClipWindowProbeRecognizer("あ")
         let detector = ClipJapaneseGapDetector(recognizer: clock, start: 0, target: .simplifiedChinese)
@@ -132,10 +164,10 @@ enum ClipSpeechTimingChecks {
         try await detector.accept(silence, finished: false)
         let first = Caption(start: 19, end: 20.5, original: "一つ", translated: "")
         let crossing = Caption(start: 21.5, end: 24.8, original: "次の行", translated: "")
-        let early = detector.take([first, crossing], completedStart: 21.5, finished: false)
+        let early = try await detector.take([first, crossing], completedStart: 21.5, finished: false)
         try await detector.accept(silence, finished: false)
         let last = Caption(start: 30.1, end: 31, original: "続き", translated: "")
-        let later = detector.take([last], completedStart: 30.1, finished: false)
+        let later = try await detector.take([last], completedStart: 30.1, finished: false)
         try require(early == [first] && later == [crossing, last],
                     "japanese_release_closed_primary_segments_preserves_across_chunk_watermark")
         let temp = directory.appendingPathComponent("audio-clock-" + UUID().uuidString)

@@ -49,6 +49,21 @@ final class MultilingualSpeechRecognizer: SpeechRecognizing, @unchecked Sendable
     func recognize(samples: [Float]) async throws -> String {
         return try await recognizeDetailed(samples: samples).text
     }
+    /// SenseVoice trims display whitespace but SentencePiece may attach one or
+    /// more boundary spaces to timed tokens. Never change internal boundaries.
+    static func japaneseTimedTokens(_ source: [RecognizedSpeech.Token], text: String) -> [RecognizedSpeech.Token] {
+        var tokens = source
+        for i in tokens.indices {
+            tokens[i].text = String(tokens[i].text.drop(while: { $0.isWhitespace }))
+            if !tokens[i].text.isEmpty { break }
+        }
+        for i in tokens.indices.reversed() {
+            tokens[i].text = String(tokens[i].text.reversed().drop(while: { $0.isWhitespace }).reversed())
+            if !tokens[i].text.isEmpty { break }
+        }
+        return tokens.map(\.text).joined() == text ? tokens.filter { !$0.text.isEmpty } : []
+    }
+
     func recognizeDetailed(samples: [Float]) async throws -> RecognizedSpeech {
         try await recognizeDetailed(samples: samples, languageHint: language)
     }
@@ -81,7 +96,9 @@ final class MultilingualSpeechRecognizer: SpeechRecognizing, @unchecked Sendable
                     }
                     // Script conversion can be context-dependent. Accept offsets
                     // only when the decoded and displayed characters correspond.
-                    if tokens.count == decoded.count, tokens.map(\.text).joined() == clean,
+                    if isJapaneseSenseVoice, tokens.count == decoded.count, clean == text {
+                        tokens = Self.japaneseTimedTokens(tokens, text: text)
+                    } else if tokens.count == decoded.count, tokens.map(\.text).joined() == clean,
                        tokens.reduce(0, { $0 + $1.text.count }) == text.count, clean.count == text.count {
                         var cursor = text.startIndex
                         for i in tokens.indices {

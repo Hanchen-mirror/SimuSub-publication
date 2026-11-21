@@ -20,10 +20,11 @@ enum ClipSpeechPipeline {
         defer { try? FileManager.default.removeItem(at: temp) }
         let buffer = ClipSegmentBuffer()
         let frontend = try SpeechAudioFrontend(options: .init(suppressMusic: true, showDrafts: false,
-            japanesePhraseBoundaries: services.sourceLanguage == .japanese && !(services.recognizer is ReazonSpeechRecognizer)))
+            japanesePhraseBoundaries: services.sourceLanguage == .japanese && !(services.recognizer is ReazonSpeechRecognizer),
+            japaneseClipContext: services.sourceLanguage == .japanese && services.recognizer is ReazonSpeechRecognizer))
         let epoch = Date(timeIntervalSince1970: range.start)
         let gapDetector = services.japaneseClipVerifier.map {
-            ClipJapaneseGapDetector(recognizer: $0, start: range.start, target: services.targetLanguage)
+            ClipJapaneseGapDetector(recognizer: $0, start: range.start, target: services.targetLanguage, independent: services.recognizer)
         }
         frontend.begin(at: epoch)
         frontend.onSegment = { buffer.append($0) }
@@ -32,12 +33,22 @@ enum ClipSpeechPipeline {
             existing.first { abs($0.start - begin) < 0.15 && abs($0.end - finish) < 0.3
                 && $0.sourceLanguage == services.sourceLanguage && $0.targetLanguage == services.targetLanguage }
         }
-        func decode(_ segment: AudioSegment) async throws -> [Caption] {
+        func decode(_ segment: AudioSegment, numberAlternates: inout [UUID: String]) async throws -> [Caption] {
             let start = max(range.start, segment.timestamp.timeIntervalSince1970)
             let end = min(range.end, segment.timestamp.timeIntervalSince1970 + Double(segment.samples.count) / 16000)
             guard end > start, segment.samples.contains(where: { abs($0) > 0.003 }) else { return [] }
             if let saved = savedCue(start, end) { return [saved] }
-            let hypothesis = try await services.recognizer.recognizeDetailed(samples: segment.samples)
+            var coreNumber: String?
+            var hypothesis = try await services.recognizer.recognizeDetailed(samples: segment.samples)
+            // A transducer can reduce a short reply to the number alone when
+            // room sound is added. Reuse the original endpoint for this case.
+            if let core = segment.detectedSpeechRange, !core.isEmpty,
+               ClipJapaneseRecovery.isBareNumber(hypothesis.text) {
+                let alternate = try await services.recognizer.recognizeDetailed(samples: Array(segment.samples[core]))
+                if ClipJapaneseRecovery.isBareNumber(alternate.text), alternate.text != hypothesis.text { coreNumber = alternate.text }
+                if let retained = ClipJapaneseRecovery.numericReaction(number: hypothesis.text, alternate: alternate,
+                    offset: Double(core.lowerBound) / 16_000) { hypothesis = retained }
+            }
             try Task.checkCancellation()
             let phrases: [TimedCaptionPhrase]
             if services.sourceLanguage == .japanese {
@@ -53,11 +64,13 @@ enum ClipSpeechPipeline {
                     : hypothesis.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 phrases = text.isEmpty ? [] : [.init(text: text, start: 0, end: end - start)]
             }
-            return phrases.map { phrase in
+            let cues = phrases.map { phrase in
                 let begin = start + phrase.start, finish = start + phrase.end
                 return savedCue(begin, finish) ?? Caption(start: begin, end: finish, original: phrase.text, translated: "",
                     sourceLanguage: services.sourceLanguage, targetLanguage: services.targetLanguage)
             }
+            if let coreNumber, cues.count == 1, let cue = cues.first, cue.translated.isEmpty { numberAlternates[cue.id] = coreNumber }
+            return cues
         }
         func publish(_ result: [Caption]) async throws {
             let cues = result.map { savedCue($0.start, $0.end) ?? $0 }
@@ -80,16 +93,21 @@ enum ClipSpeechPipeline {
                 await progress(min(0.99, (end - range.start) / range.duration), "已处理 " + ClipTime.label(end - range.start) + " / " + ClipTime.label(range.duration))
             }
         }
-        func consume(finished: Bool = false) async throws {
+        func consume(_ samples: [Float], finished: Bool = false) async throws {
+            // The two decoders use independent model sessions. The short
+            // verification calls that revisit Reazon share its existing decode lock.
+            async let auxiliary: Void? = gapDetector?.accept(samples, finished: finished)
             var primary: [Caption] = []
+            var numberAlternates: [UUID: String] = [:]
             let segments = buffer.take()
             for segment in segments {
                 try Task.checkCancellation()
-                let cues = try await decode(segment)
+                let cues = try await decode(segment, numberAlternates: &numberAlternates)
                 if gapDetector != nil { primary += cues } else { try await publish(cues) }
             }
+            try await auxiliary
             if let gapDetector {
-                try await publish(gapDetector.take(primary, completedStart: segments.last?.timestamp.timeIntervalSince1970, finished: finished))
+                try await publish(gapDetector.take(primary, completedStart: segments.last?.timestamp.timeIntervalSince1970, finished: finished, numberAlternates: numberAlternates))
             }
         }
         while cursor < range.end - 0.001 {
@@ -112,11 +130,11 @@ enum ClipSpeechPipeline {
             }
             await onEnergy(energy)
             frontend.accept(samples)
-            try await gapDetector?.accept(samples, finished: false)
-            try await consume()
+            try await consume(samples)
             cursor += span
         }
-        frontend.finish(); try await gapDetector?.accept([], finished: true); try await consume(finished: true)
+        frontend.finish()
+        try await consume([], finished: true)
         try media.validateFile(); await progress(1, "字幕已保存，可编辑后导出。")
     }
 }
