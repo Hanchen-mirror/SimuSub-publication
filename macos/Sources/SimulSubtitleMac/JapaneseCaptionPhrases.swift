@@ -23,10 +23,10 @@ enum JapaneseCaptionPhrase {
     /// extra morae to finish its clause before it is translated and committed.
     static func split(_ speech: RecognizedSpeech, duration: Double, forTranslation: Bool = false) -> [TimedCaptionPhrase] {
         let tokens = speech.tokens
-        guard !speech.text.isEmpty else { return [] }
+        guard !speech.text.isEmpty, duration.isFinite, duration > 0 else { return [] }
         let single = [TimedCaptionPhrase(text: speech.text, start: 0, end: duration)]
-        guard tokens.count > 1, duration > 0, tokens.map(\.text).joined() == speech.text,
-              tokens.allSatisfy({ $0.time.isFinite && $0.time >= 0 && $0.time < duration }),
+        guard let onset = tokens.first?.time, onset < duration, tokens.map(\.text).joined() == speech.text,
+              tokens.allSatisfy({ !$0.text.isEmpty && $0.time.isFinite && $0.time >= 0 && $0.time <= duration + 0.3 }),
               zip(tokens, tokens.dropFirst()).allSatisfy({ $0.time <= $1.time }) else { return single }
 
         let tokenizer = NLTokenizer(unit: .word)
@@ -43,12 +43,14 @@ enum JapaneseCaptionPhrase {
         var lengths = [0]
         for token in tokens { lengths.append(lengths.last! + token.text.count) }
         let ends = tokens.indices.dropFirst().filter { cursor in
-            wordAtEnd[lengths[cursor]] != nil || tokens[cursor - 1].text.last.map { "。！？、".contains($0) } == true
+            tokens[cursor].time < duration && (wordAtEnd[lengths[cursor]] != nil || tokens[cursor - 1].text.last.map { "。！？、".contains($0) } == true)
         } + [tokens.count]
-        var times = tokens.map(\.time)
+        // Reazon adds 300 ms of decoder padding. A final timestamp in that
+        // padding must not discard the real onset of every preceding word.
+        var times = tokens.map { min($0.time, duration) }
         // Reazon can put the first subword at the head of a long instrumental
         // intro. Its next mora in the same lexical word is a closer onset anchor.
-        if times[0] <= 0.08, wordAtEnd[lengths[1]] == nil, times[1] - times[0] > 1.4 {
+        if times.count > 1, times[0] <= 0.08, wordAtEnd[lengths[1]] == nil, times[1] - times[0] > 1.4 {
             times[0] = max(0, times[1] - 0.35)
         }
         let limit = forTranslation ? 8.8 : 6.7

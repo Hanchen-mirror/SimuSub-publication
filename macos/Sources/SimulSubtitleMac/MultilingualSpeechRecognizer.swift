@@ -7,11 +7,13 @@ final class MultilingualSpeechRecognizer: SpeechRecognizing, @unchecked Sendable
     private let language: SubtitleLanguage?
     let usesEnglishWhisper: Bool
     private let isQwen: Bool
+    private let isJapaneseSenseVoice: Bool
     private let lock = NSLock()
 
     init(model: LocalModelDefinition, folder: URL, language: SubtitleLanguage?, threads: Int = 4, task: String = "transcribe", provider: String = "cpu") throws {
         self.language = language
         self.isQwen = model.engine == "qwen3ASR"
+        self.isJapaneseSenseVoice = model.engine == "senseVoice" && language == .japanese
         self.usesEnglishWhisper = model.id == "whisper-base" && language == .english
         func path(_ name: String) -> String { folder.appendingPathComponent(name).path }
         guard model.files.allSatisfy({ FileManager.default.isReadableFile(atPath: path($0.name)) }) else { throw ServiceError.modelFilesMissing }
@@ -69,7 +71,7 @@ final class MultilingualSpeechRecognizer: SpeechRecognizing, @unchecked Sendable
                 try Task.checkCancellation()
                 let text = language?.normalizeScript(clean) ?? clean
                 var tokens: [RecognizedSpeech.Token] = []
-                if let language, language.isChinese, decoded.timestamps.count == decoded.count,
+                if let language, language.isChinese || isJapaneseSenseVoice, decoded.timestamps.count == decoded.count,
                    let pointers = decoded.result.pointee.tokens_arr {
                     let times = decoded.timestamps
                     for index in 0..<decoded.count {

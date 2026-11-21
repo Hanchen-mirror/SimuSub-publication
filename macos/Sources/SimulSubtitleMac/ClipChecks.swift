@@ -34,6 +34,51 @@ enum ClipChecks {
         }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            if let corpus = CommandLine.arguments.firstIndex(of: "--clip-translation-corpus"),
+               let rootIndex = CommandLine.arguments.firstIndex(of: "--clip-real-models"),
+               CommandLine.arguments.indices.contains(corpus + 1), CommandLine.arguments.indices.contains(rootIndex + 1) {
+                try await ClipTranslationReviewChecks.audit(corpus: URL(fileURLWithPath: CommandLine.arguments[corpus + 1]),
+                    modelRoot: URL(fileURLWithPath: CommandLine.arguments[rootIndex + 1]), directory: directory)
+                print("PASS: clip translation corpus"); fflush(stdout); Darwin.exit(0)
+            }
+            if CommandLine.arguments.contains("--clip-speech-timing-only") {
+                checks = try await ClipSpeechTimingChecks.run(directory: directory)
+                if let i = CommandLine.arguments.firstIndex(of: "--clip-real-models"), CommandLine.arguments.indices.contains(i + 1) {
+                    let root = LocalModelStore(root: URL(fileURLWithPath: CommandLine.arguments[i + 1]))
+                    let suite = "SimuSub.ClipSpeechTiming." + UUID().uuidString
+                    let defaults = UserDefaults(suiteName: suite)!
+                    defer { defaults.removePersistentDomain(forName: suite) }
+                    let app = AppModel(defaults: defaults, modelStore: root, modelDownloadsAllowed: false)
+                    let services = try await app.makeClipServices(configured: true, source: .japanese, target: .simplifiedChinese)
+                    if let profile = app.recognitionProfile(for: .japanese),
+                       let verifier = LocalModelDefinition.catalog.first(where: { $0.id == "sensevoice" }),
+                       app.localModels.isUsable(verifier) {
+                        let automatic = try app.clipGenerationKey(source: .japanese, target: .simplifiedChinese)
+                        app.chooseRecognition(profile.id, for: .japanese)
+                        let explicit = try await app.makeClipServices(configured: true, source: .japanese, target: .simplifiedChinese)
+                        let selected = try app.clipGenerationKey(source: .japanese, target: .simplifiedChinese)
+                        try require(services.japaneseClipVerifier != nil && explicit.japaneseClipVerifier == nil
+                                    && explicit.recognizer is ReazonSpeechRecognizer && automatic != selected,
+                                    "clip_explicit_japanese_model_bypasses_verifier_and_uses_different_cache")
+                        app.chooseRecognition(nil, for: .japanese)
+                        let missing = directory.appendingPathComponent("missing-optional-" + UUID().uuidString)
+                        defaults.set(missing.path, forKey: "models.directory.v142")
+                        let offline = AppModel(defaults: defaults, modelStore: root, modelDownloadsAllowed: false)
+                        let primaryOnly = try await offline.makeClipServices(configured: true, source: .japanese, target: .simplifiedChinese)
+                        try require(primaryOnly.japaneseClipVerifier == nil && primaryOnly.recognizer is ReazonSpeechRecognizer
+                                    && !FileManager.default.fileExists(atPath: missing.path),
+                                    "clip_missing_optional_verifier_preserves_installed_primary_without_download")
+                    }
+                    let media = try await ClipMediaEngine.inspect(fixture)
+                    let cues = try await ClipSpeechTimingChecks.timedTranscription(media: media, services: services, directory: directory)
+                    try require(!cues.isEmpty && cues.allSatisfy { $0.end > $0.start && !$0.translated.isEmpty }
+                                && zip(cues, cues.dropFirst()).allSatisfy { $0.end <= $1.start + 0.001 }, "clip_real_ordered_translated_cues")
+                    try JSONEncoder().encode(cues).write(to: directory.appendingPathComponent("captions.json"))
+                }
+                try JSONSerialization.data(withJSONObject: ["passed": true, "checks": checks])
+                    .write(to: directory.appendingPathComponent("report.json"))
+                print("PASS: clip speech timing checks"); fflush(stdout); Darwin.exit(0)
+            }
             if CommandLine.arguments.contains("--clip-japanese-gap-only") {
                 guard let i = CommandLine.arguments.firstIndex(of: "--clip-real-models"), CommandLine.arguments.indices.contains(i + 1) else {
                     throw ClipError.message("Pass --clip-real-models with the installed model root.")
@@ -69,6 +114,7 @@ enum ClipChecks {
                     .write(to: directory.appendingPathComponent("report.json"))
                 print("PASS: \(checks.count) clip role checks"); fflush(stdout); Darwin.exit(0)
             }
+            checks += try await ClipTranslationReviewChecks.run()
             let inspectorStore = ClipStore(root: directory.appendingPathComponent("inspector"))
             let inspectorID = try await inspectorStore.importVideo(fixture)
             let inspectorRange = inspectorStore.projects[0].wholeRange
@@ -148,6 +194,7 @@ enum ClipChecks {
             checks += try await EnglishVocalChecks.run(directory: directory)
             checks += try await ClipV124Checks.run(directory: directory)
             checks += try await ClipV125Checks.run(directory: directory)
+            checks += try await ClipSpeechTimingChecks.run(directory: directory)
             checks += try await ChineseCaptionChecks.run(directory: directory, media: media)
             checks += try ClipHighlightChecks.run(media: media)
             let changedURL = directory.appendingPathComponent("changed-source.mp4")
@@ -212,6 +259,7 @@ enum ClipChecks {
             if let index = CommandLine.arguments.firstIndex(of: "--clip-real-models"), CommandLine.arguments.count > index + 1 {
                 let local = LocalModelStore(root: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
                 let engines = try await Task.detached(priority: .utility) { ClipServices(recognizer: try ReazonSpeechRecognizer(store: local, threads: 2), translator: try LocalLlamaTranslator(modelPath: local.translationModelPath)) }.value
+                try await ClipTranslationReviewChecks.compare(base: engines.translator, directory: directory)
                 checks += try await JapaneseWindowJoiningChecks.run(directory: directory, translator: engines.translator)
                 store.update(id) { $0.captions = []; $0.analysisCoverage = [] }
                 store.start(ClipJob(projectID: id, kind: .transcribe, range: ClipRange(title: "local", start: 0, end: 10)), model: nil, services: engines)

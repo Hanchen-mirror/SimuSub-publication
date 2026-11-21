@@ -13,6 +13,7 @@ struct SubtitleTranslationContext: Sendable {
     var isStablePrefix = false
     var instructions = ""
     var compactLocalPrompt: Bool? = nil
+    var japaneseClipDialogue = false
     // The live pipeline sets this only across adjacent, confirmed English audio.
     var adjacentEnglishSource: String? = nil
     var adjacentEnglishTranslation: String? = nil
@@ -111,6 +112,9 @@ extension SubtitleTranslationContext {
             prefix += "参考下面的翻译：\n" + terms.prefix(8).map { "\($0.japanese) 翻译成 \($0.chinese)" }.joined(separator: "\n") + "\n\n"
         }
         if !instructions.isEmpty && instructions != ServiceProfile.defaultTranslationPrompt { prefix += instructions + "\n\n" }
+        if japaneseClipDialogue, SubtitleLanguage.resolve(source) == .japanese, to?.isChinese == true {
+            return prefix + "把下面这句日语直播字幕译成" + targetName + "，保留语气词、停顿、重复和问句。数字照原文，不补单位。只输出译文。\n\n" + text
+        }
         if !prior.isEmpty {
             return prefix + prior + "\n参考上面的信息，把下面的文本翻译成\(targetName)，注意不需要翻译上文，也不要额外解释：\n" + text
         }

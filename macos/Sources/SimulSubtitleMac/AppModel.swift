@@ -1111,7 +1111,7 @@ final class AppModel: ObservableObject {
         cachedRecognizerWords = words
         return engine
     }
-    private func translator(for profile: ServiceProfile) async throws -> any TextTranslating {
+    private func translator(for profile: ServiceProfile, reviewClip: Bool = false) async throws -> any TextTranslating {
         let engine: any TextTranslating
         if profile.kind == .local {
             guard localProfileInstalled(profile) else { throw ServiceError.modelNotInstalled(profile.name) }
@@ -1138,7 +1138,9 @@ final class AppModel: ObservableObject {
                 }
                 engine = PromptedLocalTranslator(base: LocalSubtitleTranslator(index: cachedRoutingIndex!, hunyuan: local), instructions: profile.effectiveTranslationPrompt)
             } else {
-                engine = PromptedLocalTranslator(base: local, instructions: profile.effectiveTranslationPrompt)
+                let reviewed: any TextTranslating = reviewClip && path == modelStore.translationModelPath
+                    ? ClipJapaneseTranslationReview(base: local) : local
+                engine = PromptedLocalTranslator(base: reviewed, instructions: profile.effectiveTranslationPrompt)
             }
         } else {
             _ = try profile.validatedBaseURL()
@@ -1152,7 +1154,7 @@ final class AppModel: ObservableObject {
             : (profiles.first { $0.id == selectedTranslationProfileID && $0.kind == .local }
                 ?? profiles.first { $0.kind == .local && $0.purpose == .translation })
         guard let profile, profile.isEnabled else { throw ClipError.message("请在服务设置中启用翻译模型。") }
-        return try await translator(for: profile)
+        return try await translator(for: profile, reviewClip: true)
     }
 
     func modelFolder(for profile: ServiceProfile) -> URL {
@@ -1225,7 +1227,13 @@ final class AppModel: ObservableObject {
             guard language == .japanese else { throw ClipError.message("请选择多语言识别模型或接口") }
             return try await localJapaneseRecognizer()
         }
+        return try await localCatalogRecognizer(definition, language: language, automatic: automatic)
+    }
+
+    private func localCatalogRecognizer(_ definition: LocalModelDefinition, language: SubtitleLanguage,
+                                        automatic: Bool = false) async throws -> any SpeechRecognizing {
         guard localModels.isUsable(definition) else { throw ServiceError.modelNotInstalled(definition.name) }
+        let id = definition.id
         let folder = localModels.folder(for: definition)
         if id == "gemma4-e4b" {
             let key = id + "|" + folder.path
@@ -1308,6 +1316,14 @@ final class AppModel: ObservableObject {
 
     /// Reuse local engines across jobs; native inference is serialized and realtime
     /// capture cannot run concurrently with batch work. Local is the default.
+    private func clipVerifierDefinition(for profile: ServiceProfile, language: SubtitleLanguage) -> LocalModelDefinition? {
+        guard language == .japanese, profile.kind == .local, profile.localModelID == nil,
+              !hasRecognitionOverride(for: language),
+              let model = LocalModelDefinition.catalog.first(where: { $0.id == "sensevoice" }),
+              localModels.isUsable(model) else { return nil }
+        return model
+    }
+
     func clipGenerationKey(source: SubtitleLanguage, target: SubtitleLanguage) throws -> String {
         guard let asr = recognitionProfile(for: source),
               let mt = profiles.first(where: { $0.id == selectedTranslationProfileID && $0.purpose == .translation && $0.isEnabled }) else {
@@ -1321,8 +1337,15 @@ final class AppModel: ObservableObject {
         data.append(contentsOf: try encoder.encode([source, target]))
         data.append(contentsOf: try encoder.encode(glossary))
         data.append(asrHotwordsEnabled ? 1 : 0)
+        data.append(contentsOf: "clip-audio-presentation-time-v2".utf8)
         if source == .japanese, asr.kind == .local, asr.localModelID == nil {
-            data.append(contentsOf: "clip-ja-gap-verification-v1".utf8)
+            data.append(contentsOf: "clip-ja-gap-verification-v5".utf8)
+            if let verifier = clipVerifierDefinition(for: asr, language: source) {
+                data.append(contentsOf: try encoder.encode(verifier.files.map(\.sha256)))
+            }
+        }
+        if source == .japanese, target.isChinese, mt.kind == .local, localTranslationPath(mt) == modelStore.translationModelPath {
+            data.append(contentsOf: "clip-ja-zh-translation-review-v1".utf8)
         }
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
@@ -1349,9 +1372,13 @@ final class AppModel: ObservableObject {
             recognizer = OpenAICompatibleSpeechRecognizer(profile: asr, apiKey: try credential(for: asr))
         }
         try Task.checkCancellation()
-        translator = try await self.translator(for: mt)
+        translator = try await self.translator(for: mt, reviewClip: true)
         try Task.checkCancellation()
-        return ClipServices(recognizer: recognizer, translator: translator, sourceLanguage: source, targetLanguage: target)
+        var verifier: (any SpeechRecognizing)?
+        if let definition = clipVerifierDefinition(for: asr, language: source) {
+            verifier = try await localCatalogRecognizer(definition, language: .japanese)
+        }
+        return ClipServices(recognizer: recognizer, translator: translator, japaneseClipVerifier: verifier, sourceLanguage: source, targetLanguage: target)
     }
 
     var usesSharedGemmaForLiveSubtitles: Bool {

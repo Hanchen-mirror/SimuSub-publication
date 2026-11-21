@@ -81,6 +81,7 @@ struct ClipStyledPlayer: NSViewRepresentable {
     var style: ClipSubtitleStyle
     var roles: [ClipCaptionRole] = []
     var mediaSize: CGSize
+    var previewCaption: Caption? = nil
     var onPosition: ((CGPoint, Bool) -> Void)? = nil
     var onStyle: ((ClipSubtitleStyle, Bool) -> Void)? = nil
     var onRoleResize: ((UUID, Double, Double) -> Void)? = nil
@@ -226,6 +227,7 @@ struct ClipStyledPlayer: NSViewRepresentable {
         func configure(_ source: ClipStyledPlayer) {
             let changed = self.source?.style != source.style || self.source?.captions != source.captions
                 || self.source?.roles != source.roles || self.source?.mediaSize != source.mediaSize
+                || self.source?.previewCaption != source.previewCaption
             image?.onPosition = source.onPosition; image?.onStyle = source.onStyle; image?.mediaSize = source.mediaSize; image?.style = source.style
             image?.onRoleResize = source.onRoleResize
             image?.roles = source.roles
@@ -234,7 +236,7 @@ struct ClipStyledPlayer: NSViewRepresentable {
         func refresh(force: Bool = false) {
             guard let source else { return }
             let time = player?.currentTime().seconds ?? 0
-            let cue = source.captions.first { $0.start <= time && time < $0.end }
+            let cue = source.previewCaption ?? source.captions.first { $0.start <= time && time < $0.end }
             if !force && lastID == cue?.id { return }; lastID = cue?.id
             image?.show(cue)
         }

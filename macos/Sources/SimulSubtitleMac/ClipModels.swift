@@ -138,6 +138,7 @@ enum ClipError: LocalizedError {
 struct ClipServices: Sendable {
     var recognizer: any SpeechRecognizing
     var translator: any TextTranslating
+    var japaneseClipVerifier: (any SpeechRecognizing)? = nil
     var sourceLanguage: SubtitleLanguage = .japanese
     var targetLanguage: SubtitleLanguage = .simplifiedChinese
 }
@@ -187,8 +188,29 @@ extension ClipProject {
         if candidates != nil { resetRanges(&candidates!) }
     }
 
+    func subtitleStyle(for range: ClipRange, displaying visible: [Caption]) -> ClipSubtitleStyle {
+        guard range.subtitleStyle == nil, range.importedCaptions != nil || range.captionEdits != nil else { return range.style }
+        var hasOriginal = false, hasTranslation = false
+        for cue in visible {
+            hasOriginal = hasOriginal || !cue.original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            hasTranslation = hasTranslation || SubtitleDocument.completedTranslation(cue) != nil
+            if hasOriginal && hasTranslation { return range.style }
+        }
+        guard hasOriginal || hasTranslation else { return range.style }
+        // Recognition tracks still require both languages, including edited recognition rows.
+        if range.generation?.captions.isEmpty == false || (range.importedCaptions == nil && !captions.isEmpty) {
+            let visibleIDs = Set(visible.map(\.id))
+            if range.generation?.captions.contains(where: { visibleIDs.contains($0.id) }) == true
+                || (range.importedCaptions == nil && captions.contains(where: { visibleIDs.contains($0.id) })) { return range.style }
+        }
+        var style = range.style
+        style.mode = hasOriginal ? .japanese : .chinese
+        return style
+    }
+
     func hasBurnableCaptions(for range: ClipRange) -> Bool {
-        range.style.complete(captions(for: range))
+        let visible = captions(for: range)
+        return subtitleStyle(for: range, displaying: visible).complete(visible)
     }
 
     func captions(for range: ClipRange) -> [Caption] {

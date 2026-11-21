@@ -90,6 +90,72 @@ final class ClipStore: ObservableObject {
         projects.removeAll { $0.id == id }; jobs.removeAll { $0.projectID == id }
         if selectedID == id { selectedID = projects.first?.id }; persist()
     }
+    /// A confirmed subtitle operation may create the full-length range in an empty project.
+    @discardableResult func updateSubtitleRange(_ id: UUID, range: ClipRange, change: (inout ClipRange) -> Void) -> ClipRange? {
+        guard let project = projects.first(where: { $0.id == id }) else { return nil }
+        let index = project.ranges.firstIndex { $0.id == range.id }
+        guard index != nil || (project.ranges.isEmpty && range.start == 0 && range.end == project.media.duration) else { return nil }
+        var changed = index.map { project.ranges[$0] } ?? range
+        change(&changed)
+        update(id) { project in
+            if let index { project.ranges[index] = changed }
+            else { project.ranges.append(changed) }
+        }
+        return changed
+    }
+
+    func insertSegmentCaption(_ id: UUID, range: ClipRange, playhead: Double, before cueID: UUID? = nil,
+                              source: SubtitleLanguage, target: SubtitleLanguage) -> (range: ClipRange, cue: Caption)? {
+        guard !isBusy, playhead.isFinite, let project = projects.first(where: { $0.id == id }) else { return nil }
+        let range = project.ranges.first { $0.id == range.id } ?? range
+        let cues = project.captions(for: range)
+        let minimum = min(0.2, range.duration)
+        guard minimum > 0 else { return nil }
+        var start: Double
+        var end: Double
+        var neighbor: Caption?
+        if let cueID {
+            guard let next = cues.first(where: { $0.id == cueID }) else { return nil }
+            end = max(next.start, range.start)
+            let precedingEnd = cues.prefix { $0.id != cueID }.map(\.end).max() ?? range.start
+            start = max(range.start, precedingEnd, end - 3)
+            neighbor = next
+        } else {
+            let lastEnd = cues.map(\.end).max() ?? range.start
+            start = max(range.start, lastEnd, min(playhead, range.end - minimum))
+            end = min(range.end, start + 3)
+            neighbor = cues.max { $0.end < $1.end }
+        }
+
+        // At a packed boundary, share one adjacent cue only if both halves fit.
+        var shortened: Caption?
+        if end - start < minimum - 0.000001, var old = neighbor {
+            let a = max(range.start, old.start), b = min(range.end, old.end)
+            if b - a >= minimum * 2 - 0.000001 {
+                let middle = (a + b) / 2
+                if cueID != nil {
+                    start = a; end = middle; old.start = middle
+                } else {
+                    start = middle; end = b; old.end = middle
+                }
+                shortened = old
+            }
+        }
+        guard end - start >= minimum - 0.000001,
+              !cues.contains(where: { $0.id != shortened?.id && $0.start < end && $0.end > start }) else {
+            notice = "这里没有足够的时间添加字幕，请先调整相邻字幕的起止时间。"
+            return nil
+        }
+        let cue = Caption(start: start, end: end, original: "", translated: "", sourceLanguage: source, targetLanguage: target)
+        guard let changed = updateSubtitleRange(id, range: range, change: { range in
+            var edits = range.captionEdits ?? []
+            if let shortened { edits.removeAll { $0.id == shortened.id }; edits.append(shortened) }
+            edits.append(cue)
+            range.captionEdits = edits
+        }) else { return nil }
+        return (changed, cue)
+    }
+
     func saveSegmentCaption(_ id: UUID, rangeID: UUID, cue: Caption) -> Bool {
         guard let p = projects.first(where: { $0.id == id }), let range = p.ranges.first(where: { $0.id == rangeID }),
               cue.start.isFinite, cue.end.isFinite, cue.start >= range.start, cue.end <= range.end + 0.001, cue.end > cue.start,
@@ -211,13 +277,14 @@ final class ClipStore: ObservableObject {
                     let url = folder.appendingPathComponent(UUID().uuidString + ".mp4")
                     let savedRange = project.ranges.first { $0.id == range.id } ?? range
                     let cues = ClipTime.captions(project.styledCaptions(for: savedRange), within: range)
-                    let burn = job.burnSubtitles && savedRange.style.complete(cues)
+                    let style = project.subtitleStyle(for: savedRange, displaying: cues)
+                    let burn = job.burnSubtitles && style.complete(cues)
                     let raw = folder.appendingPathComponent(UUID().uuidString + ".mp4")
                     defer { try? FileManager.default.removeItem(at: raw) }
                     do {
                         try await ClipMediaEngine.cut(media: project.media, range: range, output: burn ? raw : url)
-                        if job.burnSubtitles && !savedRange.style.complete(cues) { throw ClipError.message("当前语言模式的字幕尚未补全，请先识别、导入或编辑字幕。") }
-                        if burn { try await ClipMediaEngine.burn(input: raw, output: url, captions: cues, style: savedRange.style, roles: project.captionRoles ?? []) }
+                        if job.burnSubtitles && !style.complete(cues) { throw ClipError.message("当前语言模式的字幕尚未补全，请先识别、导入或编辑字幕。") }
+                        if burn { try await ClipMediaEngine.burn(input: raw, output: url, captions: cues, style: style, roles: project.captionRoles ?? []) }
                         try Task.checkCancellation()
                         guard let current = self.projects.first(where: { $0.id == project.id }),
                               current.ranges == project.ranges, current.captions == project.captions,
@@ -401,8 +468,10 @@ final class ClipStore: ObservableObject {
         for range in job.ranges {
             try range.validateForExport(duration: project.media.duration)
             if job.exportKind != .mp3 && job.burnSubtitles {
-                guard project.hasBurnableCaptions(for: range) else {
-                    throw ClipError.message("“" + range.title + "”的" + range.style.mode.rawValue + "字幕未补全，请先识别、导入或编辑；也可关闭内嵌字幕再导出。［CLIP-SUBTITLES］")
+                let cues = project.captions(for: range)
+                let style = project.subtitleStyle(for: range, displaying: cues)
+                guard style.complete(cues) else {
+                    throw ClipError.message("“" + range.title + "”的" + style.mode.rawValue + "字幕未补全，请先识别、导入或编辑；也可关闭内嵌字幕再导出。［CLIP-SUBTITLES］")
                 }
             }
         }
@@ -410,7 +479,9 @@ final class ClipStore: ObservableObject {
         for (index, range) in job.ranges.enumerated() {
             try Task.checkCancellation()
             let cues = ClipTime.captions(project.styledCaptions(for: range), within: range)
-            let fingerprint = try ClipExportReceipt.fingerprint(media: project.media, range: range, cues: cues, job: job, roles: project.captionRoles ?? [])
+            var rendering = range
+            rendering.subtitleStyle = project.subtitleStyle(for: range, displaying: cues)
+            let fingerprint = try ClipExportReceipt.fingerprint(media: project.media, range: rendering, cues: cues, job: job, roles: project.captionRoles ?? [])
             var receipt = job.exportReceipts?.first { $0.rangeID == range.id && $0.fingerprint == fingerprint && $0.mediaExists }
             let isMP3 = job.exportKind == .mp3
             var stage = isMP3 ? "导出 MP3" : "裁切视频"
@@ -430,7 +501,7 @@ final class ClipStore: ObservableObject {
                         try await ClipMediaEngine.cut(media: project.media, range: range, output: job.burnSubtitles ? intermediate : partial)
                         if job.burnSubtitles {
                             stage = "烧录字幕"
-                            try await ClipMediaEngine.burn(input: intermediate, output: partial, captions: cues, style: range.style, roles: project.captionRoles ?? [], progress: { value in
+                            try await ClipMediaEngine.burn(input: intermediate, output: partial, captions: cues, style: rendering.style, roles: project.captionRoles ?? [], progress: { value in
                                 await self.progress(job.id, value: (Double(index) + 0.35 + value * 0.65) / Double(job.ranges.count), message: "正在烧录字幕：" + range.title)
                             })
                         }
@@ -451,7 +522,7 @@ final class ClipStore: ObservableObject {
                     let target = URL(fileURLWithPath: saved.mediaPath).deletingPathExtension()
                     for format in [SubtitleExportFormat.srt, .vtt] {
                         try Task.checkCancellation()
-                        let text = ClipSubtitleImport.render(cues, format: format, style: range.style)
+                        let text = ClipSubtitleImport.render(cues, format: format, style: rendering.style)
                         guard !text.isEmpty else { continue }
                         stage = "保存 " + format.rawValue.uppercased() + " 字幕"
                         let url = target.appendingPathExtension(format.rawValue)

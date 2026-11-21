@@ -6,10 +6,25 @@ enum ClipImportLayout: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 enum ClipSubtitleImport {
+    private struct Entry {
+        let start: Double
+        let end: Double
+        let text: String
+        var track: ClipImportLayout?
+    }
+
+    private static func track(for style: String) -> ClipImportLayout? {
+        switch style.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "ja", "jp", "ja-jp", "japanese", "日本語", "原文", "original": .japanese
+        case "zh", "zh-cn", "zh-tw", "zh-hans", "zh-hant", "chinese", "中文", "译文", "translation": .chinese
+        default: nil
+        }
+    }
+
     static func parse(_ text: String, extension ext: String, layout: ClipImportLayout, offset: Double, duration: Double) throws -> [Caption] {
         guard text.utf8.count <= 5_000_000 else { throw ClipError.message("字幕文件请控制在 5 MB 以内。") }
         let clean = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").replacingOccurrences(of: "\u{FEFF}", with: "")
-        var entries: [(Double, Double, String)] = []
+        var entries: [Entry] = []
         if ["ass", "ssa"].contains(ext.lowercased()) {
             var fields = ["layer", "start", "end", "style", "name", "marginl", "marginr", "marginv", "effect", "text"]
             var events = false
@@ -20,7 +35,9 @@ enum ClipSubtitleImport {
                 guard line.lowercased().hasPrefix("dialogue:"), let a = fields.firstIndex(of: "start"), let b = fields.firstIndex(of: "end"), let t = fields.firstIndex(of: "text") else { continue }
                 let parts = line.dropFirst(9).split(separator: ",", maxSplits: max(0, fields.count - 1), omittingEmptySubsequences: false).map(String.init)
                 guard parts.count == fields.count, let start = ClipTime.parse(parts[a]), let end = ClipTime.parse(parts[b]) else { continue }
-                entries.append((start, end, parts[t].replacingOccurrences(of: #"\{[^}]*\}"#, with: "", options: .regularExpression).replacingOccurrences(of: "\\N", with: "\n").replacingOccurrences(of: "\\n", with: "\n")))
+                let text = parts[t].replacingOccurrences(of: #"\{[^}]*\}"#, with: "", options: .regularExpression).replacingOccurrences(of: "\\N", with: "\n").replacingOccurrences(of: "\\n", with: "\n")
+                let track = fields.firstIndex(of: "style").flatMap { Self.track(for: parts[$0]) }
+                entries.append(Entry(start: start, end: end, text: text, track: track))
             }
         } else {
             let lines = clean.components(separatedBy: "\n")
@@ -30,15 +47,18 @@ enum ClipSubtitleImport {
                 guard timing.count == 2, let start = ClipTime.parse(timing[0]), let end = ClipTime.parse(String(timing[1].trimmingCharacters(in: .whitespaces).split(separator: " ").first ?? "")) else { index += 1; continue }
                 index += 1; var payload: [String] = []
                 while index < lines.count && !lines[index].trimmingCharacters(in: .whitespaces).isEmpty { payload.append(lines[index]); index += 1 }
-                entries.append((start, end, payload.joined(separator: "\n")))
+                entries.append(Entry(start: start, end: end, text: payload.joined(separator: "\n")))
             }
         }
-        let cues = entries.compactMap { a, b, value -> Caption? in
-            let lines = value.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression).replacingOccurrences(of: "&lt;", with: "<").replacingOccurrences(of: "&gt;", with: ">").replacingOccurrences(of: "&amp;", with: "&")
+        var cues: [Caption] = []
+        var tagged: [Range<Double>: [Int]] = [:]
+        for entry in entries {
+            let a = entry.start, b = entry.end
+            let lines = entry.text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression).replacingOccurrences(of: "&lt;", with: "<").replacingOccurrences(of: "&gt;", with: ">").replacingOccurrences(of: "&amp;", with: "&")
                 .components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-            guard b > a, a + offset < duration, b + offset > 0, !lines.isEmpty else { return nil }
+            guard b > a, a + offset < duration, b + offset > 0, !lines.isEmpty else { continue }
             let original: String, translated: String
-            switch layout {
+            switch layout == .automatic ? (entry.track ?? .automatic) : layout {
             case .automatic:
                 let japanese = lines.filter { $0.range(of: "[\\u3040-\\u30ff]", options: .regularExpression) != nil }
                 if japanese.isEmpty && lines.count > 1 { original = lines[0]; translated = lines.dropFirst().joined(separator: "\n") }
@@ -49,8 +69,19 @@ enum ClipSubtitleImport {
             case .chineseFirst: translated = lines[0]; original = lines.dropFirst().joined(separator: "\n")
             case .japaneseFirst: original = lines[0]; translated = lines.dropFirst().joined(separator: "\n")
             }
-            return Caption(start: max(0, a + offset), end: min(duration, b + offset), original: String(original.prefix(1000)), translated: String(translated.prefix(1000)))
-        }.sorted { $0.start < $1.start }
+            if layout == .automatic, entry.track != nil { tagged[a..<b, default: []].append(cues.count) }
+            cues.append(Caption(start: max(0, a + offset), end: min(duration, b + offset), original: String(original.prefix(1000)), translated: String(translated.prefix(1000))))
+        }
+        // Bilingual ASS commonly stores the two languages in separate style tracks.
+        // Pair by the original interval, before trimming could make distinct cues coincide.
+        var merged = Set<Int>()
+        for rows in tagged.values where rows.count == 2 {
+            guard let source = rows.first(where: { !cues[$0].original.isEmpty }),
+                  let target = rows.first(where: { !cues[$0].translated.isEmpty }) else { continue }
+            cues[source].translated = cues[target].translated
+            merged.insert(target)
+        }
+        cues = cues.enumerated().compactMap { merged.contains($0.offset) ? nil : $0.element }.sorted { $0.start < $1.start }
         guard !cues.isEmpty, cues.count <= 50000 else { throw ClipError.message("没有读到有效字幕。支持 SRT / VTT / ASS，请确认格式与时间范围。") }
         return cues
     }

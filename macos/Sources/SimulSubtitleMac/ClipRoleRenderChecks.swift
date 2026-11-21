@@ -136,6 +136,45 @@ enum ClipRoleRenderChecks {
         coordinator.player = player
         coordinator.image = positionView
         var source = ClipStyledPlayer(player: player, captions: cues, style: base, roles: [a,b], mediaSize: size)
+        let sampleID = UUID()
+        func stylePreview(_ cue: Caption?, mode: ClipLanguageMode = .bilingual) -> ClipStylePreviewContent {
+            ClipStylePreviewContent(current: cue, roles: [a, b], mode: mode, source: .english, target: .traditionalChinese, sampleID: sampleID)
+        }
+        let gap = stylePreview(nil)
+        try require(gap.isSample && gap.cue.original == SubtitleLanguage.english.preview &&
+                    gap.cue.translated == SubtitleLanguage.traditionalChinese.preview, "style_sheet_empty_time_uses_selected_languages")
+        let role = stylePreview(cues[0])
+        try require(role.isSample && role.cue.clipRoleID == nil && cues[0].clipRoleID == a.id, "default_style_sample_preserves_actual_role")
+        let normal = stylePreview(first)
+        try require(!normal.isSample && normal.cue == first, "style_sheet_prefers_current_real_cue")
+        var blank = first
+        blank.original = "  "; blank.translated = "正在翻译…"
+        let blankPreview = stylePreview(blank)
+        try require(blankPreview.isSample && blankPreview.cue.original == gap.cue.original &&
+                    blankPreview.cue.translated == gap.cue.translated, "style_sheet_empty_text_and_pending_translation_use_sample")
+        blank.original = first.original
+        try require(stylePreview(blank).cue.original == first.original && !stylePreview(blank, mode: .japanese).isSample,
+                    "style_sheet_preserves_present_text_and_respects_single_language_mode")
+        var sheet = ClipStyledPlayer(player: player, captions: [], style: .classic, mediaSize: size, previewCaption: gap.cue)
+        func pausedDraftPixels() throws -> Data {
+            coordinator.configure(sheet)
+            guard let frame = positionView.image?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+                  let pixels = frame.dataProvider?.data else { throw ClipError.message("Missing style sheet preview") }
+            return pixels as Data
+        }
+        let playheadBefore = player.currentTime()
+        let before = try pausedDraftPixels()
+        sheet.style.chinese.size = 85
+        let sized = try pausedDraftPixels()
+        sheet.style.chinese.color = "#F6E4B5"
+        let colored = try pausedDraftPixels()
+        sheet.style.chinese.shadow = 1; sheet.style.chinese.shadowOffsetY = 12
+        let shadowed = try pausedDraftPixels()
+        try require(before != sized && sized != colored && colored != shadowed && player.currentTime() == playheadBefore,
+                    "paused_style_sample_updates_size_color_and_shadow_in_place")
+        sheet.previewCaption = nil
+        coordinator.configure(sheet)
+        try require(positionView.cue == nil && sheet.captions.isEmpty, "sample_is_absent_from_normal_preview_and_export_input")
         coordinator.configure(source)
         func visiblePixels() throws -> (red: Int, cyan: Int, green: Int) {
             guard let image = positionView.image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {

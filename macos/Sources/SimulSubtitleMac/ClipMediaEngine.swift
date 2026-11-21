@@ -42,7 +42,8 @@ enum ClipMediaEngine {
     static func extractAudio(media: ClipMedia, start: Double, duration: Double, output: URL) async throws {
         try media.validateFile()
         let r = try await LiveTools.run("ffmpeg", arguments: ["-nostdin", "-hide_banner", "-v", "error", "-n", "-protocol_whitelist", "file,crypto",
-            "-ss", String(start), "-i", media.path, "-t", String(duration), "-map", "0:a:0", "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", output.path], timeout: 120)
+            "-ss", String(start), "-i", media.path, "-t", String(duration), "-map", "0:a:0", "-vn", "-af", "aresample=16000:async=1:first_pts=0",
+            "-ac", "1", "-c:a", "pcm_s16le", output.path], timeout: 120)
         guard r.status == 0 else { throw ClipFailure.tool(r.error, operation: "读取音轨") }
     }
     static func cut(media: ClipMedia, range: ClipRange, output: URL, progress: @escaping @Sendable (Double) async -> Void = { _ in }) async throws {

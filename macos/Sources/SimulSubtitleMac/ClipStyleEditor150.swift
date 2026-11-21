@@ -1,18 +1,44 @@
 import SwiftUI
 import AVKit
 
+/// Only the style sheet consumes this cue. The timeline and export keep the original cues and roles.
+struct ClipStylePreviewContent {
+    let cue: Caption
+    let isSample: Bool
+
+    init(current: Caption?, roles: [ClipCaptionRole], mode: ClipLanguageMode,
+         source: SubtitleLanguage, target: SubtitleLanguage, sampleID: UUID) {
+        let usesRole = current?.clipRoleID.map { id in roles.contains { $0.id == id } } ?? false
+        if let current, !usesRole {
+            var preview = current
+            let missingOriginal = mode != .chinese && current.original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let missingTranslation = mode != .japanese && SubtitleDocument.completedTranslation(current) == nil
+            if missingOriginal { preview.original = source.preview }
+            if missingTranslation { preview.translated = target.preview }
+            cue = preview
+            isSample = missingOriginal || missingTranslation
+        } else {
+            cue = Caption(id: sampleID, start: 0, end: 1, original: source.preview, translated: target.preview,
+                          sourceLanguage: source, targetLanguage: target)
+            isSample = true
+        }
+    }
+}
+
 /// A small style surface: typography stays here; placement stays on the video.
 struct ClipStyleEditor150: View {
     let player: AVPlayer
-    let captions: [Caption]
+    let current: Caption?
+    let sourceLanguage: SubtitleLanguage
+    let targetLanguage: SubtitleLanguage
     var roles: [ClipCaptionRole] = []
     let mediaSize: CGSize
     @Binding var style: ClipSubtitleStyle
     let onClose: () -> Void
-    var onRoleResize: ((UUID, Double, Double) -> Void)? = nil
     @EnvironmentObject private var appearance: HomeAppearance
     @Environment(\.appThemeID) private var themeID
     @State private var showingMask = false
+    @State private var sampleID = UUID()
 
     var body: some View {
         let _ = themeID
@@ -33,9 +59,19 @@ struct ClipStyleEditor150: View {
                     .buttonStyle(.plain).foregroundStyle(ThemeColor.muted)
                     .accessibilityLabel(L10n.text("关闭字幕样式"))
             }
-            ClipStyledPlayer(player: player, captions: captions, style: style, roles: roles, mediaSize: mediaSize,
-                             onStyle: { value, _ in style = value }, onRoleResize: onRoleResize)
+            let preview = ClipStylePreviewContent(current: current, roles: roles, mode: style.mode,
+                                                 source: sourceLanguage, target: targetLanguage, sampleID: sampleID)
+            ClipStyledPlayer(player: player, captions: [], style: style, mediaSize: mediaSize, previewCaption: preview.cue,
+                             onStyle: { value, _ in style = value })
                 .frame(height: 166).background(Color.black)
+                .overlay(alignment: .topLeading) {
+                    if preview.isSample {
+                        Text(L10n.text("样式示例")).font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white).padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 5))
+                            .padding(8).allowsHitTesting(false).accessibilityIdentifier("clip.style.sample")
+                    }
+                }
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .accessibilityIdentifier("clip.style.preview")
             ScrollView {
