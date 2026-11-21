@@ -141,12 +141,12 @@ struct UsageAboutContent {
     }
     var mentorTitle: String { text("致谢", "致謝", "Acknowledgments", "謝辞") }
     var mentorBody: String {
-        text("最后，谢谢我的导师 frank，指导我把这个项目写了出来。", "最後，謝謝我的導師 frank，指導我把這個專案寫了出來。",
-             "Finally, thank you to my mentor, frank, for guiding me as I built SimuSub.",
-             "最後に、SimuSub を作るにあたって指導してくださったメンターの frank さんに感謝します。")
+        text("最后感谢导师 Frank 的指导。", "最後感謝導師 Frank 的指導。",
+             "Finally, I thank my mentor Frank for his guidance.",
+             "最後に、ご指導くださったメンターの Frank さんに感謝します。")
     }
     var mentorLink: ProjectLink {
-        ProjectLink(title: text("frank 的 B 站主页", "frank 的 B 站主頁", "frank on Bilibili", "frank の Bilibili"),
+        ProjectLink(title: text("Frank 的 Bilibili 主页", "Frank 的 Bilibili 主頁", "Frank on Bilibili", "Frank の Bilibili ページ"),
                     url: URL(string: "https://space.bilibili.com/19658621")!)
     }
 }
