@@ -383,6 +383,11 @@ enum SubtitlePanelChecks {
             home.makeKeyAndOrderFront(nil)
             home.toggleFullScreen(nil)
             try await waitFor("home_did_not_enter_fullscreen") { entered == attempt }
+            guard let content = home.contentView else { throw CheckFailure("missing_home_content") }
+            // The toolbar can move to an AppKit overlay window when the pointer reveals it.
+            // A second switch in the workspace content would remain visible below the toolbar.
+            try require(home.toolbar != nil && accessible("nav.toggleSidebar", in: [content]) == nil,
+                        "fullscreen_sidebar_has_no_duplicate_in_content_\(attempt)", &checks)
             model.isSubtitlePinned = attempt == 1
             model.isSubtitleOnly = true
             controller.show()
@@ -1030,7 +1035,7 @@ enum SubtitlePanelChecks {
 
     // Query only this application's accessibility tree. The real popover may be hosted
     // by a separate AppKit window, depending on the macOS version.
-    private static func accessible(_ identifier: String) -> AnyObject? {
+    private static func accessible(_ identifier: String, in roots: [AnyObject]? = nil) -> AnyObject? {
         func find(_ object: Any, seen: inout Set<ObjectIdentifier>) -> AnyObject? {
             let node = object as AnyObject
             guard seen.insert(ObjectIdentifier(node)).inserted else { return nil }
@@ -1041,8 +1046,9 @@ enum SubtitlePanelChecks {
             return nil
         }
         var seen = Set<ObjectIdentifier>()
-        for window in NSApp.windows where window.isVisible {
-            if let node = find(window, seen: &seen) { return node }
+        let roots = roots ?? NSApp.windows.filter(\.isVisible)
+        for root in roots {
+            if let node = find(root, seen: &seen) { return node }
         }
         return nil
     }

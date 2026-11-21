@@ -367,42 +367,25 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
 
 struct HomeWindowBridge: NSViewRepresentable {
     let controller: SubtitlePanelController
-    let onFullScreenChange: (Bool) -> Void
     func makeNSView(context: Context) -> WindowReader {
-        WindowReader(controller: controller, onFullScreenChange: onFullScreenChange)
+        WindowReader(controller: controller)
     }
     func updateNSView(_ nsView: WindowReader, context: Context) { }
     final class WindowReader: NSView {
         let controller: SubtitlePanelController
-        let onFullScreenChange: (Bool) -> Void
-        init(controller: SubtitlePanelController, onFullScreenChange: @escaping (Bool) -> Void) {
+        init(controller: SubtitlePanelController) {
             self.controller = controller
-            self.onFullScreenChange = onFullScreenChange
             super.init(frame: .zero)
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            NotificationCenter.default.removeObserver(self, name: NSWindow.didEnterFullScreenNotification, object: nil)
-            NotificationCenter.default.removeObserver(self, name: NSWindow.didExitFullScreenNotification, object: nil)
-            if let window {
-                window.titlebarAppearsTransparent = true
-                window.titleVisibility = .hidden
-                window.styleMask.insert(.fullSizeContentView)
-                controller.attachHomeWindow(window)
-                for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
-                    NotificationCenter.default.addObserver(self, selector: #selector(fullScreenChanged(_:)),
-                                                           name: name, object: window)
-                }
-                // A restored window may already be full screen when SwiftUI attaches.
-                DispatchQueue.main.async { [weak self] in self?.reportFullScreen() }
-            }
-        }
-        @objc private func fullScreenChanged(_ notification: Notification) { reportFullScreen() }
-        private func reportFullScreen() {
             guard let window else { return }
-            onFullScreenChange(window.styleMask.contains(.fullScreen))
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.styleMask.insert(.fullSizeContentView)
+            controller.attachHomeWindow(window)
         }
     }
 }

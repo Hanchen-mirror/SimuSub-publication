@@ -34,6 +34,16 @@ enum ClipChecks {
         }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            func projectTrackChecks() async throws -> [String] {
+                try await ClipProjectTrackChecks.run(directory: directory.appendingPathComponent("project-track"), fixture: fixture,
+                    services: ClipServices(recognizer: ClipFixtureRecognizer(), translator: ClipFixtureTranslator()))
+            }
+            if CommandLine.arguments.contains("--clip-project-track-only") {
+                checks = try await projectTrackChecks()
+                try JSONSerialization.data(withJSONObject: ["passed": true, "checks": checks], options: [.prettyPrinted, .sortedKeys])
+                    .write(to: directory.appendingPathComponent("report.json"))
+                print("PASS: project subtitle track checks"); fflush(stdout); Darwin.exit(0)
+            }
             if let corpus = CommandLine.arguments.firstIndex(of: "--clip-translation-corpus"),
                let rootIndex = CommandLine.arguments.firstIndex(of: "--clip-real-models"),
                CommandLine.arguments.indices.contains(corpus + 1), CommandLine.arguments.indices.contains(rootIndex + 1) {
@@ -162,6 +172,64 @@ enum ClipChecks {
             other.state = .completed
             other.recommendationCount = 3
             try require(!other.showsSubtitleResultInInspector, "clip_highlight_completion_stays_in_job_bar")
+            let invalidPreview = ClipJob(projectID: inspectorID, kind: .preview)
+            inspectorStore.start(invalidPreview, model: nil)
+            try await wait(inspectorStore)
+            guard let failedPreview = inspectorStore.bannerJob, failedPreview.state == .failed else {
+                throw ClipError.message("CHECK FAILED: missing failed preview retry")
+            }
+            inspectorStore.start(failedPreview, model: nil)
+            inspectorStore.pause()
+            try await wait(inspectorStore)
+            try require(inspectorStore.bannerJob?.state == .paused, "clip_paused_job_still_offers_retry")
+            inspectorStore.start(invalidPreview, model: nil)
+            guard let cancelledID = inspectorStore.currentJob?.id else {
+                throw ClipError.message("CHECK FAILED: missing active preview")
+            }
+            inspectorStore.cancel()
+            try require(inspectorStore.isBusy && inspectorStore.bannerJob == nil && inspectorStore.jobs.first?.state == .cancelled,
+                        "clip_cancel_hides_banner_before_worker_finishes")
+            inspectorStore.progress(cancelledID, value: 0.9, message: "Late progress")
+            try require(inspectorStore.jobs.first?.message != "Late progress", "clip_late_progress_cannot_overwrite_cancellation")
+            try await wait(inspectorStore)
+            let restoredJobs = ClipStore(root: inspectorStore.root)
+            try require(restoredJobs.jobs.first?.id == cancelledID && restoredJobs.bannerJob == nil
+                        && restoredJobs.jobs.contains(where: { $0.id == failedPreview.id && $0.state == .failed }),
+                        "clip_cancelled_history_survives_relaunch_without_resurfacing_previous_error")
+            let originalProject = inspectorStore.projects[0]
+            let reopenedProject = restoredJobs.projects[0]
+            let savedCues = originalProject.captions(for: originalProject.ranges.first { $0.id == inspectorRange.id } ?? originalProject.subtitleRange)
+            let reopenedCues = reopenedProject.captions(for: reopenedProject.ranges.first { $0.id == inspectorRange.id } ?? reopenedProject.subtitleRange)
+            try require(savedCues.contains { SubtitleDocument.completedTranslation($0) != nil } && reopenedCues == savedCues,
+                        "clip_cancel_keeps_bilingual_cues_after_relaunch")
+            let exportRoot = directory.appendingPathComponent("cancelled-export")
+            let exportOutput = exportRoot.appendingPathComponent("movies")
+            try FileManager.default.createDirectory(at: exportOutput, withIntermediateDirectories: true)
+            weak var activeExport: ClipStore?
+            let sidecarStore = ClipStore(root: exportRoot.appendingPathComponent("store"), writeSubtitle: { text, url in
+                try text.write(to: url, atomically: true, encoding: .utf8)
+                if url.pathExtension == "srt" { activeExport?.cancel() }
+            })
+            activeExport = sidecarStore
+            let exportID = try await sidecarStore.importVideo(fixture)
+            let firstCue = Caption(start: 0.1, end: 0.8, original: "はい。", translated: "好。")
+            sidecarStore.update(exportID) { $0.captions = [firstCue] }
+            let shortRange = ClipRange(title: "cancel", start: 0, end: 1)
+            _ = sidecarStore.saveRange(exportID, range: shortRange)
+            sidecarStore.start(ClipJob(projectID: exportID, kind: .export, ranges: [shortRange],
+                                       burnSubtitles: false, outputFolder: exportOutput.path), model: nil)
+            try await wait(sidecarStore)
+            let recoveredExport = ClipStore(root: sidecarStore.root)
+            guard let partialExport = recoveredExport.jobs.first, let receipt = partialExport.exportReceipts?.first else {
+                throw ClipError.message("CHECK FAILED: missing partial export receipt")
+            }
+            let exportedFile = URL(fileURLWithPath: receipt.mediaPath)
+            let exportedSRT = exportedFile.deletingPathExtension().appendingPathExtension("srt")
+            try require(partialExport.state == .cancelled && recoveredExport.bannerJob == nil
+                        && recoveredExport.projects[0].exports.contains(receipt.mediaPath)
+                        && receipt.completedSidecars == ["srt"] && FileManager.default.fileExists(atPath: exportedFile.path)
+                        && FileManager.default.fileExists(atPath: exportedSRT.path),
+                        "clip_cancelled_export_keeps_verified_movie_sidecar_and_receipt")
             if CommandLine.arguments.contains("--clip-result-only") {
                 try JSONSerialization.data(withJSONObject: ["passed": true, "checks": checks], options: [.prettyPrinted, .sortedKeys])
                     .write(to: directory.appendingPathComponent("report.json"))
@@ -171,6 +239,7 @@ enum ClipChecks {
             try require(ClipTime.parse("00:70:01") == nil && ClipTime.parse("nan") == nil && ClipTime.parse("-2") == nil, "clip_invalid_times_rejected")
             try await Release136Checks.translation()
             checks.append("v136_translation_cache_position_and_folders")
+            checks += try await projectTrackChecks()
             checks += try await ClipPlaybackImportChecks.run(directory: directory.appendingPathComponent("playback-import"), fixture: fixture)
             let store = ClipStore(root: directory.appendingPathComponent("store"))
             let id = try await store.importVideo(fixture)

@@ -23,8 +23,7 @@ struct ClipWorkspace: View {
             } else {
                 importPage
             }
-            if let job = clips.currentJob ?? clips.jobs.first(where: { $0.projectID == clips.selectedID }),
-               !job.showsSubtitleResultInInspector {
+            if let job = clips.bannerJob {
                 jobBar(job)
             }
         }.buttonStyle(ClipActionButtonStyle()).background(ClipTheme.background)
@@ -119,10 +118,11 @@ struct ClipWorkspace: View {
                 Button(L10n.text("取消"), action: clips.cancel)
             } else if job.state == .completed, let path = job.exportReceipts?.first?.mediaPath {
                 Button(L10n.text("查看成片")) { clips.reveal(path) }
-            } else if [.failed, .interrupted, .paused, .cancelled].contains(job.state) {
+            } else if [.failed, .interrupted, .paused].contains(job.state) {
                 Button(L10n.text("按已保存设置重试")) { clips.start(job, model: model) }
             }
         }.padding(.horizontal, 20).padding(.vertical, 10).background(ThemeColor.soft)
+            .accessibilityIdentifier("clips.jobBanner")
     }
     private var library: some View {
         ClipLibrarySheet(onProject: { clips.selectedID = $0; showingLibrary = false },
@@ -309,9 +309,20 @@ struct ClipEditor: View {
     @State private var showingTimes = false
     @State private var textUndoCue: UUID?
     @State private var playbackAttempt = 0
+    @State private var initializedSelection = false
     @StateObject private var playback: ClipPlayback
     init(project: ClipProject, onImport: @escaping () -> Void = {}, onBack: @escaping () -> Void = {}, onLibrary: @escaping () -> Void = {}, onRemove: @escaping () -> Void = {}) {
         self.project = project; self.onImport = onImport; self.onBack = onBack; self.onLibrary = onLibrary; self.onRemove = onRemove
+        // Playback ticks update this view frequently. Resolve the source track
+        // once for each project snapshot, not once per tick or inspector row.
+        let range = project.subtitleRange
+        let raw = project.captions(for: range)
+        let styled = (project.captionRoles ?? []).isEmpty ? raw : project.styledCaptions(for: range)
+        cues = raw
+        styledCues = styled
+        captionStyle = project.subtitleStyle(for: range, displaying: raw)
+        effectiveRoles = Dictionary(styled.compactMap { cue in cue.clipRoleID.map { (cue.id, $0) } },
+                                    uniquingKeysWith: { first, _ in first })
         _working = State(initialValue: project.ranges.first ?? project.wholeRange)
         _playback = StateObject(wrappedValue: ClipPlayback())
     }
@@ -320,11 +331,12 @@ struct ClipEditor: View {
         value.start = working.start; value.end = working.end; value.title = working.title
         return value
     }
-    private var subtitleRange: ClipRange { project.ranges.isEmpty ? project.wholeRange : active }
+    private var subtitleRange: ClipRange { project.subtitleRange }
     private var hasRange: Bool { project.ranges.contains { $0.id == working.id } }
-    private var cues: [Caption] { hasRange ? project.captions(for: active) : [] }
-    private var styledCues: [Caption] { hasRange ? project.styledCaptions(for: active) : [] }
-    private var captionStyle: ClipSubtitleStyle { project.subtitleStyle(for: active, displaying: cues) }
+    private let cues: [Caption]
+    private let styledCues: [Caption]
+    private let captionStyle: ClipSubtitleStyle
+    private let effectiveRoles: [UUID: UUID]
     private var sample: Caption { cues.first ?? Caption(start: 0, end: 4, original: "今日はここから始めましょう。", translated: "今天我们从这里开始。") }
     @Environment(\.appThemeID) private var appThemeID
     var body: some View {
@@ -343,7 +355,7 @@ struct ClipEditor: View {
                     metrics.columns {
                         VStack(alignment: .leading, spacing: 12) {
                             let playbackCues = styledCues
-                            ClipStyledPlayer(player: playback.player, captions: playbackCues, style: showingStyle ? draftStyle : (draggedStyle ?? project.subtitleStyle(for: active, displaying: playbackCues)), roles: project.captionRoles ?? [],
+                            ClipStyledPlayer(player: playback.player, captions: playbackCues, style: showingStyle ? draftStyle : (draggedStyle ?? captionStyle), roles: project.captionRoles ?? [],
                                 mediaSize: CGSize(width: project.media.width, height: project.media.height),
                                 onStyle: { style, commit in
                                     if gestureSnapshot == nil { gestureSnapshot = project }
@@ -383,13 +395,18 @@ struct ClipEditor: View {
                 }.padding(.horizontal, metrics.gutter).padding(.vertical, 24)
             }.accessibilityIdentifier(metrics.stacked ? "clips.layout.stacked" : "clips.layout.columns")
         }
-            .onAppear { syncTimes(); if !project.ranges.isEmpty { playback.select(working.start...working.end) } }
+            .onAppear {
+                guard !initializedSelection else { return }
+                initializedSelection = true
+                syncTimes()
+                if !project.ranges.isEmpty { playback.select(working.start...working.end) }
+            }
             .task(id: playbackAttempt) { await playback.prepare(project.media, rebuild: playbackAttempt > 0) }
             .onDisappear { playback.player.pause() }
             .onChange(of: project.ranges.map(\.id)) { ids in
                 if !ids.contains(working.id) { if let next = project.ranges.first { working = next; syncTimes(); playback.select(next.start...next.end) } else { playback.clearSelection() } }
             }
-            .sheet(item: $editing) { cue in ClipCaptionEditor(projectID: project.id, range: active, cue: cue, inheritedRoleID: project.styledCaptions(for: active, inheritingAt: cue.id).first { $0.id == cue.id }?.clipRoleID).appTheme() }
+            .sheet(item: $editing) { cue in ClipCaptionEditor(projectID: project.id, range: subtitleRange, cue: cue, inheritedRoleID: project.styledCaptions(for: subtitleRange, inheritingAt: cue.id).first { $0.id == cue.id }?.clipRoleID).appTheme() }
             .sheet(isPresented: $showingStyle, onDismiss: { applyStyle(draftStyle, recordingUndo: true) }) {
                 ClipStyleEditor150(player: playback.player,
                                    current: styledCues.first { $0.start <= playback.time && playback.time < $0.end },
@@ -467,7 +484,7 @@ struct ClipEditor: View {
                 Label(L10n.text("导出片段"), systemImage: "square.and.arrow.up")
                     .lineLimit(1).fixedSize()
             }.buttonStyle(ThemeActionButtonStyle(prominent: true))
-                .fixedSize().disabled(project.ranges.isEmpty)
+                .fixedSize().disabled(project.ranges.isEmpty && cues.isEmpty)
                 .accessibilityIdentifier("clips.exportRanges")
         }.disabled(clips.isBusy)
     }
@@ -635,7 +652,7 @@ struct ClipEditor: View {
         guard let previous = undoStack.popLast() else { return }
         playback.player.pause()
         withAnimation(.easeInOut(duration: 0.18)) {
-            clips.update(project.id) { p in p.ranges = previous.ranges; p.captions = previous.captions; p.captionRoles = previous.captionRoles }
+            clips.update(project.id) { p in p.ranges = previous.ranges; p.captions = previous.captions; p.subtitleTrack = previous.subtitleTrack; p.analysisCoverage = previous.analysisCoverage; p.captionRoles = previous.captionRoles }
             if let next = previous.ranges.first(where: { $0.id == working.id }) ?? previous.ranges.first { working = next; syncTimes(); playback.select(next.start...next.end) } else { playback.clearSelection() }
         }
         textUndoCue = nil
@@ -648,7 +665,7 @@ struct ClipEditor: View {
     }
     private var subtitleInspectorHeader: some View {
         HStack(spacing: 5) {
-            Text(L10n.text("字幕")).interfaceFont(size: 16, weight: .semibold)
+            Text(L10n.text("全片字幕")).interfaceFont(size: 16, weight: .semibold)
             Spacer(minLength: 8)
             Button(action: importSubtitles) { CaptionInspectorIcon("doc.badge.plus") }
                 .help(L10n.text("导入字幕")).accessibilityLabel(L10n.text("导入字幕"))
@@ -660,23 +677,22 @@ struct ClipEditor: View {
                 CaptionBulb().stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
                     .frame(width: 20, height: 20)
             }
-                .help(L10n.text("识别并翻译当前选段")).accessibilityLabel(L10n.text("生成字幕"))
-                .accessibilityIdentifier("clips.transcribe").disabled(!hasRange || !project.media.hasAudio)
+                .help(L10n.text("识别并翻译全片")).accessibilityLabel(L10n.text("生成字幕"))
+                .accessibilityIdentifier("clips.transcribe").disabled(!project.media.hasAudio)
             ClipCaptionRoleMenu(projectID: project.id, baseStyle: captionStyle, sample: cues.first)
         }.buttonStyle(CaptionToolButtonStyle()).disabled(clips.isBusy)
     }
 
     private func openSubtitleStyle() {
-        draftStyle = project.subtitleStyle(for: subtitleRange, displaying: cues)
+        draftStyle = captionStyle
         playback.player.pause()
         showingStyle = true
     }
 
     private var subtitleResult: ClipJob? {
-        guard hasRange, let job = clips.jobs.first(where: {
-            $0.projectID == project.id && $0.kind == .transcribe && $0.recommendationCount == nil && $0.range?.id == working.id
-        }), job.showsSubtitleResultInInspector,
-              job.range?.start == active.start, job.range?.end == active.end else { return nil }
+        guard let job = clips.jobs.first(where: {
+            $0.projectID == project.id && $0.kind == .transcribe && $0.recommendationCount == nil && $0.range?.id == project.id
+        }), job.showsSubtitleResultInInspector else { return nil }
         return job
     }
 
@@ -712,13 +728,12 @@ struct ClipEditor: View {
 
     private var populatedSubtitleColumn: some View {
         let track = cues
-        let rowStyle = project.subtitleStyle(for: active, displaying: track)
-        let effectiveRoles = Dictionary(styledCues.compactMap { cue in cue.clipRoleID.map { (cue.id, $0) } },
-                                        uniquingKeysWith: { first, _ in first })
+        let highlightedID = selectedCueID ?? track.first?.id
+        let rowStyle = captionStyle
         return VStack(alignment: .leading, spacing: 14) {
             ScrollViewReader { scroll in
                 ScrollView {
-                  VStack(spacing: 10) {
+                  LazyVStack(spacing: 10) {
                     ForEach(track) { cue in
                         insertCaptionButton(before: cue.id)
                         HStack(alignment: .top, spacing: 6) {
@@ -727,26 +742,26 @@ struct ClipEditor: View {
                                                     cue: Binding(get: { cue }, set: { changed in
                                                         remember()
                                                         clips.update(project.id) {
-                                                            $0.setRoleMarker(from: changed, in: working.id)
+                                                            $0.setRoleMarker(from: changed, in: project.id)
                                                         }
                                                     }), inheritedRoleID: effectiveRoles[cue.id], badgeOnly: true)
                                     .padding(.top, 8)
                             }
                             VStack(alignment: .leading, spacing: 12) {
                                 HStack {
-                                    Button { remember(); editing = cue } label: { Text(ClipTime.label(cue.start) + " — " + ClipTime.label(cue.end)).interfaceFont(size: 10).monospacedDigit().foregroundStyle(ThemeColor.muted) }.buttonStyle(.plain)
+                                    Button { remember(); focusCaption(cue); editing = cue } label: { Text(ClipTime.label(cue.start) + " — " + ClipTime.label(cue.end)).interfaceFont(size: 10).monospacedDigit().foregroundStyle(ThemeColor.muted) }.buttonStyle(.plain)
                                         .help(L10n.text("编辑字幕")).accessibilityIdentifier("clips.editCaption." + cue.id.uuidString)
                                     Spacer()
 
-                                    Button { remember(); withAnimation(.easeInOut(duration: 0.18)) { clips.deleteSegmentCaption(project.id, rangeID: active.id, cueID: cue.id) } } label: { Image(systemName: "xmark").font(.system(size: 7, weight: .medium)).frame(width: 21, height: 21).overlay(Circle().stroke(ThemeColor.line, lineWidth: 1)) }.buttonStyle(.plain).help(L10n.text("删除字幕"))
+                                    Button { remember(); withAnimation(.easeInOut(duration: 0.18)) { clips.deleteSegmentCaption(project.id, rangeID: project.id, cueID: cue.id) } } label: { Image(systemName: "xmark").font(.system(size: 7, weight: .medium)).frame(width: 21, height: 21).overlay(Circle().stroke(ThemeColor.line, lineWidth: 1)) }.buttonStyle(.plain).help(L10n.text("删除字幕"))
                                 }
                                 TextField(L10n.text("原文"), text: cueText(cue, original: true), axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).interfaceFont(size: 12).foregroundStyle(ThemeColor.muted).accessibilityIdentifier("clips.original")
                                     .focused($focusedOriginalID, equals: cue.id)
                                     .onAppear { if newCueID == cue.id { focusedOriginalID = cue.id; newCueID = nil } }
                                 TextField(L10n.text("译文"), text: cueText(cue, original: false), axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).interfaceFont(size: 13).accessibilityIdentifier("clips.translation")
                         }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(selectedCaption?.id == cue.id ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 11))
-                            .contentShape(Rectangle()).onTapGesture { if selectedCaption?.id != cue.id { selectedCueID = cue.id; playback.seek(cue.start) } }
+                            .background(highlightedID == cue.id ? ThemeColor.soft : .clear, in: RoundedRectangle(cornerRadius: 11))
+                            .contentShape(Rectangle()).onTapGesture { focusCaption(cue) }
                             .accessibilityIdentifier("clips.cue." + cue.id.uuidString)
                         }.id(cue.id).contextMenu {
                             Button(L10n.text("核对译文")) { showingProofread = true }
@@ -762,79 +777,66 @@ struct ClipEditor: View {
         }
     }
 
+    private func focusCaption(_ cue: Caption) {
+        selectedCueID = cue.id
+        playback.clearSelection(seekingTo: cue.start)
+    }
+
     private func insertCaptionButton(before cueID: UUID? = nil) -> some View {
         Button { insertCaption(before: cueID) } label: {
             HStack(spacing: 8) { Rectangle().frame(height: 1); Image(systemName: "plus").font(.system(size: 9)); Rectangle().frame(height: 1) }.foregroundStyle(ThemeColor.line).frame(height: 16).contentShape(Rectangle())
         }.buttonStyle(.plain).help(L10n.text("添加字幕")).accessibilityLabel(L10n.text("添加字幕"))
     }
     private func insertCaption(before cueID: UUID? = nil) {
-        let hadRange = hasRange
         guard let inserted = clips.insertSegmentCaption(project.id, range: subtitleRange,
                   playhead: playback.time, before: cueID, source: model.sourceLanguage, target: model.targetLanguage) else { return }
         remember()
-        if !hadRange {
-            working = inserted.range
-            syncTimes()
-            playback.select(inserted.range)
-        }
+        playback.clearSelection()
         selectedCueID = inserted.cue.id
         playback.player.pause()
         playback.seek(inserted.cue.start)
         newCueID = inserted.cue.id
     }
-    private var selectedCaption: Caption? { cues.first { $0.id == selectedCueID } ?? cues.first }
     private func currentCaption(_ cue: Caption) -> Caption {
-        guard let latest = clips.projects.first(where: { $0.id == project.id }),
-              let range = latest.ranges.first(where: { $0.id == working.id }) else { return cue }
-        return latest.captions(for: range).first { $0.id == cue.id } ?? cue
+        guard let latest = clips.projects.first(where: { $0.id == project.id }) else { return cue }
+        return latest.captions(for: latest.subtitleRange).first { $0.id == cue.id } ?? cue
     }
     private func cueText(_ cue: Caption, original: Bool) -> Binding<String> {
         Binding(get: {
-            let current = currentCaption(cue)
-            return original ? current.original : current.translated
+            original ? cue.original : cue.translated
         }, set: { value in
             if textUndoCue != cue.id { remember(); textUndoCue = cue.id }
             var current = currentCaption(cue)
             if original { current.original = value } else { current.translated = value }
-            current.start = max(active.start, current.start); current.end = min(active.end, current.end)
-            _ = clips.saveSegmentCaption(project.id, rangeID: active.id, cue: current)
+            _ = clips.saveSegmentCaption(project.id, rangeID: project.id, cue: current)
         })
     }
     private var styleColumn: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(spacing: 6) {
                 ForEach(ClipLanguageMode.allCases) { mode in
-                    Button { var s = active.style; s.mode = mode; applyStyle(s) } label: { Text(L10n.text(mode.title)).frame(maxWidth: .infinity) }
-                        .buttonStyle(ClipActionButtonStyle(accent: active.style.mode == mode ? ClipTheme.violet : nil, prominent: active.style.mode == mode))
+                    Button { var s = captionStyle; s.mode = mode; applyStyle(s) } label: { Text(L10n.text(mode.title)).frame(maxWidth: .infinity) }
+                        .buttonStyle(ClipActionButtonStyle(accent: captionStyle.mode == mode ? ClipTheme.violet : nil, prominent: captionStyle.mode == mode))
                 }
             }
             HStack(spacing: 12) { preset("白色", style: .classic); preset("浅粉", style: .pink); preset("浅金", style: .gold) }
         }.disabled(clips.isBusy)
     }
     private func importSubtitles() {
-        guard saveWorking() else { return }
         let panel = NSOpenPanel(); panel.allowedContentTypes = ["srt", "vtt", "ass", "ssa"].compactMap { UTType(filenameExtension: $0) }; panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let data = try Data(contentsOf: url)
             guard data.count <= 5_000_000, let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16) else { throw ClipError.message("请选择 5 MB 以内的 UTF-8 或 UTF-16 字幕文件。") }
             let captions = try ClipSubtitleImport.parse(text, extension: url.pathExtension, layout: .automatic, offset: 0, duration: project.media.duration)
-            let range = subtitleRange
-            guard let first = captions.first(where: { $0.end > range.start && $0.start < range.end }) else { throw ClipError.message("字幕时间与当前选段没有交集。") }
-            guard let changed = clips.updateSubtitleRange(project.id, range: range, change: {
-                $0.importedCaptions = captions; $0.captionEdits = nil; $0.deletedCaptionIDs = nil; $0.proofreadCandidates = nil
-            }) else { return }
+            guard let imported = clips.importProjectCaptions(project.id, captions: captions) else { return }
             remember()
-            if !hasRange {
-                working = changed; syncTimes(); playback.select(changed)
-            }
-            selectedCueID = first.id
+            selectedCueID = imported.first?.id
         } catch { clips.notice = error.localizedDescription }
     }
     private func exportSubtitles(_ format: SubtitleExportFormat) {
-        guard saveWorking() else { return }
         let track = cues
-        let style = project.subtitleStyle(for: active, displaying: track)
+        let style = project.subtitleStyle(for: subtitleRange, displaying: track)
         let content = format == .txt ? track.map { style.lines($0).map(\.0).joined(separator: "\n") }.joined(separator: "\n\n") : ClipSubtitleImport.render(track, format: format, style: style)
         guard !content.isEmpty else { return }
         SubtitleSavePanel.present(format: format, suggestedName: project.name, from: NSApp.mainWindow) { url in
@@ -843,9 +845,9 @@ struct ClipEditor: View {
         }
     }
     private func preset(_ name: String, style: ClipSubtitleStyle) -> some View {
-        Button { var s = style; s.mode = active.style.mode; applyStyle(s) } label: {
+        Button { var s = style; s.mode = captionStyle.mode; applyStyle(s) } label: {
             VStack(spacing: 5) { Text(L10n.text("中 / 日")).interfaceFont(size: 11, weight: .semibold).foregroundStyle(Color(nsColor: .clipHex(style.chinese.color))); Text(L10n.text(name)).interfaceFont(size: 9) }.frame(maxWidth: .infinity).padding(.vertical, 9)
-                .background(ThemeColor.preview, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(active.style.chinese.color == style.chinese.color ? ClipTheme.violet : ThemeColor.ink.opacity(0.1)))
+                .background(ThemeColor.preview, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(captionStyle.chinese.color == style.chinese.color ? ClipTheme.violet : ThemeColor.ink.opacity(0.1)))
         }.buttonStyle(.plain)
     }
     private var proofreadSheet: some View {
@@ -853,21 +855,21 @@ struct ClipEditor: View {
             HStack { Text(L10n.text("模型核对")).font(.title3.bold()); Spacer(); Button(L10n.text("完成")) { showingProofread = false } }
             Toggle(L10n.text("使用服务设置中选定的翻译模型"), isOn: $configuredProofreading).disabled(clips.isBusy)
             Text(L10n.text(configuredProofreading ? "云端核对将发送当前日语、前两句日中字幕、后一句日语和邻近上下文匹配的术语；不发送音视频。在模型与服务中选择翻译服务。" : "使用本机翻译模型，结合前后文和本地术语库，不上传字幕。")).font(.caption).foregroundStyle(ThemeColor.muted)
-            Button(L10n.text("开始核对当前选段")) {
-                if saveWorking() { if confirmCloudUse(translationOnly: true) { clips.start(ClipJob(projectID: project.id, kind: .proofread, range: active, configuredServices: configuredProofreading), model: model) } }
+            Button(L10n.text("开始核对全片字幕")) {
+                if confirmCloudUse(translationOnly: true, wholeVideo: true) { clips.start(ClipJob(projectID: project.id, kind: .proofread, range: subtitleRange, configuredServices: configuredProofreading), model: model) }
             }.disabled(clips.isBusy || cues.allSatisfy { $0.original.isEmpty })
             ScrollView {
-                ForEach(active.proofreadCandidates ?? []) { cue in
+                ForEach(subtitleRange.proofreadCandidates ?? []) { cue in
                     VStack(alignment: .leading, spacing: 6) {
                         Text(cue.original)
                         Text(L10n.text("现有：") + (cues.first { $0.id == cue.id }?.translated ?? "")).foregroundStyle(ThemeColor.muted)
                         Text(L10n.text("建议：") + cue.translated).foregroundStyle(ClipTheme.cyan)
-                        Button(L10n.text("应用这条建议")) { remember(); _ = clips.applyProofread(project.id, rangeID: working.id, cue: cue) }.disabled(clips.isBusy)
+                        Button(L10n.text("应用这条建议")) { remember(); _ = clips.applyProofread(project.id, rangeID: project.id, cue: cue) }.disabled(clips.isBusy)
                     }.font(.callout).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(ThemeColor.ink.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
                 }
             }
             if clips.isBusy { ProgressView(); Text(L10n.text(clips.currentJob?.message ?? "处理中…")).font(.caption) }
-            else if active.proofreadCandidates?.isEmpty == true { Text(L10n.text("核对完成，没有不同的译文建议。")).font(.caption).foregroundStyle(ThemeColor.muted) }
+            else if subtitleRange.proofreadCandidates?.isEmpty == true { Text(L10n.text("核对完成，没有不同的译文建议。")).font(.caption).foregroundStyle(ThemeColor.muted) }
         }.padding(24).frame(width: 650, height: 540).background(ThemeColor.background)
     }
     private func syncTimes() { startText = ClipTime.label(working.start); endText = ClipTime.label(working.end) }
@@ -881,7 +883,8 @@ struct ClipEditor: View {
     private func addRange() { guard saveWorking() else { return }; duplicate(hasRange ? active : project.wholeRange) }
     private func duplicate(_ range: ClipRange) {
         remember()
-        var next = range; next.id = UUID(); next.title = "选段 \((project.ranges.compactMap { Int($0.title.split(separator: " ").last ?? "") }.max() ?? project.ranges.count) + 1)"; next.proofreadCandidates = nil
+        var next = ClipRange(title: "选段 \((project.ranges.compactMap { Int($0.title.split(separator: " ").last ?? "") }.max() ?? project.ranges.count) + 1)", start: range.start, end: range.end)
+        next.subtitleStyle = range.subtitleStyle
         guard clips.saveRange(project.id, range: next) else { return }
         working = next; syncTimes(); playback.select(next.start...next.end)
     }
@@ -898,10 +901,8 @@ struct ClipEditor: View {
         let range = subtitleRange
         guard style != project.subtitleStyle(for: range, displaying: cues) else { return }
         guard style.valid else { clips.notice = "样式参数无效。"; return }
-        guard saveWorking(), let saved = clips.updateSubtitleRange(project.id, range: range, change: { $0.subtitleStyle = style }) else { return }
+        guard clips.updateSubtitleRange(project.id, range: range, change: { $0.subtitleStyle = style }) != nil else { return }
         if recordingUndo { remember() }
-        working = saved
-        syncTimes()
     }
     private func recommend(_ maximum: Int) {
         guard saveWorking() else { return }
@@ -915,23 +916,23 @@ struct ClipEditor: View {
         } else { clips.start(ClipJob(projectID: project.id, kind: .recommend, range: selected, recommendationCount: maximum), model: nil) }
     }
     private func transcribe() {
-        guard saveWorking(), confirmCloudUse(translationOnly: false) else { return }
+        guard confirmCloudUse(translationOnly: false, wholeVideo: true) else { return }
         do {
             let key = try model.clipGenerationKey(source: model.sourceLanguage, target: model.targetLanguage)
             remember()
-            clips.start(ClipJob(projectID: project.id, kind: .transcribe, range: active, configuredServices: true,
+            clips.start(ClipJob(projectID: project.id, kind: .transcribe, range: subtitleRange, configuredServices: true,
                                 generationServiceKey: key, sourceLanguage: model.sourceLanguage, targetLanguage: model.targetLanguage), model: model)
         } catch { clips.notice = error.localizedDescription }
     }
-    private func confirmCloudUse(translationOnly: Bool) -> Bool {
+    private func confirmCloudUse(translationOnly: Bool, wholeVideo: Bool = false) -> Bool {
         guard !translationOnly || configuredProofreading else { return true }
         let ids = translationOnly ? [model.selectedTranslationProfileID] : [model.recognitionProfile(for: model.sourceLanguage)?.id, model.selectedTranslationProfileID]
         let services = model.profiles.filter { ids.contains($0.id) && $0.kind != .local }
         guard !services.isEmpty else { return true }
         let alert = NSAlert()
-        alert.messageText = "调用云端服务？"
-        alert.informativeText = services.map(\.name).joined(separator: "、") + "将处理当前选段，可能消耗账户额度并产生费用。" + (services.contains { $0.purpose == .speechRecognition } ? "识别服务会收到音频；翻译服务会收到字幕文本。" : "仅发送字幕文字，不上传音视频。") + "具体费用以服务商计费为准。"
-        alert.addButton(withTitle: "继续"); alert.addButton(withTitle: "取消")
+        alert.messageText = L10n.text("调用云端服务？")
+        alert.informativeText = services.map(\.name).joined(separator: "、") + L10n.text(wholeVideo ? "将处理整个视频，可能消耗账户额度并产生费用。" : (hasRange ? "将处理当前选段，可能消耗账户额度并产生费用。" : "将处理视频的前 60 秒，可能消耗账户额度并产生费用。")) + L10n.text(services.contains { $0.purpose == .speechRecognition } ? "识别服务会收到音频；翻译服务会收到字幕文本。" : "仅发送字幕文字，不上传音视频。") + L10n.text("具体费用以服务商计费为准。")
+        alert.addButton(withTitle: L10n.text("继续")); alert.addButton(withTitle: L10n.text("取消"))
         return alert.runModal() == .alertFirstButtonReturn
     }
     private func generatePreview() { guard saveWorking() else { return }; playback.player.pause(); clips.start(ClipJob(projectID: project.id, kind: .preview, range: active, burnSubtitles: burn), model: nil) }
@@ -1001,8 +1002,8 @@ private struct ClipCaptionEditor: View {
                 }.keyboardShortcut(.defaultAction)
             }
         }.padding(24).frame(width: 520).onAppear {
-            start = ClipTime.label(max(range.start, cue.start))
-            end = ClipTime.label(min(range.end, cue.end))
+            start = ClipTime.label(cue.start)
+            end = ClipTime.label(cue.end)
         }
     }
 }

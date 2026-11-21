@@ -9,11 +9,17 @@ final class ClipStore: ObservableObject {
     @Published var notice: String?
     private let storage: LiveMonitorStorage
     private let writeSubtitle: (String, URL) throws -> Void
-    private var task: Task<Void, Never>?
+    @Published private var task: Task<Void, Never>?
     private var pauseRequested = false
     private var lastProgressSave = Date.distantPast
     var isBusy: Bool { task != nil }
     var currentJob: ClipJob? { jobs.first { $0.state == .running } }
+    var bannerJob: ClipJob? {
+        // Only the latest job for a project owns its banner, even when that job is dismissed.
+        let latest = isBusy ? jobs.first : jobs.first { $0.projectID == selectedID }
+        guard let latest, latest.state != .cancelled, !latest.showsSubtitleResultInInspector else { return nil }
+        return latest
+    }
     var selected: ClipProject? { projects.first { $0.id == selectedID } }
     var root: URL { storage.root }
     static var diagnosticRoot: URL? {
@@ -28,11 +34,15 @@ final class ClipStore: ObservableObject {
         storage = LiveMonitorStorage(root: root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("SimuSub/Clips"))
         let (projects, p) = storage.load([ClipProject].self, name: "projects", fallback: [])
         let (jobs, j) = storage.load([ClipJob].self, name: "jobs", fallback: [])
-        self.projects = projects
+        self.projects = projects.map { project in
+            var migrated = project
+            migrated.migrateLegacySubtitleTrack()
+            return migrated
+        }
         self.jobs = jobs.map { var value = $0; if value.state == .running { value.state = .interrupted; value.message = "上次任务未完成，已完成的字幕与成片保留，可重试。" }; return value }
         // Only remove exact temporary paths registered by our own jobs. Never
         // scan or delete unrelated user videos in an export folder.
-        for job in jobs where job.state == .running {
+        for job in jobs where job.state == .running || job.state == .cancelled {
             for path in job.temporaryPaths ?? [] {
                 let url = URL(fileURLWithPath: path)
                 if url.lastPathComponent.range(of: #"^\.simusub-(cut-)?[A-F0-9-]{36}\.(mp4|mp3)$"#, options: .regularExpression) != nil, ["mp4", "mp3"].contains(url.pathExtension),
@@ -58,11 +68,12 @@ final class ClipStore: ObservableObject {
     func update(_ id: UUID, _ change: (inout ClipProject) -> Void) {
         guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
         let oldRanges = projects[index].ranges
+        let oldTrack = projects[index].subtitleTrack
         let oldRoles = projects[index].captionRoles
         let oldCaptions = projects[index].captions
         let oldPreview = projects[index].previewPath
         change(&projects[index])
-        if projects[index].captions != oldCaptions || projects[index].ranges != oldRanges || projects[index].captionRoles != oldRoles {
+        if projects[index].subtitleTrack != oldTrack || projects[index].captions != oldCaptions || projects[index].ranges != oldRanges || projects[index].captionRoles != oldRoles {
             removePreview(oldPreview); projects[index].previewPath = nil
         }
         projects[index].updatedAt = Date(); persist()
@@ -90,9 +101,15 @@ final class ClipStore: ObservableObject {
         projects.removeAll { $0.id == id }; jobs.removeAll { $0.projectID == id }
         if selectedID == id { selectedID = projects.first?.id }; persist()
     }
-    /// A confirmed subtitle operation may create the full-length range in an empty project.
+    /// Old callers can still address their range; migrated projects write the shared track.
     @discardableResult func updateSubtitleRange(_ id: UUID, range: ClipRange, change: (inout ClipRange) -> Void) -> ClipRange? {
         guard let project = projects.first(where: { $0.id == id }) else { return nil }
+        if range.id == project.id || (project.subtitleTrack != nil && project.ranges.contains(where: { $0.id == range.id })) {
+            var track = project.subtitleRange
+            change(&track)
+            update(id) { $0.subtitleTrack = track }
+            return track
+        }
         let index = project.ranges.firstIndex { $0.id == range.id }
         guard index != nil || (project.ranges.isEmpty && range.start == 0 && range.end == project.media.duration) else { return nil }
         var changed = index.map { project.ranges[$0] } ?? range
@@ -104,10 +121,39 @@ final class ClipStore: ObservableObject {
         return changed
     }
 
+    @discardableResult func importProjectCaptions(_ id: UUID, captions: [Caption]) -> [Caption]? {
+        guard !isBusy, !captions.isEmpty, let project = projects.first(where: { $0.id == id }),
+              captions.allSatisfy({ $0.start.isFinite && $0.end.isFinite && $0.start >= 0 && $0.end <= project.media.duration + 0.001 && $0.end > $0.start }) else { return nil }
+        let track = project.subtitleRange
+        // Re-imported files have fresh UUIDs. Match their source times to the
+        // previous layer so hand edits, speaker markers and deletions still apply.
+        let previous = (track.importedCaptions ?? []) + (track.generation?.captions ?? []) + project.captions + (track.captionEdits ?? [])
+        var positions: [ClosedRange<Double>: [Caption]] = [:]
+        var seen = Set<UUID>()
+        for cue in previous where cue.start <= cue.end && seen.insert(cue.id).inserted {
+            positions[cue.start...cue.end, default: []].append(cue)
+        }
+        let imported = captions.map { cue -> Caption in
+            let span = cue.start...cue.end
+            guard var matches = positions[span], !matches.isEmpty else { return cue }
+            let index = matches.firstIndex { $0.original == cue.original && $0.translated == cue.translated } ?? 0
+            var value = cue
+            value.id = matches.remove(at: index).id
+            positions[span] = matches
+            return value
+        }
+        _ = updateSubtitleRange(id, range: track) {
+            $0.importedCaptions = imported
+            $0.proofreadCandidates = nil
+        }
+        guard let latest = projects.first(where: { $0.id == id }) else { return nil }
+        return latest.captions(for: latest.subtitleRange)
+    }
+
     func insertSegmentCaption(_ id: UUID, range: ClipRange, playhead: Double, before cueID: UUID? = nil,
                               source: SubtitleLanguage, target: SubtitleLanguage) -> (range: ClipRange, cue: Caption)? {
         guard !isBusy, playhead.isFinite, let project = projects.first(where: { $0.id == id }) else { return nil }
-        let range = project.ranges.first { $0.id == range.id } ?? range
+        let range = project.editableSubtitleRange(range.id) ?? range
         let cues = project.captions(for: range)
         let minimum = min(0.2, range.duration)
         guard minimum > 0 else { return nil }
@@ -157,49 +203,49 @@ final class ClipStore: ObservableObject {
     }
 
     func saveSegmentCaption(_ id: UUID, rangeID: UUID, cue: Caption) -> Bool {
-        guard let p = projects.first(where: { $0.id == id }), let range = p.ranges.first(where: { $0.id == rangeID }),
+        guard let p = projects.first(where: { $0.id == id }), let range = p.editableSubtitleRange(rangeID),
               cue.start.isFinite, cue.end.isFinite, cue.start >= range.start, cue.end <= range.end + 0.001, cue.end > cue.start,
-              cue.original.count <= 1000, cue.translated.count <= 1000 else { notice = "字幕时间应在当前选段内，单条文字不超过 1000 字。"; return false }
-        guard !p.captions(for: range).contains(where: { $0.id != cue.id && $0.start < cue.end - 0.001 && $0.end > cue.start + 0.001 }) else { notice = "字幕时间与另一条重叠，请先调整边界。"; return false }
-        update(id) { p in
-            guard let i = p.ranges.firstIndex(where: { $0.id == rangeID }) else { return }
-            var edits = p.ranges[i].captionEdits ?? []; edits.removeAll { $0.id == cue.id }; edits.append(cue)
-            p.ranges[i].captionEdits = edits; p.ranges[i].deletedCaptionIDs?.removeAll { $0 == cue.id }
+              cue.original.count <= 1000, cue.translated.count <= 1000 else { notice = "字幕时间应在视频内，单条文字不超过 1000 字。"; return false }
+        let visible = p.captions(for: range)
+        let existing = visible.first { $0.id == cue.id }
+        guard (existing?.start == cue.start && existing?.end == cue.end) ||
+                !visible.contains(where: { $0.id != cue.id && $0.start < cue.end - 0.001 && $0.end > cue.start + 0.001 }) else { notice = "字幕时间与另一条重叠，请先调整边界。"; return false }
+        updateSubtitleRange(id, range: range) { range in
+            var edits = range.captionEdits ?? []; edits.removeAll { $0.id == cue.id }; edits.append(cue)
+            range.captionEdits = edits; range.deletedCaptionIDs?.removeAll { $0 == cue.id }
+            range.proofreadCandidates?.removeAll { $0.id == cue.id }
         }
         return true
     }
     @discardableResult func applyProofread(_ id: UUID, rangeID: UUID, cue: Caption) -> Bool {
-        var revised = cue
-        if let project = projects.first(where: { $0.id == id }),
-           let range = project.ranges.first(where: { $0.id == rangeID }),
-           let current = project.captions(for: range).first(where: { $0.id == cue.id }) {
-            revised.clipRoleID = current.clipRoleID
-            revised.clipUsesDefault = current.clipUsesDefault
-        }
-        guard saveSegmentCaption(id, rangeID: rangeID, cue: revised) else { return false }
-        update(id) { p in if let i = p.ranges.firstIndex(where: { $0.id == rangeID }) {
-            p.ranges[i].proofreadCandidates?.removeAll { $0.id == cue.id }
-        } }
-        return true
+        guard let project = projects.first(where: { $0.id == id }),
+              let range = project.editableSubtitleRange(rangeID),
+              range.proofreadCandidates?.contains(cue) == true,
+              var current = project.captions(for: range).first(where: { $0.id == cue.id }),
+              current.original == cue.original, current.start == cue.start, current.end == cue.end else { return false }
+        current.translated = cue.translated
+        return saveSegmentCaption(id, rangeID: rangeID, cue: current)
     }
     func deleteSegmentCaption(_ id: UUID, rangeID: UUID, cueID: UUID) {
-        update(id) { p in if let i = p.ranges.firstIndex(where: { $0.id == rangeID }) {
-            let visible = p.captions(for: p.ranges[i])
+        guard let project = projects.first(where: { $0.id == id }), let range = project.editableSubtitleRange(rangeID) else { return }
+        let visible = project.captions(for: range)
+        updateSubtitleRange(id, range: range) { track in
             if let index = visible.firstIndex(where: { $0.id == cueID }),
                visible[index].clipRoleID != nil || visible[index].clipUsesDefault == true,
                visible.indices.contains(index + 1) {
                 var next = visible[index + 1]
                 if next.clipRoleID == nil && next.clipUsesDefault != true {
                     next.assignClipRole(visible[index].clipRoleID)
-                    var edits = p.ranges[i].captionEdits ?? []
+                    var edits = track.captionEdits ?? []
                     edits.removeAll { $0.id == next.id }
                     edits.append(next)
-                    p.ranges[i].captionEdits = edits
+                    track.captionEdits = edits
                 }
             }
-            var deleted = p.ranges[i].deletedCaptionIDs ?? []; deleted.append(cueID); p.ranges[i].deletedCaptionIDs = deleted
-            p.ranges[i].captionEdits?.removeAll { $0.id == cueID }
-        } }
+            var deleted = track.deletedCaptionIDs ?? []; deleted.append(cueID); track.deletedCaptionIDs = deleted
+            track.captionEdits?.removeAll { $0.id == cueID }
+            track.proofreadCandidates?.removeAll { $0.id == cueID }
+        }
     }
     func setStyle(_ id: UUID, rangeID: UUID, style: ClipSubtitleStyle, all: Bool = false) {
         guard style.valid else { notice = "样式参数无效。"; return }
@@ -209,6 +255,7 @@ final class ClipStore: ObservableObject {
         guard let p = projects.first(where: { $0.id == id }), cue.start.isFinite, cue.end.isFinite,
               cue.start >= 0, cue.end <= p.media.duration + 0.05, cue.end > cue.start,
               cue.original.count <= 1000, cue.translated.count <= 1000 else { notice = "字幕时间应在视频内，单条文字不超过 1000 字。"; return }
+        if p.subtitleTrack != nil { _ = saveSegmentCaption(id, rangeID: id, cue: cue); return }
         let other = p.captions.filter { $0.id != cue.id }
         guard !other.contains(where: { $0.start < cue.end - 0.001 && $0.end > cue.start + 0.001 }) else { notice = "字幕时间与另一条重叠，请先调整边界。"; return }
         mergeCaption(id, cue: cue)
@@ -248,14 +295,21 @@ final class ClipStore: ObservableObject {
                     notice = "原任务中的选段已移除，请重新选择选段导出。"; return
                 }
                 pending.ranges = job.ranges.compactMap { old in project.ranges.first { $0.id == old.id } }
-            } else if let range = job.range, let saved = project.ranges.first(where: { $0.id == range.id }) {
-                pending.range = saved
+            } else if let range = job.range {
+                // A historical cloud request retains its authorized audio bounds.
+                if job.kind != .transcribe && job.kind != .proofread, let saved = project.storedSubtitleRange(range.id) {
+                    pending.range = saved
+                }
             }
         }
         notice = nil
         // The project owns the latest generated cues, including partial work.
         // The job history needs only the selection and the requested services.
-        if pending.generationServiceKey != nil { pending.range?.generation = nil }
+        if pending.range?.id == project.id, pending.kind == .transcribe || pending.kind == .proofread {
+            pending.range = ClipRange(id: project.id, title: project.name, start: 0, end: project.media.duration)
+        } else if pending.generationServiceKey != nil {
+            pending.range?.generation = nil
+        }
         var identities = Set<UUID>()
         pending.ranges = pending.ranges.filter { identities.insert($0.id).inserted }
         pending.id = UUID(); pending.state = .running; pending.noSpeechDetected = nil; pending.progress = 0; pending.message = "正在准备…"
@@ -287,7 +341,7 @@ final class ClipStore: ObservableObject {
                         if burn { try await ClipMediaEngine.burn(input: raw, output: url, captions: cues, style: style, roles: project.captionRoles ?? []) }
                         try Task.checkCancellation()
                         guard let current = self.projects.first(where: { $0.id == project.id }),
-                              current.ranges == project.ranges, current.captions == project.captions,
+                              current.ranges == project.ranges, current.captions == project.captions, current.subtitleTrack == project.subtitleTrack,
                               current.captionRoles == project.captionRoles else {
                             throw ClipError.message("字幕或样式已改变，请重新生成预览。")
                         }
@@ -325,18 +379,31 @@ final class ClipStore: ObservableObject {
                     else { throw ClipError.message("核对模型尚未准备。") }
                     let cues = project.captions(for: range).filter { !$0.original.isEmpty && !$0.isDraft }.sorted { $0.start < $1.start }
                     guard !cues.isEmpty else { throw ClipError.message("请先添加原文字幕，再使用模型核对。") }
-                    var proposals: [Caption] = []
+                    // A new review supersedes previous suggestions for these cues.
+                    // Keep suggestions outside the requested span of a legacy retry.
+                    let reviewedIDs = Set(cues.map(\.id))
+                    self.updateSubtitleRange(project.id, range: range) { track in
+                        track.proofreadCandidates?.removeAll { reviewedIDs.contains($0.id) }
+                    }
                     for (index, original) in cues.enumerated() {
                         try Task.checkCancellation()
-                        var cue = original; cue.start = max(range.start, cue.start); cue.end = min(range.end, cue.end)
+                        var cue = original
                         let context = SubtitleTranslationContext(
                             previous: cues[..<index].suffix(2).map { .init(original: $0.original, translated: SubtitleDocument.completedTranslation($0) ?? "") },
                             following: cues.dropFirst(index + 1).prefix(1).map(\.original))
                         cue.translated = try await translator.translate(cue.original, from: cue.sourceLanguage.name, to: cue.targetLanguage.name, context: context)
                         try Task.checkCancellation()
-                        if SubtitleDocument.completedTranslation(cue) != nil && cue.translated != original.translated { proposals.append(cue) }
-                        // Persist completed suggestions so a network interruption does not discard review work.
-                        self.update(project.id) { p in if let i = p.ranges.firstIndex(where: { $0.id == range.id }) { p.ranges[i].proofreadCandidates = proposals } }
+                        if let latest = self.projects.first(where: { $0.id == project.id }),
+                           latest.captions(for: range).first(where: { $0.id == original.id }) == original {
+                            // A partial review replaces only finished suggestions.
+                            self.updateSubtitleRange(project.id, range: range) { track in
+                                var suggestions = (track.proofreadCandidates ?? []).filter { $0.id != cue.id }
+                                if SubtitleDocument.completedTranslation(cue) != nil, cue.translated != original.translated {
+                                    suggestions.append(cue)
+                                }
+                                track.proofreadCandidates = suggestions
+                            }
+                        }
                         self.progress(jobID, value: Double(index + 1) / Double(cues.count), message: "正在结合上下文核对字幕 \(index + 1)/\(cues.count)")
                     }
                 case .export:
@@ -349,6 +416,7 @@ final class ClipStore: ObservableObject {
                     // Rank the speech it produced even if the range still has an empty imported track.
                     try await self.recommendHighlights(for: analyzed, range: nil, maximum: count)
                 }
+                try Task.checkCancellation()
                 self.updateJob(jobID) {
                     $0.state = .completed; $0.progress = 1
                     switch job.kind {
@@ -368,6 +436,7 @@ final class ClipStore: ObservableObject {
                 }
             } catch {
                 self.updateJob(jobID) {
+                    guard $0.state == .running else { return }
                     $0.state = Task.isCancelled ? (self.pauseRequested ? .paused : .cancelled) : .failed
                     if case ClipError.noSpeech = error { $0.noSpeechDetected = true }
                     $0.message = Task.isCancelled ? (self.pauseRequested ? "已暂停，继续时复用完成的字幕与成片。" : "已取消，完成的字幕与成片保留。") : ClipFailure.message(error, operation: "当前任务")
@@ -387,12 +456,19 @@ final class ClipStore: ObservableObject {
     private func generateCaptions(_ job: ClipJob, range: ClipRange, project: ClipProject, key: String,
                                   model: AppModel?, services: ClipServices?) async throws {
         try range.validate(duration: project.media.duration)
-        guard let saved = project.ranges.first(where: { $0.id == range.id }) else {
+        guard let saved = project.storedSubtitleRange(range.id) else {
             throw ClipError.message("原选段已移除，请重新选择。")
         }
-        let previous = saved.generation.flatMap { $0.serviceKey == key ? $0 : nil }
-        if let previous, previous.complete, previous.span.contains(range.start), previous.span.contains(range.end),
-           previous.captions.contains(where: { $0.end > range.start && $0.start < range.end }) { return }
+        let current = project.editableSubtitleRange(range.id)?.generation
+        if let current, current.serviceKey == key, current.complete,
+           current.span.contains(range.start), current.span.contains(range.end),
+           current.captions.contains(where: { $0.end > range.start && $0.start < range.end }) { return }
+        var caches = [current, saved.generation].compactMap { $0 }
+        if range.id == project.id { caches += project.ranges.compactMap(\.generation) }
+        var seen = Set<UUID>()
+        let existing = caches.filter { $0.serviceKey == key }.flatMap(\.captions).filter {
+            $0.end > range.start && $0.start < range.end && seen.insert($0.id).inserted
+        }
 
         let engines: ClipServices
         if let services { engines = services }
@@ -402,16 +478,21 @@ final class ClipStore: ObservableObject {
         let span = range.start...range.end
         // Reuse only cues produced by these services. A previous local translation
         // or an empty legacy coverage marker cannot suppress the requested API.
-        try await ClipSpeechPipeline.transcribe(media: project.media, range: range, services: engines, existing: previous?.captions ?? [],
+        try await ClipSpeechPipeline.transcribe(media: project.media, range: range, services: engines, existing: existing,
             progress: { value, message in await self.progress(job.id, value: value, message: message) },
             onCue: { cue in await self.recordGeneratedCue(cue, projectID: project.id, rangeID: range.id, key: key, span: span) },
             onEnergy: { energy in await self.recordEnergy(energy, projectID: project.id) })
         try Task.checkCancellation()
-        guard let track = projects.first(where: { $0.id == project.id })?.ranges.first(where: { $0.id == range.id })?.generation,
+        guard let track = projects.first(where: { $0.id == project.id })?.editableSubtitleRange(range.id)?.generation,
               track.serviceKey == key, track.span == span, !track.captions.isEmpty else {
             throw ClipError.noSpeech
         }
         update(project.id) { p in
+            if range.id == p.id || p.subtitleTrack != nil {
+                p.subtitleTrack?.generation?.complete = true
+                if !p.analysisCoverage.contains(span) { p.analysisCoverage.append(span) }
+                return
+            }
             guard let index = p.ranges.firstIndex(where: { $0.id == range.id }) else { return }
             p.ranges[index].generation?.complete = true
             // Make new speech available to neighbouring ranges without changing
@@ -425,22 +506,36 @@ final class ClipStore: ObservableObject {
     }
 
     private func recordGeneratedCue(_ cue: Caption, projectID: UUID, rangeID: UUID, key: String, span: ClosedRange<Double>) {
-        update(projectID) { p in
-            guard let i = p.ranges.firstIndex(where: { $0.id == rangeID }) else { return }
-            let old = p.ranges[i].generation
-            var track = old ?? ClipGeneration(serviceKey: key, span: span)
-            if track.serviceKey != key || track.span != span { track = ClipGeneration(serviceKey: key, span: span) }
-            func samePosition(_ other: Caption) -> Bool {
-                abs(other.start - cue.start) < 0.01 && abs(other.end - cue.end) < 0.01
+        guard let project = projects.first(where: { $0.id == projectID }),
+              let range = project.editableSubtitleRange(rangeID) else { return }
+        let old = range.generation
+        let sameRequest = old?.serviceKey == key && old?.span == span
+        var generation = old.flatMap { sameRequest ? $0 : nil } ?? ClipGeneration(serviceKey: key, span: span)
+        func samePosition(_ other: Caption) -> Bool {
+            abs(other.start - cue.start) < 0.01 && abs(other.end - cue.end) < 0.01
+        }
+        var value = cue
+        if let previous = old?.captions.first(where: samePosition) ?? project.captions.first(where: samePosition) {
+            value.id = previous.id
+        }
+        if let index = generation.captions.firstIndex(where: { $0.id == value.id }) { generation.captions[index] = value }
+        else { generation.captions.append(value) }
+        if range.id == project.id, !sameRequest, let old {
+            // While the new service fills its track, retain the previous machine
+            // transcript as a fallback without baking in imports or hand edits.
+            var fallback = project
+            var layer = ClipRange(id: project.id, title: project.name, start: 0, end: project.media.duration)
+            layer.generation = old
+            fallback.subtitleTrack = layer
+            let baseline = fallback.captions(for: layer)
+            update(projectID) { p in
+                p.captions = baseline
+                var latest = p.subtitleRange
+                latest.generation = generation
+                p.subtitleTrack = latest
             }
-            var value = cue
-            // Keep editor row identity across provider changes so existing text
-            // edits, deleted rows and speaker markers continue to resolve.
-            if let previous = track.captions.first(where: samePosition) ?? old?.captions.first(where: samePosition)
-                ?? p.captions.first(where: samePosition) { value.id = previous.id }
-            if let index = track.captions.firstIndex(where: { $0.id == value.id }) { track.captions[index] = value }
-            else { track.captions.append(value) }
-            p.ranges[i].generation = track
+        } else {
+            updateSubtitleRange(projectID, range: range) { $0.generation = generation }
         }
     }
 
@@ -542,15 +637,24 @@ final class ClipStore: ObservableObject {
             }
         }
     }
-    func cancel() { pauseRequested = false; task?.cancel() }
+    func cancel() {
+        guard let task, let job = currentJob else { return }
+        pauseRequested = false
+        task.cancel()
+        updateJob(job.id) {
+            $0.state = .cancelled
+            $0.message = "已取消，完成的字幕与成片保留。"
+        }
+    }
     func pause() {
+        guard let task, let job = currentJob else { return }
         pauseRequested = true
-        if let id = currentJob?.id { updateJob(id) { $0.message = "正在暂停，等待当前识别或编码结束…" } }
-        task?.cancel()
+        updateJob(job.id) { $0.message = "正在暂停，等待当前识别或编码结束…" }
+        task.cancel()
     }
     func shutdown() async { task?.cancel(); await task?.value }
     func progress(_ id: UUID, value: Double, message: String) {
-        guard let i = jobs.firstIndex(where: { $0.id == id }) else { return }
+        guard let i = jobs.firstIndex(where: { $0.id == id }), jobs[i].state == .running else { return }
         jobs[i].progress = min(1, max(0, value)); jobs[i].message = message
         if Date().timeIntervalSince(lastProgressSave) >= 2 { lastProgressSave = Date(); persist() }
     }
@@ -584,5 +688,17 @@ final class ClipStore: ObservableObject {
     private func persist() {
         do { try storage.save(projects, name: "projects"); try storage.save(Array(jobs.prefix(100)), name: "jobs") }
         catch { notice = error.localizedDescription }
+    }
+}
+
+
+private extension ClipProject {
+    func editableSubtitleRange(_ rangeID: UUID) -> ClipRange? {
+        guard let requested = storedSubtitleRange(rangeID) else { return nil }
+        return subtitleTrack ?? requested
+    }
+
+    func storedSubtitleRange(_ rangeID: UUID) -> ClipRange? {
+        rangeID == id ? subtitleRange : ranges.first { $0.id == rangeID }
     }
 }

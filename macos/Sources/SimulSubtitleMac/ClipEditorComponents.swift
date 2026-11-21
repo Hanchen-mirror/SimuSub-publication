@@ -58,7 +58,13 @@ final class ClipPlayback: ObservableObject {
         }
         seek(range.start)
     }
-    func clearSelection() { player.pause(); selection = nil; if let boundaryObserver { player.removeTimeObserver(boundaryObserver) }; boundaryObserver = nil; seek(0) }
+    func clearSelection(seekingTo position: Double = 0) {
+        player.pause()
+        selection = nil
+        if let boundaryObserver { player.removeTimeObserver(boundaryObserver) }
+        boundaryObserver = nil
+        seek(position)
+    }
     func toggle() {
         guard ready else { return }
         if player.rate != 0 { playbackRequest = UUID(); player.pause(); return }

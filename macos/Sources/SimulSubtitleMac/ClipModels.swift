@@ -71,6 +71,7 @@ struct ClipProject: Identifiable, Codable, Equatable {
     var outputGrouping: [String]?
     var media: ClipMedia
     var captions: [Caption] = []
+    var subtitleTrack: ClipRange?
     var captionRoles: [ClipCaptionRole]?
     var showsRoleBadges: Bool?
     var ranges: [ClipRange] = []
@@ -131,7 +132,7 @@ enum ClipError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .message(let message): message
-        case .noSpeech: "当前选段未识别到语音，请检查音轨、选段范围和源语言后重试。"
+        case .noSpeech: "未识别到语音，请检查视频音轨和源语言后重试。"
         }
     }
 }
@@ -184,12 +185,21 @@ extension ClipProject {
             }
         }
         resetMarkers(&captions)
+        if var track = subtitleTrack {
+            if track.captionEdits != nil { resetMarkers(&track.captionEdits!) }
+            if track.importedCaptions != nil { resetMarkers(&track.importedCaptions!) }
+            if track.proofreadCandidates != nil { resetMarkers(&track.proofreadCandidates!) }
+            if track.generation != nil { resetMarkers(&track.generation!.captions) }
+            subtitleTrack = track
+        }
         resetRanges(&ranges)
         if candidates != nil { resetRanges(&candidates!) }
     }
 
     func subtitleStyle(for range: ClipRange, displaying visible: [Caption]) -> ClipSubtitleStyle {
-        guard range.subtitleStyle == nil, range.importedCaptions != nil || range.captionEdits != nil else { return range.style }
+        if let style = subtitleTrack?.subtitleStyle ?? range.subtitleStyle { return style }
+        let range = subtitleTrack ?? range
+        guard range.importedCaptions != nil || range.captionEdits != nil else { return range.style }
         var hasOriginal = false, hasTranslation = false
         for cue in visible {
             hasOriginal = hasOriginal || !cue.original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -214,7 +224,7 @@ extension ClipProject {
     }
 
     func captions(for range: ClipRange) -> [Caption] {
-        mergedCaptions(for: range).filter { $0.end > range.start && $0.start < range.end }
+        mergedCaptions(for: subtitleTrack ?? range).filter { $0.end > range.start && $0.start < range.end }
     }
 
     /// Resolve speaker changes before clipping, so trimming a range through a
@@ -224,7 +234,7 @@ extension ClipProject {
         guard !roles.isEmpty else { return captions(for: range) }
         var speaker: UUID?
         var visible: [Caption] = []
-        for var cue in mergedCaptions(for: range) {
+        for var cue in mergedCaptions(for: subtitleTrack ?? range) {
             if cue.start >= range.end { break }
             if cue.id == cueID { cue.inheritClipRole() }
             if let id = cue.clipRoleID {
@@ -242,14 +252,21 @@ extension ClipProject {
 
     /// A speaker choice edits the marker alone, including for imported overlapping cues.
     mutating func setRoleMarker(from cue: Caption, in rangeID: UUID) {
-        guard let index = ranges.firstIndex(where: { $0.id == rangeID }),
-              var current = captions(for: ranges[index]).first(where: { $0.id == cue.id }) else { return }
+        let index = ranges.firstIndex(where: { $0.id == rangeID })
+        let useProjectTrack = rangeID == id || subtitleTrack != nil
+        var track: ClipRange
+        if useProjectTrack { track = subtitleRange }
+        else if let index { track = ranges[index] }
+        else { return }
+        guard var current = captions(for: track).first(where: { $0.id == cue.id }) else { return }
         current.clipRoleID = cue.clipRoleID
         current.clipUsesDefault = cue.clipUsesDefault
-        var edits = ranges[index].captionEdits ?? []
+        var edits = track.captionEdits ?? []
         if let existing = edits.firstIndex(where: { $0.id == cue.id }) { edits[existing] = current }
         else { edits.append(current) }
-        ranges[index].captionEdits = edits
+        track.captionEdits = edits
+        if useProjectTrack { subtitleTrack = track }
+        else if let index { ranges[index] = track }
     }
 
     private func mergedCaptions(for range: ClipRange) -> [Caption] {
@@ -267,9 +284,12 @@ extension ClipProject {
             }
             values += overlay
         }
-        for cue in range.captionEdits ?? [] {
-            if let i = values.firstIndex(where: { $0.id == cue.id }) { values[i] = cue }
-            else { values.append(cue) }
+        if let edits = range.captionEdits, !edits.isEmpty {
+            var positions = Dictionary(values.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+            for cue in edits {
+                if let i = positions[cue.id] { values[i] = cue }
+                else { positions[cue.id] = values.count; values.append(cue) }
+            }
         }
         let removed = Set(range.deletedCaptionIDs ?? [])
         return values.filter { !removed.contains($0.id) && !$0.isDraft }.sorted { $0.start < $1.start }

@@ -12,7 +12,9 @@ enum ClipHighlights {
     /// retain speech from the rest of the project in its original time base.
     static func transcript(_ project: ClipProject, in range: ClipRange?) -> [Caption] {
         var cues = project.captions
-        if let range, range.generation != nil || range.importedCaptions != nil || range.captionEdits != nil || range.deletedCaptionIDs != nil {
+        if project.subtitleTrack != nil {
+            cues = project.captions(for: project.subtitleRange)
+        } else if let range, range.generation != nil || range.importedCaptions != nil || range.captionEdits != nil || range.deletedCaptionIDs != nil {
             let local = project.captions(for: range)
             let replaced = Set(local.map(\.id)).union(range.deletedCaptionIDs ?? [])
             cues.removeAll { replaced.contains($0.id) || ($0.start < range.end && $0.end > range.start) }

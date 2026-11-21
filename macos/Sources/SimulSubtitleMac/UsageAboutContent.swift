@@ -76,22 +76,22 @@ struct UsageAboutContent {
                      "配信が始まったら、配信者の横にある録画ボタンを押します。もう一度押すと停止します。録画した動画は、同じ行の「…」から「録画フォルダを開く」で確認できます。")
             ]),
             GuideSection(symbol: "scissors", title: text("剪出想分享的一段", "剪出想分享的一段", "Make a clip to share", "共有したい場面を切り出す"), steps: [
-                text("把视频拖进「剪辑工作台」，或从「项目与录制历史」打开一段录制。新项目先点时间轴上方的「＋」创建第一个选段，再拖动选段两端，对准想保留的开头和结尾。",
-                     "把影片拖進「剪輯工作台」，或從「項目與錄製歷史」開啟一段錄影。新專案先點時間軸上方的「＋」建立第一個選段，再拖曳選段兩端，對準想保留的開頭和結尾。",
-                     "Drag a video into Clip studio or open a recording from Projects & recordings. In a new project, click + above the timeline to create the first range. Drag its ends to the start and end of the moment you want to keep.",
-                     "「クリップ編集」に動画をドラッグするか、「プロジェクトと録画履歴」から録画を開きます。新しいプロジェクトでは、まずタイムラインの上の「＋」で最初の区間を作ります。区間の両端をドラッグして、残したい場面に合わせます。"),
-                text("先选好源语言和字幕语言，再点灯泡，SimuSub 会识别当前选段的声音并翻译成字幕。已有字幕可以用带加号的文档图标导入。点画笔可分别调整原文和译文的样式。画笔窗口右上角的遮罩图标可以设置遮罩填色和描边。剪辑、直播字幕和外观里的色块都可以长按，再点「×」移除。想加回来时，点「＋」选回刚才的颜色。",
-                     "先選好來源語言和字幕語言，再點燈泡，SimuSub 會辨識目前選段的聲音並翻譯成字幕。已有字幕可用帶加號的文件圖示匯入。點畫筆可分別調整原文和譯文的樣式。畫筆視窗右上角的遮罩圖示可設定遮罩填色與外框。剪輯、直播字幕和外觀裡的色塊都可以長按，再點「×」移除。想加回來時，點「＋」選回剛才的顏色。",
-                     "Choose the source and subtitle languages, then click the lightbulb to transcribe and translate the selected range. Use the document with a plus sign to import subtitles, or the brush to style the source and translation separately. In the style window, the mask icon at the top right opens the mask fill and border settings. In the clip editor, live subtitles, and Appearance, press and hold a swatch and click × to remove it. Click + to bring a color back.",
-                     "元の言語と翻訳先を選び、電球を押すと、選択区間の音声から文字起こしと翻訳が始まります。字幕を読み込むには＋付きの書類を、原文と訳文の見た目を個別に変えるには筆を押します。スタイル画面右上のマスクアイコンで、マスクの塗りと枠線を調整できます。クリップ編集・ライブ字幕・外観では、色見本を長押しして「×」を押すと取り除けます。「＋」から元の色を戻せます。"),
+                text("把视频拖进「剪辑工作台」，或从「项目与录制历史」打开一段录制。要导出片段，点时间轴上方的「＋」创建第一个选段，再拖动选段两端，对准想保留的开头和结尾。",
+                     "把影片拖進「剪輯工作台」，或從「項目與錄製歷史」開啟一段錄影。要匯出片段，點時間軸上方的「＋」建立第一個選段，再拖曳選段兩端，對準想保留的開頭和結尾。",
+                     "Drag a video into Clip studio or open a recording from Projects & recordings. To export a clip, click + above the timeline to create the first range. Drag its ends to the start and end of the moment you want to keep.",
+                     "「クリップ編集」に動画をドラッグするか、「プロジェクトと録画履歴」から録画を開きます。クリップを書き出すには、タイムラインの上の「＋」で最初の区間を作ります。区間の両端をドラッグして、残したい場面に合わせます。"),
+                text("先选好源语言和字幕语言，再点灯泡，SimuSub 会识别整个视频的声音并翻译成字幕。已有字幕可以用带加号的文档图标导入。点画笔可分别调整原文和译文的样式。画笔窗口右上角的遮罩图标可以设置遮罩填色和描边。剪辑、直播字幕和外观里的色块都可以长按，再点「×」移除。想加回来时，点「＋」选回刚才的颜色。",
+                     "先選好來源語言和字幕語言，再點燈泡，SimuSub 會辨識整部影片的聲音並翻譯成字幕。已有字幕可用帶加號的文件圖示匯入。點畫筆可分別調整原文和譯文的樣式。畫筆視窗右上角的遮罩圖示可設定遮罩填色與外框。剪輯、直播字幕和外觀裡的色塊都可以長按，再點「×」移除。想加回來時，點「＋」選回剛才的顏色。",
+                     "Choose the source and subtitle languages, then click the lightbulb to transcribe and translate the full video. Use the document with a plus sign to import subtitles, or the brush to style the source and translation separately. In the style window, the mask icon at the top right opens the mask fill and border settings. In the clip editor, live subtitles, and Appearance, press and hold a swatch and click × to remove it. Click + to bring a color back.",
+                     "元の言語と翻訳先を選び、電球を押すと、動画全体の音声から文字起こしと翻訳が始まります。字幕を読み込むには＋付きの書類を、原文と訳文の見た目を個別に変えるには筆を押します。スタイル画面右上のマスクアイコンで、マスクの塗りと枠線を調整できます。クリップ編集・ライブ字幕・外観では、色見本を長押しして「×」を押すと取り除けます。「＋」から元の色を戻せます。"),
                 text("点叠放的数字图标管理角色。用加号新建角色并设置样式，点字幕旁的编号选择角色。0 表示片段默认样式。点眼睛可以隐藏编号，已经选好的样式会保留。",
                      "點疊放的數字圖示管理角色。用加號新增角色並設定樣式，點字幕旁的編號選取角色。0 表示片段預設樣式。點眼睛可隱藏編號，已選的樣式會保留。",
                      "Click the stacked numbers to manage speakers. Use + to add a speaker and set their style, then choose a speaker from the number beside a subtitle. 0 uses the clip style. The eye hides the numbers and keeps the assigned styles.",
                      "重なった番号のアイコンで話者を管理します。＋で話者を追加してスタイルを設定し、字幕の横の番号から話者を選びます。0 は区間の標準スタイルです。目のアイコンで番号を隠しても、割り当てたスタイルは残ります。"),
-                text("右键点字幕卡可以核对当前选段的译文。点「导出片段」可勾选要分享的选段。只想保存当前选段的字幕时，在同一窗口点「导出字幕」并选格式。",
-                     "按右鍵點字幕卡可校對目前選段的譯文。點「導出片段」可勾選想分享的選段。只想儲存目前選段的字幕時，在同一視窗點「導出字幕」並選格式。",
-                     "Right-click a subtitle card to review translations for the current range. Open Export clips to choose ranges to share. To save just the current range’s subtitles, choose Export subtitles and a file format in the same window.",
-                     "字幕カードを右クリックすると現在の区間の訳文を校正できます。「クリップを書き出す」で共有する区間を選びます。現在の区間の字幕だけを保存する場合は、同じ画面で「字幕を書き出す」から形式を選びます。")
+                text("右键点字幕卡可以核对整片的译文。点「导出片段」可勾选要分享的选段。要单独保存整片字幕，在同一窗口点「导出字幕」并选格式。",
+                     "按右鍵點字幕卡可校對整部影片的譯文。點「導出片段」可勾選想分享的選段。若要單獨儲存整部影片的字幕，在同一視窗點「導出字幕」並選格式。",
+                     "Right-click a subtitle card to review translations for the full video. Open Export clips to choose ranges to share. To save the full subtitle track separately, choose Export subtitles and a file format in the same window.",
+                     "字幕カードを右クリックすると動画全体の訳文を校正できます。「クリップを書き出す」で共有する区間を選びます。動画全体の字幕を単独で保存する場合は、同じ画面で「字幕を書き出す」から形式を選びます。")
             ])
         ]
     }

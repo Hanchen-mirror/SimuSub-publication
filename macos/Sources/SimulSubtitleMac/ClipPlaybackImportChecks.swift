@@ -149,37 +149,46 @@ enum ClipPlaybackImportChecks {
         let denied = manual.insertSegmentCaption(manualID, range: tiny, playhead: 0, source: .japanese, target: .simplifiedChinese)
         try check(denied == nil && manual.notice != nil && manual.selected?.ranges.last == tiny,
                   "manual_full_short_range_reports_reason_and_preserves_track")
+        // Subtitle content belongs to the full track; the export range supplies the visible bounds and explicit style.
+        func trackState(_ fixture: ClipRange) -> (mode: ClipLanguageMode, burnable: Bool) {
+            var project = manualProject
+            var track = fixture
+            track.id = project.id; track.start = 0; track.end = project.media.duration
+            track.subtitleStyle = nil
+            project.subtitleTrack = track
+            return (visibleMode(project, fixture), project.hasBurnableCaptions(for: fixture))
+        }
         var monoRange = draftRange
         monoRange.importedCaptions = try ClipSubtitleImport.parse("1\n00:00:01,000 --> 00:00:03,000\nこんにちは\n",
                      extension: "srt", layout: .automatic, offset: 0, duration: manualProject.media.duration)
-        try check(visibleMode(manualProject, monoRange) == .japanese && manualProject.hasBurnableCaptions(for: monoRange),
+        try check(trackState(monoRange).mode == .japanese && trackState(monoRange).burnable,
                   "manual_source_only_import_defaults_to_burnable_original")
         monoRange.importedCaptions = try ClipSubtitleImport.parse("1\n00:00:01,000 --> 00:00:03,000\n你好\n",
                      extension: "srt", layout: .automatic, offset: 0, duration: manualProject.media.duration)
-        try check(visibleMode(manualProject, monoRange) == .chinese && manualProject.hasBurnableCaptions(for: monoRange),
+        try check(trackState(monoRange).mode == .chinese && trackState(monoRange).burnable,
                   "manual_translation_only_import_defaults_to_burnable_translation")
         var imported = monoRange.importedCaptions![0]
         imported.original = "こんにちは"
         monoRange.captionEdits = [imported]
-        try check(visibleMode(manualProject, monoRange) == .bilingual && manualProject.hasBurnableCaptions(for: monoRange),
+        try check(trackState(monoRange).mode == .bilingual && trackState(monoRange).burnable,
                   "translated_import_edits_enable_both_languages")
         var originalOnly = Caption(start: 6, end: 8, original: "こんばんは", translated: "")
         monoRange.captionEdits?.append(originalOnly)
         monoRange.deletedCaptionIDs = [imported.id]
-        try check(visibleMode(manualProject, monoRange) == .japanese && manualProject.hasBurnableCaptions(for: monoRange),
+        try check(trackState(monoRange).mode == .japanese && trackState(monoRange).burnable,
                   "deleted_import_rows_do_not_determine_language_mode")
         monoRange.deletedCaptionIDs = nil
         monoRange.start = 5
-        try check(visibleMode(manualProject, monoRange) == .japanese && manualProject.hasBurnableCaptions(for: monoRange),
+        try check(trackState(monoRange).mode == .japanese && trackState(monoRange).burnable,
                   "cropped_import_rows_do_not_determine_language_mode")
         originalOnly.id = UUID()
         var generated = ClipRange(title: "识别草稿", start: 0, end: 10)
         generated.generation = ClipGeneration(serviceKey: "local", span: 0...10, captions: [originalOnly])
         generated.captionEdits = [originalOnly]
-        try check(visibleMode(manualProject, generated) == .bilingual && !manualProject.hasBurnableCaptions(for: generated),
+        try check(trackState(generated).mode == .bilingual && !trackState(generated).burnable,
                   "incomplete_recognition_keeps_required_translation_after_source_edit")
         monoRange.subtitleStyle = .pink
-        try check(monoRange.style == .pink && !manualProject.hasBurnableCaptions(for: monoRange),
+        try check(monoRange.style == .pink && !trackState(monoRange).burnable,
                   "single_language_import_respects_an_explicit_bilingual_style")
         try project.media.validateFile()
         return checks
