@@ -118,6 +118,7 @@ enum Release148Checks {
             model.removeProfile(remoteMT)
             model.savedCredentialIDs.remove(remoteMT)
             try require(model.selectedTranslationProfileID == indexID, "delete_remote_translation_restores_local_route")
+            try checkCloudToggles(root: root, require: require)
             let sourcePrefs = HomeAppearance(defaults: defaults)
             let chrome = "com.google.Chrome", player = "test.FrankPlayer"
             let running = [chrome, "test.A", "test.B", "test.C", "test.D", player, chrome]
@@ -268,4 +269,78 @@ enum Release148Checks {
         await active?.shutdownLocalEngines()
         NSApp.terminate(nil); return true
     }
+    /// Exercise the actions behind the cloud-service buttons without sending
+    /// audio, reading a user credential, or writing to the app's preferences.
+    private static func checkCloudToggles(root: URL, require: (Bool, String) throws -> Void) throws {
+        let suite = "SimuSub.CloudToggleChecks." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = LocalModelStore(root: root)
+        let model = AppModel(defaults: defaults, modelStore: store, modelDownloadsAllowed: false)
+        let asr = model.addProfile(.speechRecognition)
+        let translation = model.addProfile(.translation)
+        let otherTranslation = model.addProfile(.translation)
+        let localTranslation = model.selectedTranslationProfileID
+        model.setSourceLanguage(.japanese)
+        let languages = AppModel.recognitionLanguages
+        let localASR = languages.map { model.recognitionProfile(for: $0)?.id }
+
+        model.toggleCloudRecognition(asr, for: .japanese)
+        model.toggleCloudTranslation(translation)
+        try require(model.recognitionProfile(for: .japanese)?.id != asr && model.selectedTranslationProfileID == localTranslation,
+                    "cloud_toggle_rejects_unconfigured_profile")
+        model.savedCredentialIDs.formUnion([asr, translation, otherTranslation])
+        for language in languages { model.toggleCloudRecognition(asr, for: language) }
+        model.toggleCloudTranslation(translation)
+        try require(languages.allSatisfy { model.recognitionProfile(for: $0)?.id == asr }
+                    && model.selectedASRProfileID == asr && model.selectedTranslationProfileID == translation,
+                    "cloud_toggle_selects_recognizer_per_language_and_translator")
+
+        model.isProcessingFile = true
+        model.toggleCloudRecognition(asr, for: .japanese)
+        model.toggleCloudTranslation(translation)
+        model.isProcessingFile = false
+        try require(model.selectedASRProfileID == asr && model.selectedTranslationProfileID == translation,
+                    "cloud_toggle_does_not_change_active_processing")
+
+        for (index, language) in languages.enumerated() {
+            model.toggleCloudRecognition(asr, for: language)
+            try require(languages.enumerated().allSatisfy { i, item in
+                i <= index ? !model.hasRecognitionOverride(for: item) && model.recognitionProfile(for: item)?.id == localASR[i]
+                           : model.recognitionProfile(for: item)?.id == asr
+            } && model.selectedASRProfileID == localASR[0] && model.selectedTranslationProfileID == translation,
+                        "cloud_toggle_off_only_affects_" + language.asrCode)
+        }
+        model.toggleCloudTranslation(otherTranslation)
+        try require(model.selectedTranslationProfileID == otherTranslation, "cloud_toggle_switches_to_another_translator")
+        model.toggleCloudTranslation(otherTranslation)
+        try require(model.selectedTranslationProfileID == localTranslation
+                    && model.profiles.contains { $0.id == asr } && model.profiles.contains { $0.id == otherTranslation }
+                    && model.savedCredentialIDs.isSuperset(of: [asr, translation, otherTranslation]),
+                    "cloud_toggle_off_returns_to_local_without_removing_credentials_or_profiles")
+        let restored = AppModel(defaults: defaults, modelStore: store, modelDownloadsAllowed: false)
+        restored.savedCredentialIDs.formUnion([asr, translation, otherTranslation])
+        try require(languages.enumerated().allSatisfy { i, item in
+            !restored.hasRecognitionOverride(for: item) && restored.recognitionProfile(for: item)?.id == localASR[i]
+        } && restored.selectedTranslationProfileID == localTranslation, "cloud_toggle_off_survives_relaunch")
+        restored.toggleCloudRecognition(asr, for: .japanese)
+        restored.toggleCloudTranslation(translation)
+        restored.savedCredentialIDs.remove(asr)
+        restored.savedCredentialIDs.remove(translation)
+        restored.toggleCloudRecognition(asr, for: .japanese)
+        restored.toggleCloudTranslation(translation)
+        restored.savedCredentialIDs.formUnion([asr, translation])
+        try require(!restored.hasRecognitionOverride(for: .japanese) && restored.selectedTranslationProfileID == localTranslation,
+                    "cloud_toggle_off_still_works_after_credential_is_unavailable")
+
+        restored.toggleCloudTranslation(translation)
+        for i in restored.profiles.indices where restored.profiles[i].purpose == .translation && restored.profiles[i].kind == .local {
+            restored.profiles[i].isEnabled = false
+        }
+        restored.toggleCloudTranslation(translation)
+        let noLocal = AppModel(defaults: defaults, modelStore: store, modelDownloadsAllowed: false)
+        try require(restored.selectedTranslationProfileID == nil && noLocal.selectedTranslationProfileID == nil,
+                    "cloud_toggle_off_stays_unselected_without_an_enabled_local_translator")
+    }
+
 }

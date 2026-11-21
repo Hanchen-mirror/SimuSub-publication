@@ -109,12 +109,21 @@ struct AdvancedServiceSettings: View {
                             Label(L10n.text("默认本地模型"), systemImage: model.hasRecognitionOverride(for: language) ? "desktopcomputer" : "checkmark")
                         }
                         Divider()
-                        ForEach(model.recognitionChoices(for: language)) { choice in
-                            Button { model.chooseRecognition(choice.id, for: language) } label: { choiceLabel(choice, selected: choice.id == profile?.id) }
+                        let override = model.recognitionOverrides[language.asrCode]
+                        ForEach(menuChoices(model.recognitionChoices(for: language), selectedID: override)) { choice in
+                            Button {
+                                if choice.kind == .local { model.chooseRecognition(choice.id, for: language) }
+                                else { model.toggleCloudRecognition(choice.id, for: language) }
+                            } label: {
+                                choiceLabel(choice, selected: choice.id == (choice.kind == .local ? profile?.id : override))
+                            }
                         }
                     } else {
-                        ForEach(model.translationChoices) { choice in
-                            Button { model.selectedTranslationProfileID = choice.id } label: { choiceLabel(choice, selected: choice.id == profile?.id) }
+                        ForEach(menuChoices(model.translationChoices, selectedID: model.selectedTranslationProfileID)) { choice in
+                            Button {
+                                if choice.kind == .local { model.selectedTranslationProfileID = choice.id }
+                                else { model.toggleCloudTranslation(choice.id) }
+                            } label: { choiceLabel(choice, selected: choice.id == profile?.id) }
                         }
                     }
                     Divider()
@@ -136,6 +145,14 @@ struct AdvancedServiceSettings: View {
                 .accessibilityLabel(L10n.text(language?.name ?? "翻译") + " · " + L10n.text("模型操作"))
                 .accessibilityIdentifier(language.map { "services.asr." + $0.asrCode } ?? "services.translation")
         }.padding(.vertical, 14)
+    }
+
+    // A selected cloud route can lose its credential while the app is closed.
+    // Keep that row reachable so it can still be turned off from either picker.
+    private func menuChoices(_ available: [ServiceProfile], selectedID: UUID?) -> [ServiceProfile] {
+        guard let id = selectedID, !available.contains(where: { $0.id == id }),
+              let selected = model.profiles.first(where: { $0.id == id && $0.kind != .local }) else { return available }
+        return available + [selected]
     }
 
     private var removalLocked: Bool {
@@ -219,14 +236,20 @@ struct AdvancedServiceSettings: View {
                 HStack(spacing: 6) {
                     if profile.purpose == .speechRecognition {
                         ForEach(AppModel.recognitionLanguages) { language in
-                            Button(L10n.text(language.isChinese ? "中文" : language.name)) { model.chooseRecognition(profile.id, for: language) }
-                                .disabled(!model.recognitionChoices(for: language).contains { $0.id == profile.id })
-                                .buttonStyle(ThemeActionButtonStyle(prominent: model.recognitionProfile(for: language)?.id == profile.id))
+                            let selected = model.recognitionOverrides[language.asrCode] == profile.id
+                            Button(L10n.text(language.isChinese ? "中文" : language.name)) { model.toggleCloudRecognition(profile.id, for: language) }
+                                .disabled(!selected && !model.recognitionChoices(for: language).contains { $0.id == profile.id })
+                                .buttonStyle(ThemeActionButtonStyle(prominent: selected))
+                                .accessibilityAddTraits(selected ? .isSelected : [])
+                                .accessibilityIdentifier("services.cloudASR." + profile.id.uuidString + "." + language.asrCode)
                         }
                     } else {
-                        Button(L10n.text("使用翻译")) { model.selectedTranslationProfileID = profile.id }
-                            .disabled(!model.translationChoices.contains { $0.id == profile.id })
-                            .buttonStyle(ThemeActionButtonStyle(prominent: model.selectedTranslationProfileID == profile.id))
+                        let selected = model.selectedTranslationProfileID == profile.id
+                        Button(L10n.text("使用翻译")) { model.toggleCloudTranslation(profile.id) }
+                            .disabled(!selected && !model.translationChoices.contains { $0.id == profile.id })
+                            .buttonStyle(ThemeActionButtonStyle(prominent: selected))
+                            .accessibilityAddTraits(selected ? .isSelected : [])
+                            .accessibilityIdentifier("services.cloudTranslation." + profile.id.uuidString)
                     }
                 }
             }

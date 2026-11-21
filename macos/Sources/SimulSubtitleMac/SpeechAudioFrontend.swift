@@ -12,6 +12,7 @@ struct SubtitleProcessingOptions: Equatable, Sendable {
     var liveEnglishToChinese = false
     var japanesePhraseBoundaries = false
     var japaneseClipContext = false
+    var cloudJapaneseClip = false
 }
 
 protocol CaptionRevision: Identifiable, Sendable where ID == UUID {
@@ -263,8 +264,8 @@ final class SpeechAudioFrontend: @unchecked Sendable {
             denoiser = engine
         } else { denoiser = nil }
         var config = sherpaOnnxVadModelConfig(sileroVad: sherpaOnnxSileroVadModelConfig(
-            model: vadPath, threshold: 0.60, minSilenceDuration: options.liveEnglishToChinese ? 0.44 : options.endpointSilence,
-            minSpeechDuration: 0.18, windowSize: 512, maxSpeechDuration: 20), numThreads: 1)
+            model: vadPath, threshold: options.cloudJapaneseClip ? 0.19 : 0.60, minSilenceDuration: options.liveEnglishToChinese ? 0.44 : options.endpointSilence,
+            minSpeechDuration: options.cloudJapaneseClip ? 0.096 : 0.18, windowSize: 512, maxSpeechDuration: options.cloudJapaneseClip ? 6 : 20), numThreads: 1)
         guard let detector = SherpaOnnxCreateVoiceActivityDetector(&config, 32) else { throw FrontendError.initialization }
         vad = detector
     }
@@ -404,7 +405,7 @@ final class SpeechAudioFrontend: @unchecked Sendable {
         while SherpaOnnxVoiceActivityDetectorEmpty(vad) == 0 {
             if let speech = SherpaOnnxVoiceActivityDetectorFront(vad) {
                 let count = Int(speech.pointee.n)
-                if count >= 2_880, let data = speech.pointee.samples {
+                if count >= (options.cloudJapaneseClip ? 1_536 : 2_880), let data = speech.pointee.samples {
                     let vadSamples = Array(UnsafeBufferPointer(start: data, count: count))
                     let vadStart = Int(speech.pointee.start)
                     let vadEnd = vadStart + count
@@ -414,7 +415,12 @@ final class SpeechAudioFrontend: @unchecked Sendable {
                     var range = min(start, covered.upperBound)..<covered.upperBound
                     // Continuous speech already has both phonetic context and
                     // long-utterance gap recovery. Expand isolated short turns only.
-                    if options.japaneseClipContext, covered.count < 6 * Self.sampleRate {
+                    if options.cloudJapaneseClip {
+                        // Detection runs on raw PCM here. Keep a little real audio on
+                        // both sides of weak syllables, without reusing an owned frame.
+                        range = Self.contextualRange(range, previousEnd: lastFinalEnd,
+                            available: historyStart..<(historyStart + history.count), processed: processed)
+                    } else if options.japaneseClipContext, covered.count < 6 * Self.sampleRate {
                         range = Self.contextualRange(range, previousEnd: lastFinalEnd, available: rawHistoryStart..<(rawHistoryStart + rawHistory.count), processed: processed)
                     }
                     // A VAD preroll can reach into the preceding final's draft tail.

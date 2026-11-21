@@ -138,6 +138,25 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func toggleCloudRecognition(_ id: UUID, for language: SubtitleLanguage) {
+        guard !isBusy, profiles.contains(where: { $0.id == id && $0.kind != .local && $0.purpose == .speechRecognition }) else { return }
+        chooseRecognition(recognitionOverrides[language.asrCode] == id ? nil : id, for: language)
+    }
+
+    private var defaultLocalTranslation: ServiceProfile? {
+        profiles.first { $0.kind == .local && $0.purpose == .translation && $0.isEnabled && $0.localModelID == nil && $0.localModelPath == nil }
+            ?? translationChoices.first { $0.kind == .local }
+    }
+
+    func toggleCloudTranslation(_ id: UUID) {
+        guard !isBusy, profiles.contains(where: { $0.id == id && $0.kind != .local && $0.purpose == .translation }) else { return }
+        if selectedTranslationProfileID == id {
+            selectedTranslationProfileID = defaultLocalTranslation?.id
+        } else if translationChoices.contains(where: { $0.id == id }) {
+            selectedTranslationProfileID = id
+        }
+    }
+
     private func persistRecognitionOverrides() {
         defaults.set(recognitionOverrides.mapValues(\.uuidString), forKey: Self.recognitionOverridesKey)
     }
@@ -423,7 +442,7 @@ final class AppModel: ObservableObject {
             ?? profiles.first(where: { $0.purpose == .speechRecognition })?.id
         isChoosingAutomaticRecognition = false
         selectedTranslationProfileID = profiles.first(where: { $0.id == savedMT && $0.purpose == .translation })?.id
-            ?? profiles.first(where: { $0.purpose == .translation })?.id
+            ?? defaultLocalTranslation?.id
         if defaults.bool(forKey: "subtitle.gemmaUnified.v145"), !defaults.bool(forKey: "subtitle.splitLanguage.v146") {
             // Undo the experimental forced route once. Keep unrelated explicit
             // services and all models/settings; later MT selections persist.
@@ -440,7 +459,7 @@ final class AppModel: ObservableObject {
         // when that local selection is disabled or no longer available.
         if let selected = profiles.first(where: { $0.id == selectedTranslationProfileID }), selected.kind == .local,
            !selected.isEnabled || ((selected.localModelID != nil || selected.localModelPath != nil) && !localProfileInstalled(selected)) {
-            selectedTranslationProfileID = profiles.first { $0.kind == .local && $0.purpose == .translation && $0.localModelID == nil && $0.localModelPath == nil }?.id
+            selectedTranslationProfileID = defaultLocalTranslation?.id
         }
         preferSelectedLanguageRecognizer()
         refreshModels()
@@ -1338,6 +1357,9 @@ final class AppModel: ObservableObject {
         data.append(contentsOf: try encoder.encode(glossary))
         data.append(asrHotwordsEnabled ? 1 : 0)
         data.append(contentsOf: "clip-audio-presentation-time-v2".utf8)
+        if source == .japanese && asr.kind == .openAICompatible {
+            data.append(contentsOf: "clip-cloud-ja-speech-coverage-v1".utf8)
+        }
         if source == .japanese, asr.kind == .local, asr.localModelID == nil {
             data.append(contentsOf: "clip-ja-gap-verification-v6".utf8)
             if let verifier = clipVerifierDefinition(for: asr, language: source) {

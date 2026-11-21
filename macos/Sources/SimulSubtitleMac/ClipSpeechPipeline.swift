@@ -19,9 +19,14 @@ enum ClipSpeechPipeline {
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temp) }
         let buffer = ClipSegmentBuffer()
-        let frontend = try SpeechAudioFrontend(options: .init(suppressMusic: true, showDrafts: false,
+        // The cloud decoder only hears what this gate emits. Enhancement can
+        // erase quiet morae under game audio before the server receives them.
+        let cloudJapanese = services.sourceLanguage == .japanese && services.recognizer is OpenAICompatibleSpeechRecognizer
+        let frontend = try SpeechAudioFrontend(options: .init(suppressMusic: !cloudJapanese, showDrafts: false,
+            endpointSilence: cloudJapanese ? 0.55 : 0.72,
             japanesePhraseBoundaries: services.sourceLanguage == .japanese && !(services.recognizer is ReazonSpeechRecognizer),
-            japaneseClipContext: services.sourceLanguage == .japanese && services.recognizer is ReazonSpeechRecognizer))
+            japaneseClipContext: services.sourceLanguage == .japanese && services.recognizer is ReazonSpeechRecognizer,
+            cloudJapaneseClip: cloudJapanese))
         let epoch = Date(timeIntervalSince1970: range.start)
         let gapDetector = services.japaneseClipVerifier.map {
             ClipJapaneseGapDetector(recognizer: $0, start: range.start, target: services.targetLanguage, independent: services.recognizer)
