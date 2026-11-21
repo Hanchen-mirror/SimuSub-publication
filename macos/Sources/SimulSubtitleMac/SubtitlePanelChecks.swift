@@ -19,12 +19,25 @@ enum SubtitlePanelChecks {
             try await Task.sleep(nanoseconds: 400_000_000)
             // Enable SwiftUI accessibility nodes for this diagnostic process, including on Macs without VoiceOver.
             NSApp.accessibilitySetValue(true, forAttribute: .init(rawValue: "AXEnhancedUserInterface"))
+            if CommandLine.arguments.contains("--home-fullscreen-only") {
+                try await checkHomeFullScreen(model, controller: controller, checks: &checks)
+                try write(["passed": true, "checks": checks], to: directory.appendingPathComponent("panel-checks.json"))
+                NSApp.terminate(nil)
+                return true
+            }
             model.isSubtitleOnly = true
             model.isSubtitlePinned = true
             controller.show()
             try await Task.sleep(nanoseconds: 250_000_000)
             guard let panel = controller.panel, let home = controller.homeWindow else { throw CheckFailure("missing_windows") }
             try require(panel.isVisible && !home.isVisible, "independent_panel_home_hidden", &checks)
+            if CommandLine.arguments.contains("--clear-confirmation-only"), let appearance {
+                try await checkClearConfirmation(model, controller: controller, appearance: appearance, panel: panel,
+                                                 directory: directory, checks: &checks)
+                try write(["passed": true, "checks": checks], to: directory.appendingPathComponent("panel-checks.json"))
+                NSApp.terminate(nil)
+                return true
+            }
             let originalFrame = panel.frame
             controller.openSubtitleSettings()
             try await Task.sleep(nanoseconds: 250_000_000)
@@ -311,6 +324,61 @@ enum SubtitlePanelChecks {
         }
         NSApp.terminate(nil)
         return true
+    }
+
+    /// Exercises the diagnostic app's own Space. Never drives another application,
+    /// captures audio, requests permission, or changes the user's saved preferences.
+    private static func checkHomeFullScreen(_ model: AppModel, controller: SubtitlePanelController,
+                                            checks: inout [String]) async throws {
+        guard let home = controller.homeWindow else { throw CheckFailure("missing_home_window") }
+        func waitFor(_ description: String, _ predicate: () -> Bool) async throws {
+            for _ in 0..<160 {
+                if predicate() { return }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            throw CheckFailure(description)
+        }
+
+        var entered = 0, exited = 0
+        let didEnter = NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification, object: home)
+            .sink { _ in entered += 1 }
+        let didExit = NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification, object: home)
+            .sink { _ in exited += 1 }
+        defer { didEnter.cancel(); didExit.cancel() }
+        for attempt in 1...2 {
+            home.makeKeyAndOrderFront(nil)
+            home.toggleFullScreen(nil)
+            try await waitFor("home_did_not_enter_fullscreen") { entered == attempt }
+            model.isSubtitlePinned = attempt == 1
+            model.isSubtitleOnly = true
+            controller.show()
+            controller.synchronize() // the normal SwiftUI mode observer can also fire
+            guard let panel = controller.panel else { throw CheckFailure("missing_subtitle_panel") }
+            if attempt == 1 {
+                try await waitFor("home_space_not_released") {
+                    exited == attempt && !home.isVisible && !home.styleMask.contains(.fullScreen)
+                        && panel.isOnActiveSpace && panel.isVisible
+                }
+                try require(true, "subtitles_visible_on_desktop_after_home_space_exits", &checks)
+                model.isCapturing = true
+                guard let close = findNativeControls(panel.contentView)?.buttons.first else {
+                    throw CheckFailure("missing_native_close_button")
+                }
+                close.performClick(nil)
+                try await waitFor("closing_fullscreen_session_did_not_restore_workspace") {
+                    !model.isCapturing && !model.isSubtitleOnly && !panel.isVisible && home.isVisible && home.isOnActiveSpace
+                }
+                try require(true, "native_close_finishes_capture_and_restores_home", &checks)
+            } else {
+                controller.openHomeFromDock()
+                try await waitFor("dock_reopen_lost_during_fullscreen_exit") {
+                    exited == attempt && !model.isSubtitleOnly && !panel.isVisible && home.isVisible && home.isOnActiveSpace
+                }
+                // Allow the did-exit delivery queued for the next main-loop turn to run.
+                await Task.yield()
+                try require(home.isVisible && !panel.isVisible, "dock_reopen_during_exit_keeps_home_visible", &checks)
+            }
+        }
     }
 
     private static func checkZoomKeepsChosenType(_ model: AppModel, panel: NSPanel,
@@ -720,6 +788,74 @@ enum SubtitlePanelChecks {
             try require(accessible("subtitle.fullCaptionDetail") == nil,
                         "outside_click_dismisses_full_text_with_tools_\(hovered ? "shown" : "hidden")", &checks)
         }
+    }
+
+    private static func checkClearConfirmation(_ model: AppModel, controller: SubtitlePanelController, appearance: HomeAppearance,
+                                               panel: NSPanel, directory: URL, checks: inout [String]) async throws {
+        let saved = [Caption(start: 0, end: 2, original: "原文", translated: "訳文")]
+        model.captions = saved
+        func clearButton() async throws {
+            let size = panel.frame.size
+            let point = windowPoint(SubtitleToolbarLayout(size: size).clearCenter, size: size)
+            try await clickTool("subtitle.clear", in: panel, at: point)
+        }
+        func waitForSheet(_ open: Bool) async throws {
+            for _ in 0..<45 {
+                if (panel.attachedSheet != nil) == open { return }
+                try await Task.sleep(nanoseconds: 40_000_000)
+            }
+            throw CheckFailure(open ? "missing_clear_sheet" : "clear_sheet_still_visible")
+        }
+        try require(appearance.askBeforeClearing, "clear_defaults_to_confirm", &checks)
+        try await clearButton()
+        try await waitForSheet(true)
+        try await pressAccessible("subtitle.clear.suppress")
+        if let sheet = panel.attachedSheet { try snapshot(sheet, to: directory.appendingPathComponent("clear-confirmation.png")) }
+        try await pressAccessible("subtitle.clear.cancel")
+        try await waitForSheet(false)
+        try require(appearance.askBeforeClearing && model.captions == saved, "clear_cancel_discards_checkbox_and_preserves_history", &checks)
+        try await clearButton()
+        try await waitForSheet(true)
+        try await pressAccessible("subtitle.clear.suppress")
+        guard let sheet = panel.attachedSheet, let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: sheet.windowNumber, context: nil,
+            characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53) else { throw CheckFailure("missing_clear_escape_event") }
+        NSApp.sendEvent(escape)
+        try await waitForSheet(false)
+        try require(appearance.askBeforeClearing && model.captions == saved, "clear_escape_preserves_preference_and_history", &checks)
+        try await clearButton()
+        try await waitForSheet(true)
+        try await pressAccessible("subtitle.clear.confirm")
+        try await waitForSheet(false)
+        try require(appearance.askBeforeClearing && model.captions.isEmpty, "clear_unchecked_keeps_future_confirmation", &checks)
+        model.captions = saved
+        try await clearButton()
+        try await waitForSheet(true)
+        try await pressAccessible("subtitle.clear.suppress")
+        try await pressAccessible("subtitle.clear.confirm")
+        try await waitForSheet(false)
+        try require(!appearance.askBeforeClearing && model.captions.isEmpty, "clear_checked_commits_preference_after_confirmation", &checks)
+        model.captions = saved
+        try await clearButton()
+        for _ in 0..<40 where !model.captions.isEmpty { try await Task.sleep(nanoseconds: 30_000_000) }
+        try require(panel.attachedSheet == nil && model.captions.isEmpty, "clear_suppressed_clears_immediately", &checks)
+        controller.openSubtitleSettings()
+        try await pressAccessible("appearance.askBeforeClearing")
+        controller.settingsWindow?.close()
+        model.captions = saved
+        try await clearButton()
+        try await waitForSheet(true)
+        try require(appearance.askBeforeClearing && model.captions == saved, "clear_settings_toggle_restores_confirmation", &checks)
+        try await pressAccessible("subtitle.clear.cancel")
+        try await waitForSheet(false)
+        let suite = "SimuSub.ClearPersistence." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        func reopen() -> HomeAppearance { HomeAppearance(defaults: defaults, backgroundFile: directory.appendingPathComponent("empty-background.png")) }
+        reopen().askBeforeClearing = false
+        try require(!reopen().askBeforeClearing, "clear_preference_survives_reopen", &checks)
+        reopen().askBeforeClearing = true
+        try require(reopen().askBeforeClearing, "clear_restored_preference_survives_reopen", &checks)
     }
 
     private static func checkLanguagePicker(_ model: AppModel, panel: NSPanel, checks: inout [String]) async throws {

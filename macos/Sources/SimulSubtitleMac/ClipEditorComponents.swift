@@ -280,15 +280,15 @@ struct ClipRangeTimeline: View {
             .shadow(color: ClipTheme.violet.opacity(0.5), radius: 5).offset(x: min(width - 10, max(0, x - 5)))
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("clip.range")).onChanged { value in
                 let t = max(0, min(duration, value.location.x / width * duration))
-                if isStart { start = min(end - 0.2, max(max(0, end - 600), t)) }
-                else { end = max(start + 0.2, min(min(duration, start + 600), t)) }
+                if isStart { start = min(end - 0.2, max(0, t)) }
+                else { end = max(start + 0.2, min(duration, t)) }
             }.onEnded { _ in onCommit() })
             .accessibilityLabel(L10n.text(isStart ? "起点" : "终点"))
             .accessibilityValue(ClipTime.label(isStart ? start : end))
             .accessibilityAdjustableAction { direction in
                 let delta = direction == .increment ? 0.1 : -0.1
-                if isStart { start = max(max(0, end - 600), min(end - 0.2, start + delta)) }
-                else { end = min(min(duration, start + 600), max(start + 0.2, end + delta)) }
+                if isStart { start = max(0, min(end - 0.2, start + delta)) }
+                else { end = min(duration, max(start + 0.2, end + delta)) }
                 onCommit()
             }
     }

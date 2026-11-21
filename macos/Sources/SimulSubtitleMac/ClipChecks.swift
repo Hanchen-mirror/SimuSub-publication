@@ -5,7 +5,9 @@ import SwiftUI
 import Darwin
 
 private actor ClipFixtureRecognizer: SpeechRecognizing {
-    func recognize(samples: [Float]) async throws -> String { "こんにちは。今日は楽しい配信です。" }
+    let text: String
+    init(_ text: String = "こんにちは。今日は楽しい配信です。") { self.text = text }
+    func recognize(samples: [Float]) async throws -> String { text }
 }
 private actor ClipFixtureTranslator: TextTranslating {
     func translate(_ text: String, from source: String, to target: String) async throws -> String { "你好，今天的直播很开心。" }
@@ -32,11 +34,69 @@ enum ClipChecks {
         }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            if CommandLine.arguments.contains("--chinese-phrases-only") {
+                let media = try await ClipMediaEngine.inspect(fixture)
+                checks = try await ChineseCaptionChecks.run(directory: directory, media: media)
+                if let index = CommandLine.arguments.firstIndex(of: "--clip-real-models"), CommandLine.arguments.indices.contains(index + 1) {
+                    let root = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+                    guard let model = LocalModelDefinition.catalog.first(where: { $0.id == "sensevoice" }) else { throw ServiceError.modelFilesMissing }
+                    let services = try await Task.detached {
+                        ClipServices(recognizer: try MultilingualSpeechRecognizer(model: model, folder: root.appendingPathComponent("sensevoice"), language: .simplifiedChinese),
+                                     translator: try LocalLlamaTranslator(modelPath: LocalModelStore(root: root).translationModelPath),
+                                     sourceLanguage: .simplifiedChinese, targetLanguage: .english)
+                    }.value
+                    let cues = try await ChineseCaptionChecks.transcribe(media: media, services: services)
+                    try require(cues.count >= 2 && cues.allSatisfy { !$0.original.isEmpty && !$0.translated.isEmpty },
+                                "chinese_real_sensevoice_and_index_translation")
+                    try JSONEncoder().encode(cues).write(to: directory.appendingPathComponent("chinese-captions.json"))
+                }
+                try JSONSerialization.data(withJSONObject: ["passed": true, "checks": checks])
+                    .write(to: directory.appendingPathComponent("report.json"))
+                print("PASS: Chinese caption checks"); fflush(stdout); Darwin.exit(0)
+            }
             if CommandLine.arguments.contains("--clip-roles-only") {
                 checks = try await ClipRoleRenderChecks.run(directory: directory, fixture: fixture)
                 try JSONSerialization.data(withJSONObject: ["passed": true, "checks": checks], options: [.prettyPrinted, .sortedKeys])
                     .write(to: directory.appendingPathComponent("report.json"))
                 print("PASS: \(checks.count) clip role checks"); fflush(stdout); Darwin.exit(0)
+            }
+            let inspectorStore = ClipStore(root: directory.appendingPathComponent("inspector"))
+            let inspectorID = try await inspectorStore.importVideo(fixture)
+            let inspectorRange = inspectorStore.projects[0].wholeRange
+            _ = inspectorStore.saveRange(inspectorID, range: inspectorRange)
+            let inspectorJob = ClipJob(projectID: inspectorID, kind: .transcribe, range: inspectorRange, generationServiceKey: "inspector-fixture")
+            let empty = ClipServices(recognizer: ClipFixtureRecognizer(""), translator: ClipFixtureTranslator())
+            func inspectorSnapshot(_ name: String) async throws {
+                let view = ClipWorkspace(onBack: {}).environmentObject(inspectorStore).environmentObject(model)
+                    .environmentObject(monitor).preferredColorScheme(.dark)
+                try await ClipV120Checks.snapshot(view, size: CGSize(width: 1120, height: 700),
+                                                 output: directory.appendingPathComponent(name + ".png"))
+            }
+            inspectorStore.start(inspectorJob, model: nil, services: empty)
+            try await wait(inspectorStore)
+            let noSpeech = inspectorStore.jobs[0]
+            try require(noSpeech.noSpeechDetected == true && noSpeech.showsSubtitleResultInInspector,
+                        "clip_empty_generation_shows_retry_in_inspector")
+            try await inspectorSnapshot("inspector-no-speech")
+            inspectorStore.start(noSpeech, model: nil, services: ClipServices(recognizer: ClipFixtureRecognizer(), translator: ClipFixtureTranslator()))
+            try await wait(inspectorStore)
+            let retried = inspectorStore.jobs[0]
+            try require(retried.state == .completed && retried.noSpeechDetected == nil && retried.showsSubtitleResultInInspector
+                        && inspectorStore.projects[0].ranges[0].generation?.captions.isEmpty == false,
+                        "clip_retry_shows_completed_rows_in_inspector")
+            try await inspectorSnapshot("inspector-subtitles-ready")
+            var other = retried
+            other.state = .paused
+            try require(!other.showsSubtitleResultInInspector, "clip_pause_and_resume_stay_in_job_bar")
+            other.state = .failed
+            try require(!other.showsSubtitleResultInInspector, "clip_service_errors_stay_in_job_bar")
+            other.state = .completed
+            other.recommendationCount = 3
+            try require(!other.showsSubtitleResultInInspector, "clip_highlight_completion_stays_in_job_bar")
+            if CommandLine.arguments.contains("--clip-result-only") {
+                try JSONSerialization.data(withJSONObject: ["passed": true, "checks": checks], options: [.prettyPrinted, .sortedKeys])
+                    .write(to: directory.appendingPathComponent("report.json"))
+                print("PASS: clip subtitle result checks"); fflush(stdout); Darwin.exit(0)
             }
             try require(ClipTime.parse("01:02:03.250") == 3723.25 && ClipTime.parse("93.5") == 93.5, "clip_media_time_parsing")
             try require(ClipTime.parse("00:70:01") == nil && ClipTime.parse("nan") == nil && ClipTime.parse("-2") == nil, "clip_invalid_times_rejected")
@@ -65,6 +125,7 @@ enum ClipChecks {
             checks += try await EnglishVocalChecks.run(directory: directory)
             checks += try await ClipV124Checks.run(directory: directory)
             checks += try await ClipV125Checks.run(directory: directory)
+            checks += try await ChineseCaptionChecks.run(directory: directory, media: media)
             checks += try ClipHighlightChecks.run(media: media)
             let changedURL = directory.appendingPathComponent("changed-source.mp4")
             try FileManager.default.copyItem(at: fixture, to: changedURL)
@@ -74,7 +135,15 @@ enum ClipChecks {
             let range = ClipRange(title: "双语测试", start: 1, end: 5)
             try range.validate(duration: media.duration)
             try require((try? ClipRange(title: "Bad", start: -1, end: 5).validate(duration: 10)) == nil, "clip_range_cannot_escape_source")
-            try require((try? ClipRange(title: "Bad", start: 0, end: 800).validate(duration: 900)) == nil, "clip_export_bounded_to_ten_minutes")
+            try require((try? ClipRange(title: "Bad", start: 0, end: 800).validateForExport(duration: 900)) == nil, "clip_export_bounded_to_ten_minutes")
+            var longProject = store.projects[0]
+            longProject.media.duration = 3314
+            let whole = longProject.wholeRange
+            try whole.validate(duration: longProject.media.duration)
+            try require(whole.start == 0 && whole.end == 3314
+                        && ClipTimeline150.resized(whole, start: true, delta: 5, duration: 3314).start == 5
+                        && ClipTimeline150.resized(whole, start: false, delta: -5, duration: 3314).end == 3309,
+                        "clip_first_range_and_handle_edits_cover_long_media")
             let cues = [Caption(start: 0.8, end: 2, original: "こんにちは、みんな！", translated: "大家好！"), Caption(start: 3, end: 4.2, original: "今日はとても楽しい。", translated: "今天非常开心。")]
             store.update(id) { $0.captions = cues; $0.ranges = [range] }
             let clipped = ClipTime.captions(cues, within: range)
@@ -125,6 +194,47 @@ enum ClipChecks {
                 store.start(ClipJob(projectID: id, kind: .transcribe, range: ClipRange(title: "local", start: 0, end: 10)), model: nil, services: engines)
                 try await wait(store)
                 try require(store.jobs[0].state == .completed && !store.projects[0].captions.isEmpty && store.projects[0].captions.allSatisfy { !$0.original.isEmpty && !$0.translated.isEmpty }, "clip_real_local_japanese_asr_and_chinese_translation")
+                let mixed = ClipStore(root: directory.appendingPathComponent("mixed-generation"))
+                let mixedID = try await mixed.importVideo(fixture)
+                let selected = mixed.projects[0].wholeRange
+                mixed.update(mixedID) { p in
+                    p.ranges = [selected]
+                    p.analysisCoverage = [0...selected.end]
+                }
+                let config = URLSessionConfiguration.ephemeral
+                config.protocolClasses = [ReviewURLProtocol.self]
+                let session = URLSession(configuration: config)
+                defer { session.invalidateAndCancel(); ReviewURLProtocol.handler = nil }
+                let cloud = OpenAICompatibleTranslator(profile: .deepSeek, apiKey: "test", session: session)
+                let mixedServices = ClipServices(recognizer: engines.recognizer, translator: cloud)
+                var calls = 0
+                ReviewURLProtocol.handler = { request in
+                    guard request.url?.path.hasSuffix("/chat/completions") == true,
+                          let body = try JSONSerialization.jsonObject(with: ReviewURLProtocol.body(request)) as? [String: Any],
+                          body["messages"] is [[String: String]] else { throw ServiceError.invalidResponse }
+                    calls += 1
+                    return (200, Data(#"{"choices":[{"message":{"content":"云端译文"},"finish_reason":"stop"}]}"#.utf8))
+                }
+                let lamp = ClipJob(projectID: mixedID, kind: .transcribe, range: selected, configuredServices: true, generationServiceKey: "mixed-a")
+                mixed.start(lamp, model: nil, services: mixedServices)
+                try await wait(mixed)
+                let generated = mixed.projects[0]
+                let rendered = generated.captions(for: generated.ranges[0])
+                let firstCalls = calls
+                try require(mixed.jobs[0].state == .completed && calls > 0 && rendered.count == calls
+                            && rendered.allSatisfy { !$0.original.isEmpty && $0.translated == "云端译文" },
+                            "lamp_real_local_asr_uses_text_api_despite_legacy_empty_coverage")
+                mixed.start(lamp, model: nil, services: mixedServices)
+                try await wait(mixed)
+                try require(mixed.jobs[0].state == .completed && calls == firstCalls, "lamp_reuses_completed_matching_route")
+                var changed = lamp
+                changed.generationServiceKey = "mixed-b"
+                mixed.start(changed, model: nil, services: mixedServices)
+                try await wait(mixed)
+                let reloaded = ClipStore(root: mixed.root).projects[0]
+                try require(mixed.jobs[0].state == .completed && calls > firstCalls
+                            && reloaded.captions(for: reloaded.ranges[0]).map(\.id) == rendered.map(\.id),
+                            "lamp_changed_provider_requests_fresh_text_and_preserves_rows_on_reopen")
                 try JSONEncoder().encode(store.projects[0].captions).write(to: directory.appendingPathComponent("local-asr-captions.json"))
             }
             store.start(ClipJob(projectID: id, kind: .recommend, recommendationCount: 3), model: nil)

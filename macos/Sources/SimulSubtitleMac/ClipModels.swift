@@ -31,15 +31,30 @@ struct ClipRange: Identifiable, Codable, Equatable {
     var deletedCaptionIDs: [UUID]?
     var importedCaptions: [Caption]?
     var subtitleStyle: ClipSubtitleStyle?
+    var generation: ClipGeneration?
     var style: ClipSubtitleStyle { subtitleStyle ?? .classic }
     var duration: Double { end - start }
     func validate(duration: Double) throws {
         guard start.isFinite, end.isFinite, duration.isFinite, start >= 0, end <= duration + 0.05,
-              end - start >= 0.2, end - start <= 600 else {
-            throw ClipError.message("请选择视频内 0.2 秒至 10 分钟的片段；较长内容可分成多个切片。")
+              end > start, end - start >= min(duration, 0.2) - 0.000001 else {
+            throw ClipError.message("请选择视频范围内有效的起止点。")
+        }
+    }
+    func validateForExport(duration: Double) throws {
+        try validate(duration: duration)
+        guard self.duration <= 600 else {
+            throw ClipError.message("单次导出支持最长 10 分钟的片段，请缩短选段。")
         }
     }
 }
+
+struct ClipGeneration: Codable, Equatable {
+    var serviceKey: String
+    var span: ClosedRange<Double>
+    var captions: [Caption] = []
+    var complete = false
+}
+
 struct ClipEnergy: Codable, Equatable { var start: Double; var rms: Double }
 struct ClipCaptionRole: Identifiable, Codable, Equatable {
     var id = UUID()
@@ -72,6 +87,7 @@ struct ClipProject: Identifiable, Codable, Equatable {
     var candidates: [ClipRange]?
     var highlightsNote: String?
     var analysisCoverage: [ClosedRange<Double>] = []
+    var wholeRange: ClipRange { ClipRange(title: "选段 1", start: 0, end: media.duration) }
 }
 enum ClipJobKind: String, Codable { case preview, transcribe, export, recommend, proofread }
 enum ClipExportKind: String, Codable { case mp4, mp3 }
@@ -91,6 +107,8 @@ struct ClipJob: Identifiable, Codable, Equatable {
     var range: ClipRange?
     var ranges: [ClipRange] = []
     var configuredServices = false
+    var generationServiceKey: String?
+    var noSpeechDetected: Bool?
     var sourceLanguage: SubtitleLanguage? = nil
     var targetLanguage: SubtitleLanguage? = nil
     var burnSubtitles = true
@@ -101,10 +119,21 @@ struct ClipJob: Identifiable, Codable, Equatable {
     var exportReceipts: [ClipExportReceipt]?
     var outputFolder: String?
     var createdAt = Date()
+    var showsSubtitleResultInInspector: Bool {
+        kind == .transcribe && recommendationCount == nil && range != nil
+            && (state == .completed || (state == .failed && noSpeechDetected == true))
+    }
+
 }
 enum ClipError: LocalizedError {
     case message(String)
-    var errorDescription: String? { switch self { case .message(let message): message } }
+    case noSpeech
+    var errorDescription: String? {
+        switch self {
+        case .message(let message): message
+        case .noSpeech: "当前选段未识别到语音，请检查音轨、选段范围和源语言后重试。"
+        }
+    }
 }
 struct ClipServices: Sendable {
     var recognizer: any SpeechRecognizing
@@ -203,6 +232,19 @@ extension ClipProject {
 
     private func mergedCaptions(for range: ClipRange) -> [Caption] {
         var values = range.importedCaptions ?? captions
+        if let generation = range.generation {
+            let overlay = generation.captions.filter { cue in
+                !(range.importedCaptions ?? []).contains { $0.start < cue.end && $0.end > cue.start }
+                    && !(range.captionEdits ?? []).contains { $0.id != cue.id && $0.start < cue.end && $0.end > cue.start }
+            }
+            if range.importedCaptions == nil {
+                values.removeAll { cue in
+                    if generation.complete { return cue.start < generation.span.upperBound && cue.end > generation.span.lowerBound }
+                    return overlay.contains { $0.end > cue.start && $0.start < cue.end }
+                }
+            }
+            values += overlay
+        }
         for cue in range.captionEdits ?? [] {
             if let i = values.firstIndex(where: { $0.id == cue.id }) { values[i] = cue }
             else { values.append(cue) }

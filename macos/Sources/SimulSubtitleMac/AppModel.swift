@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Combine
+import CryptoKit
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -260,7 +261,7 @@ final class AppModel: ObservableObject {
     private var captionGeneration = UUID() { didSet { englishVocalRecognition.reset() } }
     private var captionRevisions: [UUID: Int] = [:]
     private var revisionGuards: [UUID: ASRRevisionGuard] = [:]
-    private var japanesePhraseIDs: [UUID: [UUID]] = [:]
+    private var phraseIDs: [UUID: [UUID]] = [:]
     private var japaneseFinalTail: (window: UUID, cue: UUID, generation: UUID, app: String?)?
     var onJapaneseHypothesis: ((UUID, Double, Double, Bool, RecognizedSpeech, String) -> Void)?
     private var gemmaDraftPolicy = GemmaDraftPolicy()
@@ -677,7 +678,7 @@ final class AppModel: ObservableObject {
                 sessionStart = Date()
                 sessionBase = captions.last?.end ?? 0
                 sessionFirstCaptionIndex = captions.count
-                captionRevisions.removeAll(); revisionGuards.removeAll(); japanesePhraseIDs.removeAll(); prefixConfirmations.removeAll(); prefixTranslations.removeAll()
+                captionRevisions.removeAll(); revisionGuards.removeAll(); phraseIDs.removeAll(); prefixConfirmations.removeAll(); prefixTranslations.removeAll()
                 gemmaDraftPolicy = GemmaDraftPolicy()
                 status = "正在启动音频采集…"
                 pipelineTask = Task { [weak self] in
@@ -762,7 +763,7 @@ final class AppModel: ObservableObject {
         cancelTranslationPreview()
         translationQueue?.discardPending()
         captions.removeAll()
-        captionRevisions.removeAll(); revisionGuards.removeAll(); japanesePhraseIDs.removeAll(); prefixConfirmations.removeAll(); prefixTranslations.removeAll()
+        captionRevisions.removeAll(); revisionGuards.removeAll(); phraseIDs.removeAll(); prefixConfirmations.removeAll(); prefixTranslations.removeAll()
         gemmaDraftPolicy = GemmaDraftPolicy()
         sessionFirstCaptionIndex = 0
         status = "字幕已清空"
@@ -1289,6 +1290,22 @@ final class AppModel: ObservableObject {
 
     /// Reuse local engines across jobs; native inference is serialized and realtime
     /// capture cannot run concurrently with batch work. Local is the default.
+    func clipGenerationKey(source: SubtitleLanguage, target: SubtitleLanguage) throws -> String {
+        guard let asr = recognitionProfile(for: source),
+              let mt = profiles.first(where: { $0.id == selectedTranslationProfileID && $0.purpose == .translation && $0.isEnabled }) else {
+            throw ClipError.message("请在模型与服务中选择识别和翻译服务。")
+        }
+        // Only the digest is saved in a project. Profile changes, including a new
+        // model at the same endpoint, invalidate a previously generated range.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        var data = try encoder.encode([asr, mt])
+        data.append(contentsOf: try encoder.encode([source, target]))
+        data.append(contentsOf: try encoder.encode(glossary))
+        data.append(asrHotwordsEnabled ? 1 : 0)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
     func makeClipServices(configured: Bool, source: SubtitleLanguage? = nil, target: SubtitleLanguage? = nil) async throws -> ClipServices {
         let source = source ?? sourceLanguage, target = target ?? targetLanguage
         guard !isBusy else { throw ClipError.message("请先停止实时字幕或文件处理，再生成切片字幕。") }
@@ -1300,7 +1317,7 @@ final class AppModel: ObservableObject {
         let mt = configured ? profiles.first(where: { $0.id == selectedTranslationProfileID })
             : (profiles.first { $0.id == selectedTranslationProfileID && $0.kind == .local }
                 ?? profiles.first { $0.purpose == .translation && $0.kind == .local })
-        guard var asr, var mt, asr.isEnabled, mt.isEnabled else { throw ClipError.message("请在服务设置中启用日语识别和中文翻译。") }
+        guard var asr, var mt, asr.isEnabled, mt.isEnabled else { throw ClipError.message("请在模型与服务中启用所选语言的识别与翻译服务。") }
         asr.sourceLanguage = source.name; mt.sourceLanguage = source.name; mt.targetLanguage = target.name
         let recognizer: any SpeechRecognizing
         let translator: any TextTranslating
@@ -1415,7 +1432,7 @@ final class AppModel: ObservableObject {
                 recoverShortOmissions: sourceLanguage == .japanese)
             revisionGuards[id] = isFinal ? nil : revisionGuard
             if sourceLanguage == .japanese, speechRecognizer is JapaneseWindowRecognizing,
-               !reconciliation.text.isEmpty || japanesePhraseIDs[id] != nil {
+               !reconciliation.text.isEmpty || phraseIDs[id] != nil {
                 var heard = recognition
                 heard.text = reconciliation.text
                 heard.tokens = reconciliation.tokens
@@ -1428,7 +1445,9 @@ final class AppModel: ObservableObject {
                     guard generation == captionGeneration, revision > (captionRevisions[id] ?? 0) else { return }
                 }
                 onJapaneseHypothesis?(id, start, end, isFinal, recognition, heard.text)
-                await updateJapanesePhrases(heard, id: id, revision: revision, final: isFinal,
+                let phrases = JapaneseCaptionPhrase.split(heard, duration: end - start,
+                    forTranslation: isFinal && !originalOnly && targetLanguage.isChinese)
+                await updatePhrases(phrases, id: id, revision: revision, final: isFinal,
                     start: start, duration: end - start, live: queueTranslation, generation: generation,
                     continuesForcedWindow: continuesForcedWindow)
                 return
@@ -1436,6 +1455,15 @@ final class AppModel: ObservableObject {
             // Full-window ASR revisions are corrections, not a manual approval gate.
             // Preserve every hypothesis in history and immediately translate the latest.
             let recognized = reconciliation.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if sourceLanguage.isChinese {
+                let phrases = ChineseCaptionPhrases.split(
+                    .init(text: recognized, tokens: reconciliation.tokens), duration: end - start, language: sourceLanguage)
+                if phrases.count > 1 || phraseIDs[id] != nil {
+                    await updatePhrases(phrases, id: id, revision: revision, final: isFinal, start: start,
+                        duration: end - start, live: queueTranslation, generation: generation, continuesForcedWindow: nil)
+                    return
+                }
+            }
             let transcript = recognized.isEmpty && isFinal
                 ? (captions.first(where: { $0.id == id })?.original ?? "") : recognized
             guard !transcript.isEmpty else { status = "正在监听，等待说话…"; return }
@@ -1558,18 +1586,16 @@ final class AppModel: ObservableObject {
         }
     }
 
-    // The stream keeps Reazon's original VAD window. Short provisional rows and
-    // their translations stay bound to row IDs while the complete audio refines them.
-    private func updateJapanesePhrases(_ heard: RecognizedSpeech, id: UUID, revision: Int, final: Bool,
-                                       start: Double, duration: Double, live: Bool, generation: UUID, continuesForcedWindow: UUID?) async {
-        var ids = japanesePhraseIDs[id] ?? [id]
-        var phrases = JapaneseCaptionPhrase.split(heard, duration: duration,
-            forTranslation: final && !originalOnly && targetLanguage.isChinese)
+    // Preserve row identities as a growing ASR window changes its phrase boundaries.
+    private func updatePhrases(_ recognizedPhrases: [TimedCaptionPhrase], id: UUID, revision: Int, final: Bool,
+                               start: Double, duration: Double, live: Bool, generation: UUID, continuesForcedWindow: UUID?) async {
+        var ids = phraseIDs[id] ?? [id]
+        var phrases = recognizedPhrases
         if phrases.isEmpty {
             guard final else { return }
             phrases = ids.compactMap { key in
                 captions.first(where: { $0.id == key }).map {
-                    JapaneseCaptionPhrase(text: $0.original, start: $0.start - start, end: $0.end - start)
+                    TimedCaptionPhrase(text: $0.original, start: $0.start - start, end: $0.end - start)
                 }
             }
         }
@@ -1581,12 +1607,12 @@ final class AppModel: ObservableObject {
         }
         ids = Array(ids.prefix(phrases.count))
         while ids.count < phrases.count { ids.append(UUID()) }
-        japanesePhraseIDs[id] = final ? nil : ids
+        phraseIDs[id] = final ? nil : ids
         captionRevisions[id] = revision
         let previousTail = japaneseFinalTail
-        let predecessor = final && previousTail?.window == continuesForcedWindow
+        let predecessor = sourceLanguage == .japanese && final && previousTail?.window == continuesForcedWindow
             && previousTail?.generation == generation && previousTail?.app == selectedAppBundleID ? previousTail?.cue : nil
-        if final {
+        if final, sourceLanguage == .japanese {
             japaneseFinalTail = ids.last.map { (id, $0, generation, selectedAppBundleID) }
         }
         var pending: [TranslationSegment] = []
@@ -1600,15 +1626,16 @@ final class AppModel: ObservableObject {
                     prefixTranslations[key] = nil
                 }
                 captions[index].original = phrase.text
+                if final { captions[index].confirmedPrefix = "" }
                 captions[index].start = start + phrase.start
                 captions[index].end = start + phrase.end
             } else {
                 index = captions.count
                 captions.append(Caption(id: key, start: start + phrase.start, end: start + phrase.end,
-                    original: phrase.text, translated: "", isDraft: true, sourceLanguage: .japanese, targetLanguage: targetLanguage))
+                    original: phrase.text, translated: "", isDraft: true, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage))
             }
             captionRevisions[key] = revision
-            if final { revisionGuards[key] = nil }
+            if final { revisionGuards[key] = nil; prefixConfirmations[key] = nil }
             else if key != id { revisionGuards[key] = ASRRevisionGuard() }
             captions[index].isDraft = true
             if originalOnly {
@@ -1632,9 +1659,11 @@ final class AppModel: ObservableObject {
                 }
                 continue
             }
-            if final || phrase.text.count >= 3 && duration >= 2.4 {
+            let previewable = sourceLanguage == .japanese || (stablePrefixesEnabled && textTranslator?.requiresFullUtterance == false && key != ids.last)
+            if final || previewable && phrase.text.count >= 3 && duration >= 2.4 {
                 pending.append(TranslationSegment(id: key, revision: revision, isFinal: final, original: phrase.text,
-                    source: SubtitleLanguage.japanese.name, target: targetLanguage.name, live: live, generation: generation,
+                    source: sourceLanguage == .japanese ? sourceLanguage.name : LiveLanguageRouting.translationSource(text: phrase.text, detected: sourceLanguage),
+                    target: targetLanguage.name, live: live, generation: generation,
                     japanesePredecessor: joinID, japaneseSourceApp: selectedAppBundleID))
             }
         }

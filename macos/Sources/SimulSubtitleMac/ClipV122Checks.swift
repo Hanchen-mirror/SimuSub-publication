@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-private final class ReviewURLProtocol: URLProtocol {
+final class ReviewURLProtocol: URLProtocol {
     static var handler: ((URLRequest) throws -> (Int, Data))?
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -234,7 +234,12 @@ enum ClipV122Checks {
         try model.saveGlossary("歌枠 = 歌回")
         let reopened = AppModel(defaults: defaults, modelStore: LocalModelStore(root: directory.appendingPathComponent("no-models")))
         try require(reopened.glossary == [.init(japanese: "歌枠", chinese: "歌回")], "v122_glossary_persists_across_model_restart")
+        let localKey = try model.clipGenerationKey(source: .japanese, target: .simplifiedChinese)
         model.selectedTranslationProfileID = model.profiles.first { $0.isDeepSeek }?.id
+        let cloudKey = try model.clipGenerationKey(source: .japanese, target: .simplifiedChinese)
+        let differentLanguage = try model.clipGenerationKey(source: .japanese, target: .english)
+        try require(cloudKey != localKey && cloudKey != differentLanguage
+                    && model.recognitionProfile(for: .japanese)?.kind == .local, "lamp_profile_and_language_choice_change_cache_identity")
         try require(!model.readinessIssues.contains { $0.contains("本地翻译") }, "v122_cloud_selection_does_not_require_local_translation_model")
         try await ClipV120Checks.snapshot(SettingsWindow().environmentObject(model).environmentObject(model.permissions).environmentObject(HomeAppearance(defaults: UserDefaults(suiteName: "SimuSub.ClipThemeChecks." + UUID().uuidString)!, backgroundFile: directory.appendingPathComponent("no-wallpaper.png"))).preferredColorScheme(.dark), size: CGSize(width: 780, height: 900), output: directory.appendingPathComponent("v122-subtitle-settings.png"))
         try require(true, "v122_native_glossary_and_translation_settings_rendered")

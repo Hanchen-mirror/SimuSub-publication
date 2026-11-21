@@ -76,7 +76,9 @@ struct SubtitleStrip: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @State private var showingLanguages = false
     @State private var showingExport = false
+    @EnvironmentObject private var appearance: HomeAppearance
     @State private var showingClearConfirmation = false
+    @State private var skipFutureClearConfirmations = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var fullCaption: FullCaption?
@@ -153,11 +155,33 @@ struct SubtitleStrip: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.text(displayMode == .original ? "原文字幕" : displayMode == .chinese ? "译文字幕" : "双语字幕"))
         .accessibilityIdentifier(compact ? "subtitle.layout.compact" : "subtitle.layout.regular")
-        .alert(L10n.text("清空所有字幕？"), isPresented: $showingClearConfirmation) {
-            Button(L10n.text("取消"), role: .cancel) { }
-            Button(L10n.text("清空 \(captions.count) 条字幕"), role: .destructive, action: onClear)
-        } message: {
-            Text(L10n.text("将删除当前保存的全部原文、译文和待处理字幕，无法恢复。已导出的文件不受影响。\(isCapturing ? "清空后将继续监听所选应用。" : "")"))
+        .sheet(isPresented: $showingClearConfirmation) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(L10n.text("清空所有字幕？")).interfaceFont(size: 18, weight: .semibold)
+                Text(L10n.text("将删除当前保存的原文、译文和待处理字幕，无法恢复。已导出的文件不受影响。"))
+                    .interfaceFont(size: 14).fixedSize(horizontal: false, vertical: true)
+                Toggle(L10n.text("以后不再询问"), isOn: $skipFutureClearConfirmations)
+                    .toggleStyle(.checkbox).accessibilityIdentifier("subtitle.clear.suppress")
+                HStack(spacing: 12) {
+                    Button(role: .cancel) { showingClearConfirmation = false } label: {
+                        Text(L10n.text("取消")).frame(maxWidth: .infinity, minHeight: 34)
+                            .background(ThemeColor.control, in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .keyboardShortcut(.cancelAction).accessibilityIdentifier("subtitle.clear.cancel")
+                    Button(role: .destructive) {
+                        showingClearConfirmation = false
+                        guard canClear else { return }
+                        if skipFutureClearConfirmations { appearance.askBeforeClearing = false }
+                        onClear()
+                    } label: {
+                        Text(L10n.text("清空 \(captions.count) 条字幕")).frame(maxWidth: .infinity, minHeight: 34)
+                            .foregroundStyle(Color(nsColor: .systemRed))
+                            .background(Color.red.opacity(0.16), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .disabled(!canClear).accessibilityIdentifier("subtitle.clear.confirm")
+                }.buttonStyle(.plain).interfaceFont(size: 14, weight: .medium)
+            }
+            .foregroundStyle(ThemeColor.ink).padding(24).frame(width: 420)
         }
     }
 
@@ -197,7 +221,14 @@ struct SubtitleStrip: View {
         toolButton(.home, title: "返回首页（⌘⇧F）", action: onExit).accessibilityIdentifier("subtitle.home")
     }
     private var clearButton: some View {
-        toolButton(.clear, title: "清空所有字幕…", action: { showingClearConfirmation = true })
+        toolButton(.clear, title: "清空所有字幕…") {
+            if appearance.askBeforeClearing {
+                skipFutureClearConfirmations = false
+                showingClearConfirmation = true
+            } else {
+                onClear()
+            }
+        }
             .disabled(!canClear).accessibilityIdentifier("subtitle.clear")
     }
 

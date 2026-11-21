@@ -41,6 +41,8 @@ final class HomeAppearance: ObservableObject {
     static let wordmarkSheenKey = "appearance.wordmarkSheen.v224"
     @Published var wordmarkSheen: Bool { didSet { defaults.set(wordmarkSheen, forKey: Self.wordmarkSheenKey) } }
     @Published var reduceMotion: Bool { didSet { defaults.set(reduceMotion, forKey: "appearance.reduceMotion.v129") } }
+    private static let askBeforeClearingKey = "subtitle.askBeforeClearing"
+    @Published var askBeforeClearing: Bool { didSet { defaults.set(askBeforeClearing, forKey: Self.askBeforeClearingKey) } }
     @Published var restorePage: Bool { didSet { defaults.set(restorePage, forKey: "appearance.restorePage.v129") } }
     @Published var workspaceZoom: WorkspaceZoom { didSet { defaults.set(workspaceZoom.rawValue, forKey: "appearance.workspaceZoom.v144") } }
     @Published var interfaceFontSize: Double { didSet { defaults.set(interfaceFontSize, forKey: "appearance.interfaceFontSize.v148") } }
@@ -84,6 +86,7 @@ final class HomeAppearance: ObservableObject {
         chineseSize = (defaults.object(forKey: "subtitle.chineseSize.v129") as? Double).map { min(32, max(12, $0)) } ?? 20
         wordmarkSheen = defaults.bool(forKey: Self.wordmarkSheenKey)
         reduceMotion = defaults.bool(forKey: "appearance.reduceMotion.v129")
+        askBeforeClearing = defaults.object(forKey: Self.askBeforeClearingKey) as? Bool ?? true
         restorePage = defaults.object(forKey: "appearance.restorePage.v129") as? Bool ?? true
         workspaceZoom = WorkspaceZoom(rawValue: defaults.integer(forKey: "appearance.workspaceZoom.v144")) ?? .normal
         interfaceFontSize = (defaults.object(forKey: "appearance.interfaceFontSize.v148") as? Double).map { min(24, max(11, $0)) } ?? 13

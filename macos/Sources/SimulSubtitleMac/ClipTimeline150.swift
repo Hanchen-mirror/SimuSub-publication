@@ -156,9 +156,9 @@ struct ClipTimeline150: View {
     static func resized(_ range: ClipRange, start: Bool, delta: Double, duration: Double) -> ClipRange {
         var next = range
         if start {
-            next.start = max(max(0, range.end - 600), min(range.end - 0.2, range.start + delta))
+            next.start = max(0, min(range.end - 0.2, range.start + delta))
         } else {
-            next.end = min(min(duration, range.start + 600), max(range.start + 0.2, range.end + delta))
+            next.end = min(duration, max(range.start + 0.2, range.end + delta))
         }
         return next
     }

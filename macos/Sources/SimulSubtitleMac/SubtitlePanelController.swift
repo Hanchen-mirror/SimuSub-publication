@@ -17,6 +17,8 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
     private weak var monitor: LiveMonitorStore?
     private var languageObserver: AnyCancellable?
     private var shouldReturnHome = true
+    private var changingHomeFullScreen = false
+    private var openedFromFullScreen = false
     @Published private(set) var isBubble = false
     @Published var isResizeHover = false
     @Published private(set) var isUserResizing = false
@@ -53,7 +55,45 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
         }
     }
 
-    func attachHomeWindow(_ window: NSWindow) { homeWindow = window }
+    func attachHomeWindow(_ window: NSWindow) {
+        guard homeWindow !== window else { return }
+        let center = NotificationCenter.default
+        let transitions = [NSWindow.willEnterFullScreenNotification, NSWindow.willExitFullScreenNotification,
+                           NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification]
+        for name in transitions {
+            if let homeWindow { center.removeObserver(self, name: name, object: homeWindow) }
+            center.addObserver(self, selector: #selector(homeFullScreenChanged(_:)), name: name, object: window)
+        }
+        homeWindow = window
+        changingHomeFullScreen = false
+    }
+
+    @objc private func homeFullScreenChanged(_ note: Notification) {
+        changingHomeFullScreen = note.name == NSWindow.willEnterFullScreenNotification
+            || note.name == NSWindow.willExitFullScreenNotification
+        guard !changingHomeFullScreen, model?.isSubtitleOnly == true else { return }
+        let didExit = note.name == NSWindow.didExitFullScreenNotification
+        // AppKit finishes the Space transition before we hide its primary window.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.model?.isSubtitleOnly == true else { return }
+            self.hideHomeForSubtitles()
+            if didExit, let panel = self.panel, !panel.isMiniaturized { panel.orderFrontRegardless() }
+            self.scheduleReassertion()
+        }
+    }
+
+    private func hideHomeForSubtitles() {
+        guard let homeWindow, homeWindow.isVisible else { return }
+        if changingHomeFullScreen || homeWindow.styleMask.contains(.fullScreen) {
+            openedFromFullScreen = true
+            if !changingHomeFullScreen {
+                changingHomeFullScreen = true
+                homeWindow.toggleFullScreen(nil)
+            }
+        } else {
+            homeWindow.orderOut(nil)
+        }
+    }
 
     func synchronize() {
         guard let model else { return }
@@ -101,9 +141,9 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
             lastExpandedFrame = frame
         }
         updatePin()
-        homeWindow?.orderOut(nil)
         if panel?.isMiniaturized == true { panel?.deminiaturize(nil) }
         panel?.orderFrontRegardless()
+        hideHomeForSubtitles()
         scheduleReassertion()
     }
 
@@ -285,10 +325,10 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
     }
 
     func closeSubtitles() {
-        shouldReturnHome = false
+        shouldReturnHome = openedFromFullScreen
         model?.cancelApplicationSelection()
         model?.isSubtitleOnly = false
-        hide(showHome: false)
+        hide(showHome: shouldReturnHome)
         guard closeTask == nil, let model else { return }
         closeTask = Task { [weak self] in
             await model.finishSubtitleSession()
@@ -297,6 +337,7 @@ final class SubtitlePanelController: NSObject, ObservableObject, NSWindowDelegat
     }
 
     private func hide(showHome: Bool) {
+        openedFromFullScreen = false
         reassertTask?.cancel()
         settingsWindow?.orderOut(nil)
         if let panel, panel.isVisible { saveFrame(); panel.orderOut(nil) }

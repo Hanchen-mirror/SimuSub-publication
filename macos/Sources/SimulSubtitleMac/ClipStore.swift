@@ -186,9 +186,12 @@ final class ClipStore: ObservableObject {
             }
         }
         notice = nil
+        // The project owns the latest generated cues, including partial work.
+        // The job history needs only the selection and the requested services.
+        if pending.generationServiceKey != nil { pending.range?.generation = nil }
         var identities = Set<UUID>()
         pending.ranges = pending.ranges.filter { identities.insert($0.id).inserted }
-        pending.id = UUID(); pending.state = .running; pending.progress = 0; pending.message = "正在准备…"
+        pending.id = UUID(); pending.state = .running; pending.noSpeechDetected = nil; pending.progress = 0; pending.message = "正在准备…"
         let job = pending; jobs.insert(job, at: 0); persist()
         let jobID = job.id
         task = Task { [weak self] in
@@ -225,6 +228,14 @@ final class ClipStore: ObservableObject {
                     } catch { try? FileManager.default.removeItem(at: url); throw error }
                 case .transcribe:
                     guard let range = job.range else { throw ClipError.message("请先选择识别范围。") }
+                    if let key = job.generationServiceKey {
+                        if let model, let source = job.sourceLanguage, let target = job.targetLanguage,
+                           try model.clipGenerationKey(source: source, target: target) != key {
+                            throw ClipError.message("识别或翻译服务已改变，请在剪辑台重新生成字幕。")
+                        }
+                        try await self.generateCaptions(job, range: range, project: project, key: key, model: model, services: services)
+                        break
+                    }
                     let pendingRanges = project.unrecognizedRanges(in: range)
                     if pendingRanges.isEmpty { break }
                     let engines: ClipServices
@@ -235,10 +246,7 @@ final class ClipStore: ObservableObject {
                     try await ClipSpeechPipeline.transcribe(media: project.media, range: pendingRange, services: engines, existing: self.projects.first { $0.id == project.id }?.captions ?? project.captions,
                         progress: { value, message in await self.progress(jobID, value: value, message: message) },
                         onCue: { cue in await self.mergeCaption(project.id, cue: cue) },
-                        onEnergy: { energy in await self.update(project.id) { p in
-                            let positions = Set(energy.map { Int(($0.start * 1000).rounded()) })
-                            p.energy.removeAll { positions.contains(Int(($0.start * 1000).rounded())) }; p.energy.append(contentsOf: energy); p.energy.sort { $0.start < $1.start }
-                        } })
+                        onEnergy: { energy in await self.recordEnergy(energy, projectID: project.id) })
                     self.update(project.id) { $0.analysisCoverage.append(pendingRange.start...pendingRange.end) }
                     }
                 case .proofread:
@@ -286,11 +294,81 @@ final class ClipStore: ObservableObject {
             } catch {
                 self.updateJob(jobID) {
                     $0.state = Task.isCancelled ? (self.pauseRequested ? .paused : .cancelled) : .failed
+                    if case ClipError.noSpeech = error { $0.noSpeechDetected = true }
                     $0.message = Task.isCancelled ? (self.pauseRequested ? "已暂停，继续时复用完成的字幕与成片。" : "已取消，完成的字幕与成片保留。") : ClipFailure.message(error, operation: "当前任务")
                 }
             }
         }
     }
+    private func recordEnergy(_ energy: [ClipEnergy], projectID: UUID) {
+        update(projectID) { p in
+            let positions = Set(energy.map { Int(($0.start * 1000).rounded()) })
+            p.energy.removeAll { positions.contains(Int(($0.start * 1000).rounded())) }
+            p.energy.append(contentsOf: energy)
+            p.energy.sort { $0.start < $1.start }
+        }
+    }
+
+    private func generateCaptions(_ job: ClipJob, range: ClipRange, project: ClipProject, key: String,
+                                  model: AppModel?, services: ClipServices?) async throws {
+        try range.validate(duration: project.media.duration)
+        guard let saved = project.ranges.first(where: { $0.id == range.id }) else {
+            throw ClipError.message("原选段已移除，请重新选择。")
+        }
+        let previous = saved.generation.flatMap { $0.serviceKey == key ? $0 : nil }
+        if let previous, previous.complete, previous.span.contains(range.start), previous.span.contains(range.end),
+           previous.captions.contains(where: { $0.end > range.start && $0.start < range.end }) { return }
+
+        let engines: ClipServices
+        if let services { engines = services }
+        else if let model {
+            engines = try await model.makeClipServices(configured: true, source: job.sourceLanguage, target: job.targetLanguage)
+        } else { throw ClipError.message("识别与翻译引擎尚未准备。") }
+        let span = range.start...range.end
+        // Reuse only cues produced by these services. A previous local translation
+        // or an empty legacy coverage marker cannot suppress the requested API.
+        try await ClipSpeechPipeline.transcribe(media: project.media, range: range, services: engines, existing: previous?.captions ?? [],
+            progress: { value, message in await self.progress(job.id, value: value, message: message) },
+            onCue: { cue in await self.recordGeneratedCue(cue, projectID: project.id, rangeID: range.id, key: key, span: span) },
+            onEnergy: { energy in await self.recordEnergy(energy, projectID: project.id) })
+        try Task.checkCancellation()
+        guard let track = projects.first(where: { $0.id == project.id })?.ranges.first(where: { $0.id == range.id })?.generation,
+              track.serviceKey == key, track.span == span, !track.captions.isEmpty else {
+            throw ClipError.noSpeech
+        }
+        update(project.id) { p in
+            guard let index = p.ranges.firstIndex(where: { $0.id == range.id }) else { return }
+            p.ranges[index].generation?.complete = true
+            // Make new speech available to neighbouring ranges without changing
+            // their existing source captions or independently edited translations.
+            let shared = p.captions.filter { $0.end > range.start && $0.start < range.end }
+            let additions = track.captions.filter { cue in !shared.contains { $0.end > cue.start && $0.start < cue.end } }
+            p.captions.append(contentsOf: additions)
+            p.captions.sort { $0.start < $1.start }
+            if !p.analysisCoverage.contains(span) { p.analysisCoverage.append(span) }
+        }
+    }
+
+    private func recordGeneratedCue(_ cue: Caption, projectID: UUID, rangeID: UUID, key: String, span: ClosedRange<Double>) {
+        update(projectID) { p in
+            guard let i = p.ranges.firstIndex(where: { $0.id == rangeID }) else { return }
+            let old = p.ranges[i].generation
+            var track = old ?? ClipGeneration(serviceKey: key, span: span)
+            if track.serviceKey != key || track.span != span { track = ClipGeneration(serviceKey: key, span: span) }
+            func samePosition(_ other: Caption) -> Bool {
+                abs(other.start - cue.start) < 0.01 && abs(other.end - cue.end) < 0.01
+            }
+            var value = cue
+            // Keep editor row identity across provider changes so existing text
+            // edits, deleted rows and speaker markers continue to resolve.
+            if let previous = track.captions.first(where: samePosition) ?? old?.captions.first(where: samePosition)
+                ?? p.captions.first(where: samePosition) { value.id = previous.id }
+            if let index = track.captions.firstIndex(where: { $0.id == value.id }) { track.captions[index] = value }
+            else { track.captions.append(value) }
+            p.ranges[i].generation = track
+        }
+    }
+
     private func recommendHighlights(for project: ClipProject, range: ClipRange?, maximum: Int) async throws {
         let result = await Task.detached(priority: .utility) {
             ClipHighlights.recommend(project, maximum: maximum, in: range)
@@ -313,7 +391,7 @@ final class ClipStore: ObservableObject {
         guard !job.ranges.isEmpty else { throw ClipError.message("请勾选至少一个切片。") }
         // Preflight every segment before creating any output.
         for range in job.ranges {
-            try range.validate(duration: project.media.duration)
+            try range.validateForExport(duration: project.media.duration)
             if job.exportKind != .mp3 && job.burnSubtitles {
                 guard project.hasBurnableCaptions(for: range) else {
                     throw ClipError.message("“" + range.title + "”的" + range.style.mode.rawValue + "字幕未补全，请先识别、导入或编辑；也可关闭内嵌字幕再导出。［CLIP-SUBTITLES］")

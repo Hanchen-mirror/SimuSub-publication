@@ -1,11 +1,13 @@
 import Foundation
 import NaturalLanguage
 
-struct JapaneseCaptionPhrase: Equatable {
+struct TimedCaptionPhrase: Equatable {
     let text: String
     let start: Double
     let end: Double
+}
 
+enum JapaneseCaptionPhrase {
     private static let dependentWords: Set<String> = ["は", "が", "を", "に", "で", "へ", "と", "の", "も", "から", "まで", "より", "だけ", "こそ", "さえ", "ほど", "て", "た", "だっ", "ます", "まし", "です", "ない", "なかっ", "られ", "れる", "たい"]
     private static let openWords: Set<String> = ["は", "が", "を", "の", "その", "この", "あの", "どの", "だっ", "まし", "なかっ"]
 
@@ -19,10 +21,10 @@ struct JapaneseCaptionPhrase: Equatable {
 
     /// Drafts keep their short display budget. A Chinese final can use a few
     /// extra morae to finish its clause before it is translated and committed.
-    static func split(_ speech: RecognizedSpeech, duration: Double, forTranslation: Bool = false) -> [Self] {
+    static func split(_ speech: RecognizedSpeech, duration: Double, forTranslation: Bool = false) -> [TimedCaptionPhrase] {
         let tokens = speech.tokens
         guard !speech.text.isEmpty else { return [] }
-        let single = [Self(text: speech.text, start: 0, end: duration)]
+        let single = [TimedCaptionPhrase(text: speech.text, start: 0, end: duration)]
         guard tokens.count > 1, duration > 0, tokens.map(\.text).joined() == speech.text,
               tokens.allSatisfy({ $0.time.isFinite && $0.time >= 0 && $0.time < duration }),
               zip(tokens, tokens.dropFirst()).allSatisfy({ $0.time <= $1.time }) else { return single }
@@ -51,7 +53,7 @@ struct JapaneseCaptionPhrase: Equatable {
         }
         let limit = forTranslation ? 8.8 : 6.7
         let characterLimit = forTranslation ? 29 : 22
-        var lines: [Self] = []
+        var lines: [TimedCaptionPhrase] = []
         var first = 0
         while first < tokens.count {
             let begin = first == 0 && times[first] < 0.8 ? 0 : times[first]
@@ -86,7 +88,7 @@ struct JapaneseCaptionPhrase: Equatable {
             let next = bestEnd == tokens.count ? duration : times[bestEnd]
             let finish = min(next, times[bestEnd - 1] + 0.95)
             guard finish > begin else { return single }
-            lines.append(Self(text: tokens[first..<bestEnd].map(\.text).joined(), start: begin, end: finish))
+            lines.append(TimedCaptionPhrase(text: tokens[first..<bestEnd].map(\.text).joined(), start: begin, end: finish))
             first = bestEnd
         }
         return lines

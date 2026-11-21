@@ -2,8 +2,9 @@ import AVFoundation
 import Foundation
 
 enum AudioFileReader {
-    static func read(_ url: URL) throws -> [Float] {
+    static func read(_ url: URL, allowEmpty: Bool = false) throws -> [Float] {
         let file = try AVAudioFile(forReading: url)
+        if allowEmpty, file.length == 0 { return [] }
         guard file.length > 0, file.length <= AVAudioFramePosition(file.processingFormat.sampleRate * 600) else {
             throw AudioFileError.duration
         }

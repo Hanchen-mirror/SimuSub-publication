@@ -23,7 +23,8 @@ struct ClipWorkspace: View {
             } else {
                 importPage
             }
-            if let job = clips.currentJob ?? clips.jobs.first(where: { $0.projectID == clips.selectedID }) {
+            if let job = clips.currentJob ?? clips.jobs.first(where: { $0.projectID == clips.selectedID }),
+               !job.showsSubtitleResultInInspector {
                 jobBar(job)
             }
         }.buttonStyle(ClipActionButtonStyle()).background(ClipTheme.background)
@@ -168,6 +169,24 @@ struct CaptionInspectorIcon: View {
     }
 }
 
+private struct CaptionBulb: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: 7.5, y: 14.5))
+        path.addCurve(to: CGPoint(x: 12, y: 3), control1: CGPoint(x: 3, y: 9.8), control2: CGPoint(x: 6, y: 3))
+        path.addCurve(to: CGPoint(x: 16.5, y: 14.5), control1: CGPoint(x: 18, y: 3), control2: CGPoint(x: 21, y: 9.8))
+        path.addQuadCurve(to: CGPoint(x: 15, y: 17), control: CGPoint(x: 15, y: 16))
+        path.addLine(to: CGPoint(x: 9, y: 17))
+        path.addQuadCurve(to: CGPoint(x: 7.5, y: 14.5), control: CGPoint(x: 9, y: 16))
+        path.closeSubpath()
+        path.move(to: CGPoint(x: 10, y: 20))
+        path.addLine(to: CGPoint(x: 14, y: 20))
+        path.move(to: CGPoint(x: 11.2, y: 22))
+        path.addLine(to: CGPoint(x: 12.8, y: 22))
+        return path.applying(CGAffineTransform(scaleX: rect.width / 24, y: rect.height / 24))
+    }
+}
+
 struct CaptionToolButtonStyle: ButtonStyle {
     var size: CGFloat = 30
     var expanded = false
@@ -267,7 +286,7 @@ struct ClipEditor: View {
     @State private var working: ClipRange
     @State private var startText = ""
     @State private var endText = ""
-    @State private var configured = true
+    @State private var configuredProofreading = true
     @State private var burn = true
     @State private var editing: Caption?
     @State private var showingImport = false
@@ -291,7 +310,7 @@ struct ClipEditor: View {
     @StateObject private var playback: ClipPlayback
     init(project: ClipProject, onImport: @escaping () -> Void = {}, onBack: @escaping () -> Void = {}, onLibrary: @escaping () -> Void = {}, onRemove: @escaping () -> Void = {}) {
         self.project = project; self.onImport = onImport; self.onBack = onBack; self.onLibrary = onLibrary; self.onRemove = onRemove
-        _working = State(initialValue: project.ranges.first ?? ClipRange(title: "选段 1", start: 0, end: min(60, project.media.duration)))
+        _working = State(initialValue: project.ranges.first ?? project.wholeRange)
         _playback = StateObject(wrappedValue: ClipPlayback())
     }
     private var active: ClipRange {
@@ -628,7 +647,10 @@ struct ClipEditor: View {
             Button(action: openSubtitleStyle) { CaptionInspectorIcon("paintbrush") }
                 .help(L10n.text("字幕样式")).accessibilityLabel(L10n.text("字幕样式"))
                 .accessibilityIdentifier("clips.customStyle").disabled(!hasRange)
-            Button(action: transcribe) { CaptionInspectorIcon("lightbulb") }
+            Button(action: transcribe) {
+                CaptionBulb().stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                    .frame(width: 20, height: 20)
+            }
                 .help(L10n.text("识别并翻译当前选段")).accessibilityLabel(L10n.text("生成字幕"))
                 .accessibilityIdentifier("clips.transcribe").disabled(!hasRange || !project.media.hasAudio)
             ClipCaptionRoleMenu(projectID: project.id, baseStyle: active.style, sample: cues.first)
@@ -645,8 +667,33 @@ struct ClipEditor: View {
         showingStyle = true
     }
 
+    private var subtitleResult: ClipJob? {
+        guard hasRange, let job = clips.jobs.first(where: {
+            $0.projectID == project.id && $0.kind == .transcribe && $0.recommendationCount == nil && $0.range?.id == working.id
+        }), job.showsSubtitleResultInInspector,
+              job.range?.start == active.start, job.range?.end == active.end else { return nil }
+        return job
+    }
+
     private var subtitleColumn: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 10) {
+            if let job = subtitleResult {
+                let empty = job.noSpeechDetected == true || (job.generationServiceKey == nil && cues.isEmpty)
+                HStack(spacing: 6) {
+                    Image(systemName: empty ? "waveform.slash" : "checkmark")
+                        .accessibilityHidden(true)
+                    if empty {
+                        Text(L10n.text("未检测到语音"))
+                        Button(L10n.text("重试"), action: transcribe)
+                            .buttonStyle(.link)
+                            .accessibilityIdentifier("clips.retrySubtitleGeneration")
+                    } else {
+                        let count = active.generation?.captions.filter { $0.end > active.start && $0.start < active.end }.count ?? cues.count
+                        Text(L10n.text("字幕处理已完成 · \(count) 条"))
+                    }
+                }.interfaceFont(size: 12).foregroundStyle(ThemeColor.primaryInk)
+                    .accessibilityIdentifier("clips.subtitleResult")
+            }
             if cues.isEmpty {
                 Button { insertCaption(at: playback.time) } label: {
                     Label(L10n.text("添加字幕"), systemImage: "plus")
@@ -791,10 +838,10 @@ struct ClipEditor: View {
     private var proofreadSheet: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack { Text(L10n.text("模型核对")).font(.title3.bold()); Spacer(); Button(L10n.text("完成")) { showingProofread = false } }
-            Toggle(L10n.text("使用服务设置中选定的翻译模型"), isOn: $configured).disabled(clips.isBusy)
-            Text(L10n.text(configured ? "云端核对将发送当前日语、前两句日中字幕、后一句日语和邻近上下文匹配的术语；不发送音视频。在模型与服务中选择翻译服务。" : "使用本机翻译模型，结合前后文和本地术语库，不上传字幕。")).font(.caption).foregroundStyle(ThemeColor.muted)
+            Toggle(L10n.text("使用服务设置中选定的翻译模型"), isOn: $configuredProofreading).disabled(clips.isBusy)
+            Text(L10n.text(configuredProofreading ? "云端核对将发送当前日语、前两句日中字幕、后一句日语和邻近上下文匹配的术语；不发送音视频。在模型与服务中选择翻译服务。" : "使用本机翻译模型，结合前后文和本地术语库，不上传字幕。")).font(.caption).foregroundStyle(ThemeColor.muted)
             Button(L10n.text("开始核对当前选段")) {
-                if saveWorking() { if confirmCloudUse(translationOnly: true) { clips.start(ClipJob(projectID: project.id, kind: .proofread, range: active, configuredServices: configured), model: model) } }
+                if saveWorking() { if confirmCloudUse(translationOnly: true) { clips.start(ClipJob(projectID: project.id, kind: .proofread, range: active, configuredServices: configuredProofreading), model: model) } }
             }.disabled(clips.isBusy || cues.allSatisfy { $0.original.isEmpty })
             ScrollView {
                 ForEach(active.proofreadCandidates ?? []) { cue in
@@ -818,7 +865,7 @@ struct ClipEditor: View {
         do { try working.validate(duration: project.media.duration); clips.saveRange(project.id, range: working); syncTimes(); return true } catch { clips.notice = error.localizedDescription; return false }
     }
     private func switchRange(_ range: ClipRange) { guard saveWorking() else { return }; draggedStyle = nil; movingSubtitles = false; working = range; syncTimes(); playback.select(range.start...range.end) }
-    private func addRange() { guard saveWorking() else { return }; duplicate(hasRange ? active : ClipRange(title: "", start: 0, end: min(4, project.media.duration))) }
+    private func addRange() { guard saveWorking() else { return }; duplicate(hasRange ? active : project.wholeRange) }
     private func duplicate(_ range: ClipRange) {
         remember()
         var next = range; next.id = UUID(); next.title = "选段 \((project.ranges.compactMap { Int($0.title.split(separator: " ").last ?? "") }.max() ?? project.ranges.count) + 1)"; next.proofreadCandidates = nil
@@ -843,13 +890,21 @@ struct ClipEditor: View {
             guard confirmCloudUse(translationOnly: false) else { return }
             remember()
             let scope = hasRange ? active : ClipRange(title: project.name, start: 0, end: min(60, project.media.duration))
-            clips.start(ClipJob(projectID: project.id, kind: .transcribe, range: scope, configuredServices: configured, sourceLanguage: model.sourceLanguage, targetLanguage: model.targetLanguage, recommendationCount: maximum), model: model)
+            clips.start(ClipJob(projectID: project.id, kind: .transcribe, range: scope, configuredServices: true, sourceLanguage: model.sourceLanguage, targetLanguage: model.targetLanguage, recommendationCount: maximum), model: model)
         } else { clips.start(ClipJob(projectID: project.id, kind: .recommend, range: selected, recommendationCount: maximum), model: nil) }
     }
-    private func transcribe() { guard saveWorking(), confirmCloudUse(translationOnly: false) else { return }; remember(); clips.start(ClipJob(projectID: project.id, kind: .transcribe, range: active, configuredServices: configured, sourceLanguage: model.sourceLanguage, targetLanguage: model.targetLanguage), model: model) }
+    private func transcribe() {
+        guard saveWorking(), confirmCloudUse(translationOnly: false) else { return }
+        do {
+            let key = try model.clipGenerationKey(source: model.sourceLanguage, target: model.targetLanguage)
+            remember()
+            clips.start(ClipJob(projectID: project.id, kind: .transcribe, range: active, configuredServices: true,
+                                generationServiceKey: key, sourceLanguage: model.sourceLanguage, targetLanguage: model.targetLanguage), model: model)
+        } catch { clips.notice = error.localizedDescription }
+    }
     private func confirmCloudUse(translationOnly: Bool) -> Bool {
-        guard configured else { return true }
-        let ids = translationOnly ? [model.selectedTranslationProfileID] : [model.selectedASRProfileID, model.selectedTranslationProfileID]
+        guard !translationOnly || configuredProofreading else { return true }
+        let ids = translationOnly ? [model.selectedTranslationProfileID] : [model.recognitionProfile(for: model.sourceLanguage)?.id, model.selectedTranslationProfileID]
         let services = model.profiles.filter { ids.contains($0.id) && $0.kind != .local }
         guard !services.isEmpty else { return true }
         let alert = NSAlert()

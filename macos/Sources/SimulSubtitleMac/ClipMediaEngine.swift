@@ -46,7 +46,7 @@ enum ClipMediaEngine {
         guard r.status == 0 else { throw ClipFailure.tool(r.error, operation: "读取音轨") }
     }
     static func cut(media: ClipMedia, range: ClipRange, output: URL, progress: @escaping @Sendable (Double) async -> Void = { _ in }) async throws {
-        try media.validateFile(); try range.validate(duration: media.duration)
+        try media.validateFile(); try range.validateForExport(duration: media.duration)
         try LiveRecordingEngine.checkSpace(output.deletingLastPathComponent(), minimum: max(250_000_000, Int64(range.duration * 1_000_000)))
         let args = ["-nostdin", "-hide_banner", "-v", "error", "-n", "-protocol_whitelist", "file,crypto", "-ss", String(range.start), "-i", media.path,
             "-t", String(range.duration), "-map", "0:v:0", "-map", "0:a:0?", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",

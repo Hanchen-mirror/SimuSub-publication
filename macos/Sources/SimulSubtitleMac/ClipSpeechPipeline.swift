@@ -35,14 +35,16 @@ enum ClipSpeechPipeline {
                         && $0.sourceLanguage == services.sourceLanguage && $0.targetLanguage == services.targetLanguage }
                 }
                 var cues: [Caption] = []
-                if let saved = savedCue(start, end) { cues = [saved] }
+                if let saved = savedCue(start, end) { cues = [saved]; await onCue(saved) }
                 else {
                     let hypothesis = try await services.recognizer.recognizeDetailed(samples: segment.samples)
                     try Task.checkCancellation()
-                    let phrases: [JapaneseCaptionPhrase]
+                    let phrases: [TimedCaptionPhrase]
                     if services.sourceLanguage == .japanese {
                         phrases = JapaneseCaptionPhrase.split(hypothesis, duration: end - start,
                             forTranslation: services.targetLanguage.isChinese)
+                    } else if services.sourceLanguage.isChinese {
+                        phrases = ChineseCaptionPhrases.split(hypothesis, duration: end - start, language: services.sourceLanguage)
                     } else {
                         let text = services.sourceLanguage == .english ? EnglishVocalTranscript.words(in: hypothesis.text)
                             : hypothesis.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -50,16 +52,18 @@ enum ClipSpeechPipeline {
                     }
                     for phrase in phrases {
                         let begin = start + phrase.start, finish = start + phrase.end
-                        if let saved = savedCue(begin, finish) { cues.append(saved); continue }
+                        if let saved = savedCue(begin, finish) { cues.append(saved); await onCue(saved); continue }
                         let cue = Caption(start: begin, end: finish, original: phrase.text, translated: "",
                                           sourceLanguage: services.sourceLanguage, targetLanguage: services.targetLanguage)
                         cues.append(cue)
                         await onCue(cue)
                     }
                 }
-                for var cue in cues {
+                for (index, original) in cues.enumerated() {
+                    var cue = original
                     if SubtitleDocument.completedTranslation(cue) == nil {
-                        cue.translated = try await services.translator.translate(cue.original, from: services.sourceLanguage.name, to: services.targetLanguage.name, context: .init(previous: previous, isFinal: true))
+                        let following = cues.dropFirst(index + 1).prefix(1).map(\.original)
+                        cue.translated = try await services.translator.translate(cue.original, from: services.sourceLanguage.name, to: services.targetLanguage.name, context: .init(previous: previous, isFinal: true, following: following))
                             .trimmingCharacters(in: .whitespacesAndNewlines)
                         try Task.checkCancellation()
                         guard !cue.translated.isEmpty else { throw ClipError.message("翻译返回空内容，原文字幕已保留，请重试。") }
@@ -76,7 +80,11 @@ enum ClipSpeechPipeline {
             let span = min(30, range.end - cursor), wav = temp.appendingPathComponent(UUID().uuidString + ".wav")
             await progress((cursor - range.start) / range.duration, "正在读取音轨 " + ClipTime.label(cursor))
             try await ClipMediaEngine.extractAudio(media: media, start: cursor, duration: span, output: wav)
-            let samples = try AudioFileReader.read(wav)
+            var samples = try AudioFileReader.read(wav, allowEmpty: true)
+            // The selected video can outlast its audio track. Advance the VAD
+            // clock through the silent tail, including an empty final WAV chunk.
+            let expected = Int((span * 16_000).rounded())
+            if samples.count < expected { samples.append(contentsOf: repeatElement(0, count: expected - samples.count)) }
             try? FileManager.default.removeItem(at: wav)
             var energy: [ClipEnergy] = []
             for start in stride(from: 0, to: samples.count, by: 16000) {

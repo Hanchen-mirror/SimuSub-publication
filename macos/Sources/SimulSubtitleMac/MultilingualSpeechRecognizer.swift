@@ -67,7 +67,29 @@ final class MultilingualSpeechRecognizer: SpeechRecognizing, @unchecked Sendable
                 let clean = raw.replacingOccurrences(of: #"<\|[^|]*\|>"#, with: "", options: .regularExpression)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 try Task.checkCancellation()
-                return RecognizedSpeech(text: language?.normalizeScript(clean) ?? clean, language: SubtitleLanguage.resolve(decoded.lang.replacingOccurrences(of: "<|", with: "").replacingOccurrences(of: "|>", with: "")) ?? language ?? Self.inferredLanguage(clean))
+                let text = language?.normalizeScript(clean) ?? clean
+                var tokens: [RecognizedSpeech.Token] = []
+                if let language, language.isChinese, decoded.timestamps.count == decoded.count,
+                   let pointers = decoded.result.pointee.tokens_arr {
+                    let times = decoded.timestamps
+                    for index in 0..<decoded.count {
+                        guard let pointer = pointers[index] else { break }
+                        let token = String(cString: pointer).replacingOccurrences(of: "▁", with: " ")
+                        tokens.append(.init(text: token, time: Double(times[index])))
+                    }
+                    // Script conversion can be context-dependent. Accept offsets
+                    // only when the decoded and displayed characters correspond.
+                    if tokens.count == decoded.count, tokens.map(\.text).joined() == clean,
+                       tokens.reduce(0, { $0 + $1.text.count }) == text.count, clean.count == text.count {
+                        var cursor = text.startIndex
+                        for i in tokens.indices {
+                            let end = text.index(cursor, offsetBy: tokens[i].text.count)
+                            tokens[i].text = String(text[cursor..<end])
+                            cursor = end
+                        }
+                    } else { tokens = [] }
+                }
+                return RecognizedSpeech(text: text, tokens: tokens, language: SubtitleLanguage.resolve(decoded.lang.replacingOccurrences(of: "<|", with: "").replacingOccurrences(of: "|>", with: "")) ?? language ?? Self.inferredLanguage(clean))
             }
         }
         return try await withTaskCancellationHandler(operation: { try await task.value }, onCancel: { task.cancel() })

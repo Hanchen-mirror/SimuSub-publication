@@ -4,7 +4,7 @@ import Darwin
 
 enum ClipMP3 {
     static func export(media: ClipMedia, range: ClipRange, output: URL) async throws {
-        try media.validateFile(); try range.validate(duration: media.duration)
+        try media.validateFile(); try range.validateForExport(duration: media.duration)
         guard media.hasAudio else { throw ClipError.message("这个视频没有音轨，无法导出 MP3。") }
         try LiveRecordingEngine.checkSpace(output.deletingLastPathComponent(), minimum: 250_000_000)
         let wav = FileManager.default.temporaryDirectory.appendingPathComponent("simusub-mp3-" + UUID().uuidString + ".wav")

@@ -46,10 +46,14 @@ enum SubtitlePanelGlyph: Shape {
                                 cornerSize: CGSize(width: 1.8, height: 1.8))
             move(10.9, 15.9); line(17.8, 15.9)
         case .languages:
-            move(8, 2.5); line(8, 5.3); move(2, 5.5); line(14, 5.5)
-            move(12, 5.5); curve(2.4, 17, 10, 13)
-            move(4.6, 9); curve(12.1, 15.5, 7.4, 13.2)
-            move(13, 21); line(17.5, 10); line(22, 21); move(14.7, 17.2); line(20.3, 17.2)
+            // Two overlapping speech bubbles, matching the approved comparison.
+            move(1.5, 6.5); curve(5, 3.5, 1.5, 3.5); line(12.8, 3.5)
+            curve(16.3, 7.1, 16.3, 3.5); line(16.3, 10); curve(12.8, 13, 16.3, 13)
+            line(8, 13); line(3.7, 16); line(3.7, 12.8); curve(1.5, 10, 1.5, 12.2); path.closeSubpath()
+            move(10.7, 15.6); curve(14.4, 18.6, 10.7, 18.6); line(17.4, 18.6)
+            line(21.2, 21.4); line(21.2, 17.9); curve(23, 15.2, 23, 17.3); line(23, 11.3)
+            curve(19.7, 8.3, 23, 8.3)
+            move(5.8, 8.2); line(11.6, 8.2)
         }
         return path.applying(CGAffineTransform(scaleX: rect.width / 24, y: rect.height / 24)
             .concatenating(.init(translationX: rect.minX, y: rect.minY)))

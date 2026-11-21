@@ -41,6 +41,9 @@ struct AppearanceSettings: View {
                 .toggleStyle(DesignToggleStyle()).frame(height: 32)
                 .accessibilityIdentifier("appearance.wordmarkSheen")
             Toggle(L10n.text("减少动态效果"), isOn: $appearance.reduceMotion).toggleStyle(DesignToggleStyle()).frame(height: 32)
+            Toggle(L10n.text("清空字幕前询问"), isOn: $appearance.askBeforeClearing)
+                .toggleStyle(DesignToggleStyle()).frame(height: 32)
+                .accessibilityIdentifier("appearance.askBeforeClearing")
             Toggle(L10n.text("恢复上次窗口"), isOn: $appearance.restorePage).toggleStyle(DesignToggleStyle()).frame(height: 32)
         }.designPanel(inset: inset)
     }
