@@ -325,18 +325,29 @@ final class LiveMonitorStore: ObservableObject {
         var twitchHadAdvertisement = false
         var attempt = 0
         var consecutiveFailures = 0
-        while consecutiveFailures < 4 && Date() < deadline {
+        var waitingForTwitchNetwork = false
+        var twitchSavedThrough: Date?
+        var waitingForOfflineConfirmation = false
+        while (consecutiveFailures < 4 || waitingForTwitchNetwork) && Date() < deadline {
             attempt += 1
             var twitchAttempt: TwitchRecordingJob?
             do {
                 try Task.checkCancellation()
                 guard !shutdownRequested, recordings.first(where: { $0.id == id })?.state != .stopping else { break }
                 if attempt > 1 {
-                    updateRecording(id) { $0.state = .preparing; $0.message = (finalError.map { Self.message($0) } ?? "连接中断。") + " 正在重连（\(consecutiveFailures)/3）。" }
-                    try await Task.sleep(nanoseconds: UInt64([0, 2, 5, 15][consecutiveFailures]) * 1_000_000_000)
+                    let delay = [0, 2, 5, 15, 30][min(4, consecutiveFailures)]
+                    let retry = waitingForTwitchNetwork ? " \(delay) 秒后重连，可随时停止。" : " 正在重连（\(consecutiveFailures)/3）。"
+                    updateRecording(id) { $0.state = .preparing; $0.message = (finalError.map { Self.message($0) } ?? "连接中断。") + retry }
+                    try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
                     let access = try credentials.context(creator.platform)
                     let snapshot = try await service.status(creator, access: access)
-                    applySnapshot(snapshot, to: creator.id)
+                    if creator.platform == .twitch, snapshot.state == .live,
+                       let original = creator.snapshot.sessionID, let current = snapshot.sessionID, original != current {
+                        cleanEnd = true
+                        break
+                    }
+                    if snapshot.state == .live { waitingForOfflineConfirmation = false }
+                    if snapshot.state != .offline { applySnapshot(snapshot, to: creator.id) }
                     if snapshot.state == .offline { throw LiveExtractionError.offline }
                     if snapshot.state == .upcoming { throw LiveExtractionError.upcoming }
                 }
@@ -369,7 +380,7 @@ final class LiveMonitorStore: ObservableObject {
                     defer { if jobs[id] === job { jobs[id] = nil } }
                     updateRecording(id) { $0.title = input.title; $0.state = .preparing; $0.message = "正在检查 Twitch 直播内容。" }
                     result = try await withTaskCancellationHandler {
-                        try await job.run(input, output: pattern, maximumSeconds: max(0, deadline.timeIntervalSinceNow)) { [weak self] state in
+                        try await job.run(input, output: pattern, maximumSeconds: max(0, deadline.timeIntervalSinceNow), resumeAfter: twitchSavedThrough) { [weak self] state in
                             guard let self, self.jobs[id] === job,
                                   self.recordings.first(where: { $0.id == id })?.state != .stopping else { return }
                             if state == .advertisement { twitchHadAdvertisement = true }
@@ -414,18 +425,30 @@ final class LiveMonitorStore: ObservableObject {
                 }
                 if result.status == 0 {
                     if recordings.first(where: { $0.id == id })?.state != .stopping, !shutdownRequested,
-                       creator.stableState == .live {
+                       (creator.stableState == .live || creator.platform == .twitch) {
                         updateRecording(id) { $0.state = .preparing; $0.message = "正在确认直播是否结束…" }
                         let snapshot = try await service.status(creator, access: access)
                         try Task.checkCancellation()
                         if recordings.first(where: { $0.id == id })?.state == .stopping { cleanEnd = true; break }
+                        if creator.platform == .twitch {
+                            if snapshot.state == .offline { throw LiveExtractionError.offline }
+                            throw TwitchTransportError(message: "直播仍在进行，正在重新连接直播流。")
+                        }
                         if snapshot.state != .offline { throw LiveMonitorError.unavailable("直播仍在进行，正在重新连接直播流。") }
                     }
                     cleanEnd = true; break
                 }
                 throw LiveMonitorError.unavailable(LiveRecordingEngine.failureMessage(result.error))
             } catch let ended as LiveExtractionError {
+                if let saved = twitchAttempt?.savedThrough { twitchSavedThrough = saved }
                 await service.invalidateRecordingInput(creator)
+                if creator.platform == .twitch && ended == .offline && !waitingForOfflineConfirmation {
+                    waitingForOfflineConfirmation = true
+                    finalError = LiveMonitorError.unavailable("正在再次确认 Twitch 是否下播。")
+                    waitingForTwitchNetwork = true
+                    consecutiveFailures = 1
+                    continue
+                }
                 let state: LiveState = ended == .offline ? .offline : .upcoming
                 applySnapshot(.init(state: state), to: creator.id)
                 if ended == .offline { applySnapshot(.init(state: .offline), to: creator.id) }
@@ -439,8 +462,10 @@ final class LiveMonitorStore: ObservableObject {
                     consecutiveFailures = 0
                 }
                 consecutiveFailures += 1
+                waitingForTwitchNetwork = creator.platform == .twitch && TwitchTransportError.isTransient(error)
                 if Task.isCancelled || shutdownRequested || recordings.first(where: { $0.id == id })?.state == .stopping || Date() >= deadline { break }
             }
+            if let saved = twitchAttempt?.savedThrough { twitchSavedThrough = saved }
         }
         let stopped = recordings.first(where: { $0.id == id })?.state == .stopping
         updateRecording(id) {
@@ -567,6 +592,7 @@ final class LiveMonitorStore: ObservableObject {
     private func persistRecordings() { save(recordings, name: "recordings") }
     static func message(_ error: Error) -> String {
         if error is CancellationError { return "操作已取消。" }
+        if let network = error as? TwitchTransportError { return network.message }
         if let error = error as? LiveMonitorError { return error.localizedDescription }
         if error is URLError { return "无法连接平台，请检查网络后稍后刷新。" }
         return "操作未完成，请检查网络、会话或保存目录后重试。"

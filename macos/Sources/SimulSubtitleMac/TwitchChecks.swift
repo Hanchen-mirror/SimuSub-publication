@@ -3,17 +3,23 @@ import Foundation
 private actor TwitchReconnectFixture: LivePlatformServing {
     let root: URL
     var attempts = 0
-    init(root: URL) { self.root = root }
+    let longOutage: Bool
+    var offlineChecks = 0
+    init(root: URL, longOutage: Bool = false) { self.root = root; self.longOutage = longOutage }
     func search(_ query: String, platform: LivePlatform, access: LivePlatformAccess) async throws -> [CreatorCandidate] { [] }
     func resolve(_ input: String, platform: LivePlatform, access: LivePlatformAccess) async throws -> CreatorCandidate {
         .init(platform: platform, address: input, name: "Twitch Fixture")
     }
     func status(_ creator: WatchedCreator, access: LivePlatformAccess) async throws -> LiveSnapshot {
-        .init(state: attempts < 5 ? .live : .offline)
+        if longOutage, attempts == 1, offlineChecks < 4 {
+            offlineChecks += 1
+            throw URLError(.notConnectedToInternet)
+        }
+        return .init(state: attempts < (longOutage ? 2 : 5) ? .live : .offline, sessionID: "fixture")
     }
     func recordingInput(_ creator: WatchedCreator, access: LivePlatformAccess) async throws -> ResolvedLiveInput {
         attempts += 1
-        let mode = attempts < 5 ? "cycle" : "flaky"
+        let mode = longOutage ? (attempts == 1 ? "windowFirst" : (attempts == 2 ? "windowSecond" : "manual")) : (attempts < 5 ? "cycle" : "flaky")
         let url = root.appendingPathComponent(mode + "-" + UUID().uuidString + "/live.m3u8")
         return .init(tracks: [.init(url: url, headers: [:], hasVideo: true, hasAudio: true)], title: "Twitch Fixture", twitchHLS: true)
     }
@@ -124,6 +130,41 @@ enum TwitchChecks {
                 let media = try await ClipMediaEngine.inspect(file)
                 try require(media.hasAudio && media.duration >= 9.9, "reconnected_playable_" + file.lastPathComponent)
             }
+            let outageService = TwitchReconnectFixture(root: fixture, longOutage: true)
+            let reconnect = LiveMonitorStore(storage: LiveMonitorStorage(root: directory.appendingPathComponent("long-outage-store")), service: outageService, notificationsEnabled: false)
+            reconnect.updateSettings { $0.outputFolder = directory.appendingPathComponent("long-outage-recordings").path }
+            reconnect.follow(.init(platform: .twitch, address: "fixture", name: "Fixture"))
+            let streamer = reconnect.creators[0].id
+            reconnect.applySnapshot(.init(state: .live, sessionID: "fixture"), to: streamer)
+            reconnect.startRecording(streamer)
+            for _ in 0..<1800 {
+                if !reconnect.hasActiveRecordings { break }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            let failedChecks = await outageService.offlineChecks
+            let recovered = reconnect.recordings[0]
+            try require(failedChecks == 4 && recovered.closedMediaURLs.count == 2 && recovered.state == .completed, "network_outage_survives_four_failed_status_checks")
+            let before = try await ClipMediaEngine.inspect(recovered.closedMediaURLs[0])
+            let after = try await ClipMediaEngine.inspect(recovered.closedMediaURLs[1])
+            try require(abs(before.duration - 6) < 0.2 && abs(after.duration - 12) < 0.2, "reconnected_playlist_backfills_six_segments_without_repeating_three")
+            // A manual start is permitted even if the same session was previously stopped.
+            reconnect.applySnapshot(.init(state: .live, sessionID: "fixture"), to: streamer)
+            for _ in 0..<2 {
+                reconnect.startRecording(streamer)
+                for _ in 0..<100 {
+                    if reconnect.recordings[0].state == .recording { break }
+                    try await Task.sleep(nanoseconds: 50_000_000)
+                }
+                reconnect.stopRecording(reconnect.recordings[0].id)
+                for _ in 0..<200 {
+                    if !reconnect.hasActiveRecordings { break }
+                    try await Task.sleep(nanoseconds: 50_000_000)
+                }
+            }
+            try require(reconnect.recordings.count == 3 && Set(reconnect.recordings.compactMap(\.segmentFolder)).count == 3 &&
+                        reconnect.recordings.allSatisfy { $0.state == .completed && !$0.closedMediaURLs.isEmpty },
+                        "manual_stop_and_restart_same_live_session_saves_separate_recordings")
+            await reconnect.shutdown()
             await store.shutdown()
             let job = TwitchRecordingJob(temporaryRoot: spoolRoot), cancelledOutput = directory.appendingPathComponent("cancelads.mkv")
             let start = Date()

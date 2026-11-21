@@ -1,5 +1,21 @@
 import Foundation
 
+struct TwitchTransportError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+    static func isTransient(_ error: Error) -> Bool {
+        if error is Self { return true }
+        guard let code = (error as? URLError)?.code else { return false }
+        return [.timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost,
+                .cannotFindHost, .dnsLookupFailed].contains(code)
+    }
+    static func check(_ response: URLResponse) throws {
+        if let status = (response as? HTTPURLResponse)?.statusCode, [408, 429, 500, 502, 503, 504].contains(status) {
+            throw Self(message: "Twitch 服务暂时不可用（HTTP \(status)）。")
+        }
+    }
+}
+
 /// Twitch advert metadata, rather than the existence of an A/V track, decides
 /// whether a segment can be offered to the recorder. Persistent logs omit remote URLs.
 struct TwitchPlaylist: Sendable {
@@ -9,6 +25,7 @@ struct TwitchPlaylist: Sendable {
         let duration: Double
         let advertisement: Bool
         let discontinuity: Bool
+        let start: Date?
     }
     let segments: [Segment]
     let targetDuration: Double
@@ -59,7 +76,7 @@ struct TwitchPlaylist: Sendable {
                     let end = Self.date(range["END-DATE"]) ?? length.map { start.addingTimeInterval(max(0, $0)) }
                     return time >= start && (end == nil || time < end!)
                 }
-                parsed.append(.init(sequence: sequence, url: url, duration: seconds, advertisement: ad, discontinuity: discontinuity))
+                parsed.append(.init(sequence: sequence, url: url, duration: seconds, advertisement: ad, discontinuity: discontinuity, start: time))
                 sequence += 1; time = time?.addingTimeInterval(seconds); duration = nil; discontinuity = false
             }
         }
@@ -93,6 +110,7 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
     private let session: URLSession
     private let advertisementTimeout: Double
     private let stallTimeout: Double
+    private(set) var savedThrough: Date?
     private let temporaryRoot: URL
     init(session: URLSession? = nil, advertisementTimeout: Double = 360, stallTimeout: Double = 30, temporaryRoot: URL? = nil) {
         self.temporaryRoot = temporaryRoot ?? FileManager.default.temporaryDirectory
@@ -139,7 +157,7 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
         _ = try FileManager.default.replaceItemAt(file, withItemAt: temporary)
     }
 
-    func run(_ input: ResolvedLiveInput, output: URL, maximumSeconds: Double, segmentSeconds: Int? = 300,
+    func run(_ input: ResolvedLiveInput, output: URL, maximumSeconds: Double, segmentSeconds: Int? = 300, resumeAfter: Date? = nil,
              onState: @escaping @MainActor @Sendable (TwitchContentState) -> Void) async throws -> LiveToolOutput {
         guard input.twitchHLS, let track = input.tracks.first else { throw LiveMonitorError.invalidResponse }
         let spool = temporaryRoot.appendingPathComponent("SimuSub-Twitch-" + UUID().uuidString)
@@ -192,23 +210,22 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
                     let (temporary, response) = try await session.download(for: request)
                     defer { try? FileManager.default.removeItem(at: temporary) }
                     guard let status = (response as? HTTPURLResponse)?.statusCode else { throw LiveMonitorError.invalidResponse }
-                    guard status == 200 else {
+                    if status != 200 {
                         reason = "HTTP " + String(status)
-                        retryable = [408, 429, 500, 502, 503, 504].contains(status)
+                        try TwitchTransportError.check(response)
                         throw LiveMonitorError.request("Twitch " + kind + "请求失败（" + reason + "）。")
                     }
                     let bytes = LiveRecordingEngine.fileSize(temporary.path)
                     guard bytes > 0, bytes <= Int64(limit) else { throw LiveMonitorError.invalidResponse }
                     return try Data(contentsOf: temporary)
                 } catch {
+                    retryable = TwitchTransportError.isTransient(error)
                     if let network = error as? URLError {
                         reason = "URL " + String(network.errorCode)
-                        retryable = [.timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost,
-                                     .cannotFindHost, .dnsLookupFailed].contains(network.code)
                     }
                     try log(["state": "requestFailed", "request": kind, "attempt": attempt, "reason": reason])
                     guard retryable, attempt < 3 else {
-                        if error is URLError { throw LiveMonitorError.request("Twitch " + kind + "连接失败（" + reason + "）。") }
+                        if retryable { throw TwitchTransportError(message: "Twitch " + kind + "连接失败（" + reason + "）。") }
                         throw error
                     }
                     try await Task.sleep(nanoseconds: UInt64(attempt) * 500_000_000)
@@ -223,6 +240,7 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
             try? FileManager.default.removeItem(at: spool)
         }
         var inputError: Error?
+        var downloadedThrough: Date?
         do {
             while !shouldStop && Date() < deadline {
                 try Task.checkCancellation()
@@ -230,8 +248,19 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
                 try LiveRecordingEngine.checkSpace(spool, minimum: 250_000_000)
                 let manifest = try await fetch(track.url, kind: "清单", limit: 1_048_576)
                 let remote = try TwitchPlaylist(String(decoding: manifest, as: UTF8.self), base: track.url)
-                // Begin at the same small live edge as a player. Never replay a whole stale window.
-                let fresh = remote.segments.filter { $0.sequence > (lastSequence ?? max(-1, (remote.segments.last?.sequence ?? 0) - 3)) }
+                let fresh: [TwitchPlaylist.Segment]
+                if let lastSequence {
+                    fresh = remote.segments.filter { $0.sequence > lastSequence }
+                } else if let resumeAfter, remote.segments.allSatisfy({ $0.start != nil }) {
+                    // Signed replacement playlists can renumber segments. Match the
+                    // broadcast clock to recover the overlap still available on the CDN.
+                    fresh = remote.segments.filter { ($0.start?.addingTimeInterval($0.duration).timeIntervalSince(resumeAfter) ?? 0) > 0.1 }
+                    if let first = fresh.first?.start, first.timeIntervalSince(resumeAfter) > 0.25 {
+                        try log(["state": "gap", "unavailableSeconds": first.timeIntervalSince(resumeAfter)])
+                    }
+                } else {
+                    fresh = Array(remote.segments.suffix(3))
+                }
                 if let first = fresh.first, let lastSequence, first.sequence > lastSequence + 1 {
                     pendingDiscontinuity = true
                     try log(["state": "gap", "missingSegments": first.sequence - lastSequence - 1])
@@ -257,6 +286,7 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
                         while entries.count > 60 { if entries.removeFirst().discontinuity { discontinuityCount += 1 } }
                         while retained.count > 120 { try? FileManager.default.removeItem(at: spool.appendingPathComponent("\(retained.removeFirst()).ts")) }
                         try publish()
+                        downloadedThrough = segment.start?.addingTimeInterval(segment.duration)
                         lock.withLock { downloadedSeconds += segment.duration }
                         if worker == nil {
                             var args = ["-hide_banner", "-loglevel", "error", "-nostats", "-n", "-progress", progressURL.path,
@@ -284,7 +314,7 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
                     try await event(.recording)
                 }
                 if let adSince, Date().timeIntervalSince(adSince) > advertisementTimeout { throw LiveMonitorError.unavailable("Twitch 广告占位已持续 6 分钟，仍未取得主播画面；正在刷新播放地址。") }
-                if Date().timeIntervalSince(lastAdvance) > stallTimeout { throw LiveMonitorError.unavailable("Twitch 清单停滞 30 秒，正在重新连接。") }
+                if Date().timeIntervalSince(lastAdvance) > stallTimeout { throw TwitchTransportError(message: "Twitch 清单停滞 30 秒，正在重新连接。") }
                 if let firstContent, !progress.hasVideo, Date().timeIntervalSince(firstContent) > 20, adSince == nil {
                     throw LiveMonitorError.unavailable("Twitch 非广告分片未能生成画面，正在重新连接。")
                 }
@@ -315,7 +345,7 @@ final class TwitchRecordingJob: LiveRecordingControl, @unchecked Sendable {
         fallback.cancel()
         try await Self.finalizeMKV(output: output, segmented: segmentSeconds != nil)
         let result = try muxResult.get()
-        if result.status != 0 { endReason = "muxerError" }
+        if result.status == 0 { savedThrough = downloadedThrough } else { endReason = "muxerError" }
         if let inputError { throw inputError }
         return result
     }

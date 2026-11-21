@@ -473,6 +473,7 @@ actor LivePlatformService: LivePlatformServing {
             "query": "query SimuSubPlayback($login:String!){streamPlaybackAccessToken(channelName:$login,params:{platform:\"site\",playerBackend:\"mediaplayer\",playerType:\"embed\"}){value signature}}",
             "variables": ["login": login]])
         let (data, response) = try await session.data(for: request)
+        try TwitchTransportError.check(response)
         guard (response as? HTTPURLResponse)?.statusCode == 200, data.count < 1_048_576,
               let json = try JSONSerialization.jsonObject(with: data) as? [String: Any], json["errors"] == nil,
               let fields = json["data"] as? [String: Any], let token = fields["streamPlaybackAccessToken"] as? [String: Any],
@@ -481,6 +482,7 @@ actor LivePlatformService: LivePlatformServing {
         playlist.queryItems = ["sig": signature, "token": value, "allow_source": "true", "allow_audio_only": "false",
                               "supported_codecs": "h264", "platform": "web", "playlist_include_framerate": "true"].map { .init(name: $0.key, value: $0.value) }
         let (manifest, manifestResponse) = try await session.data(for: URLRequest(url: playlist.url!, timeoutInterval: 10))
+        try TwitchTransportError.check(manifestResponse)
         guard (manifestResponse as? HTTPURLResponse)?.statusCode == 200, manifest.count < 1_048_576 else { throw LiveMonitorError.unavailable("Twitch 播放列表读取失败，请检查网络或账号会话。") }
         let stream = try Self.bestHLSVariant(String(decoding: manifest, as: UTF8.self), base: playlist.url!, quality: access.recordingQuality)
         return .init(tracks: [.init(url: stream, headers: ["User-Agent": Self.userAgent], hasVideo: true, hasAudio: true)], title: snapshot.title, twitchHLS: true)
@@ -520,6 +522,7 @@ actor LivePlatformService: LivePlatformServing {
             "query": "query SimuSubStatus($login:String!){user(login:$login){stream{id title type createdAt}}}",
             "variables": ["login": login]])
         let (data, response) = try await session.data(for: request)
+        try TwitchTransportError.check(response)
         guard (response as? HTTPURLResponse)?.statusCode == 200, data.count < 1_048_576,
               let json = try JSONSerialization.jsonObject(with: data) as? [String: Any], json["errors"] == nil,
               let fields = json["data"] as? [String: Any], let user = fields["user"] as? [String: Any] else {
@@ -588,6 +591,7 @@ actor LivePlatformService: LivePlatformServing {
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         let (data, response) = try await session.data(for: request)
+        if request.url?.host == "api.twitch.tv" { try TwitchTransportError.check(response) }
         guard let http = response as? HTTPURLResponse else { throw LiveMonitorError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             if http.statusCode == 401 { throw LiveMonitorError.unavailable("接口凭证已过期或无效，请重新连接。") }
