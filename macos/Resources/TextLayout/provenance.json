@@ -1,0 +1,19 @@
+{
+  "repository": "https://github.com/google/budoux",
+  "commit": "9ddf284a13ffcb5fb38775dd38301c60eb3e3f41",
+  "license": "Apache-2.0",
+  "files": {
+    "LICENSE-BudouX.txt": {
+      "bytes": 11357,
+      "sha256": "58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd"
+    },
+    "ja.json": {
+      "bytes": 20036,
+      "sha256": "1e0ed578ad0f4ac14045e5f5fddbe263962a7f5e8fe22821da0048188aa55551"
+    },
+    "zh-hans.json": {
+      "bytes": 64385,
+      "sha256": "6999aa5fa8d24bed376012ecce067c06fe05c8442f05812ac934e6d606036386"
+    }
+  }
+}

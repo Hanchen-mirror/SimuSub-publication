@@ -4,7 +4,7 @@ struct RecordingWorkspace: View {
     var onSettings: () -> Void
     var onClips: (UUID?) -> Void
     @EnvironmentObject private var monitor: LiveMonitorStore
-    @StateObject private var presentation = HomeLivePresentation()
+    @StateObject private var presentation = CreatorSearchState()
     @State private var adding = false
     @State private var platform: LivePlatform?
     @Namespace private var filterHighlight
@@ -61,7 +61,7 @@ struct RecordingWorkspace: View {
 }
 
 struct AddCreatorSheet: View {
-    @ObservedObject var presentation: HomeLivePresentation
+    @ObservedObject var presentation: CreatorSearchState
     var onDone: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -71,7 +71,7 @@ struct AddCreatorSheet: View {
                 Button(L10n.text("完成"), action: onDone)
             }
             CreatorPlatformPicker(selection: $presentation.platform)
-            HomeCreatorSearch(presentation: presentation)
+            CreatorSearchField(presentation: presentation)
             Spacer(minLength: 0)
         }.padding(26).frame(width: 620, height: 400).appTheme()
     }

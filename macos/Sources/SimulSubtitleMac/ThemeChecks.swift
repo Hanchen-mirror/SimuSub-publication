@@ -99,7 +99,7 @@ enum ThemeChecks {
             }
             host("subtitle", HStack(spacing: 0) { WorkspaceSidebar(selected: .subtitle, onSelect: { _ in }).frame(width: DesignV23.sidebar); SubtitleConfiguration(onServices: {}) })
             host("recording", HStack(spacing: 0) { WorkspaceSidebar(selected: .recording, onSelect: { _ in }).frame(width: DesignV23.sidebar); RecordingWorkspace(onSettings: {}, onClips: { _ in }) })
-            host("add-creator", AddCreatorSheet(presentation: HomeLivePresentation(), onDone: {}))
+            host("add-creator", AddCreatorSheet(presentation: CreatorSearchState(), onDone: {}))
             host("services", HStack(spacing: 0) { WorkspaceSidebar(selected: .services, onSelect: { _ in }).frame(width: DesignV23.sidebar); AdvancedServiceSettings() })
             host("controls", TextField("主题输入框", text: .constant("保留编辑内容")).textFieldStyle(ClipFieldStyle()).frame(width: 400))
             let emptyClips = ClipStore(root: directory.appendingPathComponent("empty-import-store"))

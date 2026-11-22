@@ -1,0 +1,43 @@
+{
+  "components": [
+    {
+      "file": "yt-dlp",
+      "version": "2026.10.21",
+      "source": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.21/yt-dlp_macos",
+      "downloadSHA256": "7a6fe71d7d680f1fb0ac18d4949873d77db2859e90017c0f44bd94b23be4ee40",
+      "sha256": "7a6fe71d7d680f1fb0ac18d4949873d77db2859e90017c0f44bd94b23be4ee40",
+      "bytes": 37180736
+    },
+    {
+      "file": "deno",
+      "version": "2.9.8",
+      "source": "https://github.com/denoland/deno/releases/download/v2.9.8/deno-aarch64-apple-darwin.zip",
+      "downloadSHA256": "9f0bf660393da2eaff044cdc7444cb08c73f235849b61d224d825a194ce7c98e",
+      "sha256": "d1e99265e5e6ee096c5780d88ff7d3e6cfdf33b1953a118b4889cab8ca6980ba",
+      "bytes": 81512928
+    },
+    {
+      "file": "ffmpeg",
+      "version": "8.0-simusub-clips-lgpl",
+      "source": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/n8.0",
+      "downloadSHA256": "dd4030dbfdc34d9ff255a116bdd1caade42500ac2981efa27f8b151cc54c7b9e",
+      "sha256": "292854850d98f0d9718b62fc2758e1cbf9111cc69c727652fc6613fbac1c56b9",
+      "bytes": 5052520,
+      "license": "LGPL-2.1-or-later",
+      "buildScript": "scripts/build-live-ffmpeg.sh",
+      "correspondingSource": "Source/ffmpeg-n8.0.tar.gz"
+    },
+    {
+      "file": "ffprobe",
+      "version": "8.0-simusub-clips-lgpl",
+      "source": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/n8.0",
+      "downloadSHA256": "dd4030dbfdc34d9ff255a116bdd1caade42500ac2981efa27f8b151cc54c7b9e",
+      "sha256": "479fed0a1f1c2853e10e1fa9a4310a5d665013e9982fd660e0bae0fa2c0a1223",
+      "bytes": 4876744,
+      "license": "LGPL-2.1-or-later",
+      "buildScript": "scripts/build-live-ffmpeg.sh",
+      "correspondingSource": "Source/ffmpeg-n8.0.tar.gz"
+    }
+  ],
+  "policy": "Pinned components; FFmpeg source and build recipe included. No executable auto-update."
+}

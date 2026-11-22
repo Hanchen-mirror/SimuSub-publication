@@ -1,0 +1,7 @@
+SimuSub uses LAME 3.100, LGPL version 2 or later.
+Official project: https://lame.sourceforge.io/
+Source: https://sourceforge.net/projects/lame/files/lame/3.100/
+Complete source archive is in Source/lame-3.100.tar.gz.
+The only modification removes unavailable legacy/decoder symbols from the Darwin export list for the encoder-only build.
+Rebuild with scripts/build-mp3-encoder.sh in the included app source.
+The library is dynamically loaded from Contents/Frameworks/libmp3lame.0.dylib and can be replaced with a compatible modified build. Re-sign the local bundle after replacement.

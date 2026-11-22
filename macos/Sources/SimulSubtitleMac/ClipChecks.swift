@@ -446,16 +446,7 @@ enum ClipChecks {
                 try bitmap.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("clip-tool-" + tool.rawValue + ".png"))
                 window.contentView = nil; window.close()
             }
-            let quick = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 246, height: 78), styleMask: [], backing: .buffered, defer: false)
-            quick.isReleasedWhenClosed = false
-            quick.contentView = NSHostingView(rootView: ClipQuickActions(selected: .highlights) { _ in }.preferredColorScheme(.dark))
-            quick.orderFront(nil); try await Task.sleep(nanoseconds: 200_000_000)
-            if let view = quick.contentView, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-                view.cacheDisplay(in: view.bounds, to: bitmap)
-                try bitmap.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("clip-four-actions.png"))
-            }
-            quick.contentView = nil; quick.close()
-            try require(true, "clip_four_action_menu_and_highlights_subtitles_routes_rendered")
+            try require(true, "clip_highlights_and_subtitles_routes_rendered")
             try JSONSerialization.data(withJSONObject: ["passed": true, "checks": checks, "movie": movie], options: [.prettyPrinted, .sortedKeys]).write(to: directory.appendingPathComponent("report.json"))
             print("PASS: \(checks.count) clip checks"); fflush(stdout); Darwin.exit(0)
         } catch {

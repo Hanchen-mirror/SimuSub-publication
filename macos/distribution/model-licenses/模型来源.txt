@@ -1,0 +1,30 @@
+SimuSub 离线模型来源与许可
+
+ModelManifest.json 列出实际随包的文件、字节数、SHA-256 及固定版本下载地址。Models/ 内的文件与清单所列上游文件逐字节一致。SimuSub 保留各发布者的模型名称和许可。安装盘中的应用另附自身使用的第三方组件声明。
+
+Index-Translate-2B Q4_K_M
+发布者：Index Team（哔哩哔哩）。GGUF 由 Index Team 发布，Apache License 2.0，见 Apache-2.0.txt。
+https://huggingface.co/IndexTeam/Index-Translate-2B-GGUF/tree/449c9e6457b3632d328c6cbb78ae8e8e0c8059a5
+
+ReazonSpeech k2 v2
+作者：Reazon Human Interaction Laboratory。ONNX / INT8 版本由 csukuangfj 提供。原始权重及该转换仓库均标注 Apache License 2.0，见 Apache-2.0.txt。
+https://huggingface.co/reazon-research/reazonspeech-k2-v2
+https://huggingface.co/csukuangfj/reazonspeech-k2-v2/tree/c273a8666b943526a37e6facb1f9c2cf6739d710
+
+Whisper Base / Whisper Small
+作者：OpenAI。原始模型权重采用 MIT 许可，见 Whisper-MIT.txt。随包的 INT8 ONNX 转换来自 csukuangfj。
+https://github.com/openai/whisper#license
+https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/tree/bb53ee204431c90d314c1cc08d28d23e5b7927cc
+https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/tree/8f3c18b358db4d1f2fc1eae49d75cd20989e4309
+
+SenseVoiceSmall
+作者：FunAudioLLM / Alibaba Group。INT8 ONNX 版本由 csukuangfj 发布。转换仓库随附的许可指引见 SenseVoice-ONNX-LICENSE.txt。权重适用《FunASR 模型开源协议》1.1，见 FunASR-MODEL_LICENSE.txt。使用、复制、修改和分享时须注明出处和作者，并保留模型名称。
+https://huggingface.co/FunAudioLLM/SenseVoiceSmall
+https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tree/2365baeacb507f821a0c8120fcee3d484dba7a07
+https://github.com/modelscope/FunASR/blob/58830eca4012644aac0c3218c3ccc7d98f003fda/MODEL_LICENSE
+
+Qwen3-ASR-0.6B
+作者：Qwen Team。原始权重采用 Apache License 2.0，见 Apache-2.0.txt。ONNX 由 Wasser1462 转换，cattle12 提供 sherpa-onnx 布局。随包文件为该仓库列出的 INT8 模型和分词器。
+https://huggingface.co/Qwen/Qwen3-ASR-0.6B
+https://github.com/Wasser1462/Qwen3-ASR-onnx
+https://huggingface.co/cattle12/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/tree/603954e3768c2354ccaf1ca43092e844d975641d

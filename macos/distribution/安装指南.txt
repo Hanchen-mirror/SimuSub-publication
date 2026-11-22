@@ -1,0 +1,6 @@
+SimuSub 离线安装（Apple 芯片 Mac）
+
+1. 如已打开旧版，请先保存工作并退出。在磁盘映像内把 SimuSub 拖到「应用程序」。如需只为自己安装，可将 SimuSub 拖入个人的 ~/Applications 文件夹。
+2. 等 Finder 复制完成后推出磁盘映像，从安装位置打开 SimuSub。语音识别和翻译模型已随应用安装，可离线使用。
+3. 首次打开时，选择「开启权限」，按提示前往「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」允许 SimuSub，随后返回应用。只需剪辑本地视频时可选择稍后设置。
+4. 本地模型的来源与许可证保存在 SimuSub.app/Contents/SharedSupport/ModelLicenses。

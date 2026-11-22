@@ -1,0 +1,43 @@
+ffmpeg version 8.0 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 21.0.0 (clang-2100.3.34.2)
+  configuration: --prefix=/usr/local --arch=aarch64 --target-os=darwin --cc=/usr/bin/clang --extra-cflags='-mmacosx-version-min=13.3' --extra-ldflags='-mmacosx-version-min=13.3' --disable-autodetect --disable-everything --disable-doc --disable-debug --enable-small --enable-ffmpeg --enable-ffprobe --disable-ffplay --enable-network --enable-securetransport --enable-pthreads --enable-videotoolbox --enable-audiotoolbox --enable-zlib --enable-protocol='file,http,https,httpproxy,tcp,tls,crypto' --enable-demuxer='hls,mpegts,mov,flv,matroska,aac,mp3,wav,flac,ogg,aiff,image2,concat' --enable-muxer='matroska,mp4,mpegts,hls,segment,wav,image2,null' --enable-parser='h264,hevc,aac,aac_latm,mpegaudio,opus,vorbis,vp9,av1' --enable-bsf='aac_adtstoasc,h264_mp4toannexb,hevc_mp4toannexb,extract_extradata' --enable-indev=lavfi --enable-filter='color,sine,testsrc2,null,anull,scale,format,aformat,aresample,trim,atrim,setpts,asetpts,transpose,hflip,vflip' --enable-encoder='mpeg4,h264_videotoolbox,aac,pcm_s16le,png' --enable-decoder='rawvideo,wrapped_avframe,h264,hevc,vp8,vp9,av1,mpeg4,h263,aac,mp3,opus,vorbis,flac,alac,pcm_s16le,pcm_s24le,pcm_f32le,png,mjpeg'
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+
+  configuration:
+    --prefix=/usr/local
+    --arch=aarch64
+    --target-os=darwin
+    --cc=/usr/bin/clang
+    --extra-cflags='-mmacosx-version-min=13.3'
+    --extra-ldflags='-mmacosx-version-min=13.3'
+    --disable-autodetect
+    --disable-everything
+    --disable-doc
+    --disable-debug
+    --enable-small
+    --enable-ffmpeg
+    --enable-ffprobe
+    --disable-ffplay
+    --enable-network
+    --enable-securetransport
+    --enable-pthreads
+    --enable-videotoolbox
+    --enable-audiotoolbox
+    --enable-zlib
+    --enable-protocol='file,http,https,httpproxy,tcp,tls,crypto'
+    --enable-demuxer='hls,mpegts,mov,flv,matroska,aac,mp3,wav,flac,ogg,aiff,image2,concat'
+    --enable-muxer='matroska,mp4,mpegts,hls,segment,wav,image2,null'
+    --enable-parser='h264,hevc,aac,aac_latm,mpegaudio,opus,vorbis,vp9,av1'
+    --enable-bsf='aac_adtstoasc,h264_mp4toannexb,hevc_mp4toannexb,extract_extradata'
+    --enable-indev=lavfi
+    --enable-filter='color,sine,testsrc2,null,anull,scale,format,aformat,aresample,trim,atrim,setpts,asetpts,transpose,hflip,vflip'
+    --enable-encoder='mpeg4,h264_videotoolbox,aac,pcm_s16le,png'
+    --enable-decoder='rawvideo,wrapped_avframe,h264,hevc,vp8,vp9,av1,mpeg4,h263,aac,mp3,opus,vorbis,flac,alac,pcm_s16le,pcm_s24le,pcm_f32le,png,mjpeg'
+
+Exiting with exit code 0

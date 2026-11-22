@@ -1,6 +1,6 @@
 import Foundation
 
-actor HomeBehaviorFixture: LivePlatformServing {
+actor RecordingServiceFixture: LivePlatformServing {
     let preserveStates: Bool
     init(preserveStates: Bool = false) { self.preserveStates = preserveStates }
     func search(_ query: String, platform: LivePlatform, access: LivePlatformAccess) async throws -> [CreatorCandidate] {
@@ -20,7 +20,7 @@ actor HomeBehaviorFixture: LivePlatformServing {
 }
 
 @MainActor
-enum HomeInteractionChecks {
+enum RecordingBehaviorChecks {
     static func run(directory: URL) async throws -> [String] {
         var checks: [String] = []
         func require(_ condition: Bool, _ name: String) throws {
@@ -35,23 +35,6 @@ enum HomeInteractionChecks {
         enriched.coverURL = "https://example.com/cover.jpg"; enriched.category = "杂谈"
         let restored = try JSONDecoder().decode(LiveSnapshot.self, from: JSONEncoder().encode(enriched))
         try require(restored == enriched, "dashboard_cover_and_category_survive_storage_roundtrip")
-        let state = HomeLivePresentation()
-        state.query = "unchanged"
-        state.showAccounts(.youtube)
-        try require(state.platform == .bilibili && state.query == "unchanged" && state.accountPlatform == .youtube,
-                    "hover_does_not_change_search_platform_or_query")
-        state.leaveAccounts()
-        try await Task.sleep(nanoseconds: 80_000_000)
-        state.showAccounts(.youtube)
-        try await Task.sleep(nanoseconds: 320_000_000)
-        try require(state.accountPlatform == .youtube, "hover_bridge_keeps_menu_open")
-        state.leaveAccounts()
-        try await Task.sleep(nanoseconds: 350_000_000)
-        try require(state.accountPlatform == nil, "menu_closes_after_pointer_leaves")
-        state.showAccounts(.bilibili); state.showAccounts(.twitch)
-        try require(state.accountPlatform == .twitch, "only_latest_platform_menu_visible")
-        state.closeAccounts()
-        try require(state.accountPlatform == nil, "escape_closes_account_menu")
         let suite = "SimuSub.HomeBehavior." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -64,7 +47,7 @@ enum HomeInteractionChecks {
         try require(credentials.usesAccount(.youtube) && !credentials.usesAccount(.bilibili), "account_mode_independent_per_platform")
         credentials.useGuest(.youtube)
         let store = LiveMonitorStore(storage: LiveMonitorStorage(root: directory.appendingPathComponent("add-monitor-behavior")),
-                                     service: HomeBehaviorFixture(), credentials: credentials, notificationsEnabled: false)
+                                     service: RecordingServiceFixture(), credentials: credentials, notificationsEnabled: false)
         let candidate = CreatorCandidate(platform: .bilibili, address: "https://live.bilibili.com/6", name: "Fixture")
         try require(store.addAndMonitor(candidate) && store.isMonitoring && store.creators[0].monitoring,
                     "adding_creator_starts_monitoring_by_default")

@@ -1,0 +1,2705 @@
+{
+  "申请录制权限": {"en": "Request recording access", "ja": "録画権限をリクエスト", "zh-Hant": "申請錄製權限"},
+  "点击申请，在 macOS 提示时允许 SimuSub。": {"en": "Request access, then allow SimuSub when macOS asks.", "ja": "権限をリクエストし、macOS の確認画面で SimuSub を許可してください。", "zh-Hant": "點選申請，並在 macOS 提示時允許 SimuSub。"},
+  "列表里没有 SimuSub？点「屏幕与系统音频录制」下方的「＋」，选择已安装的 SimuSub.app。": {"en": "If SimuSub is missing, click + under Screen & System Audio Recording and select the installed SimuSub.app.", "ja": "SimuSub が見つからない場合は、「画面収録とシステムオーディオ録音」の下の「＋」でインストール済みの SimuSub.app を選択してください。", "zh-Hant": "列表中沒有 SimuSub？點選「螢幕與系統音訊錄製」下方的「＋」，選擇已安裝的 SimuSub.app。"},
+  "随应用安装": {"en": "Included with SimuSub", "ja": "アプリに同梱", "zh-Hant": "隨應用程式安裝"},
+  "未识别到语音，请检查视频音轨和源语言后重试。": {"en": "No speech was recognized. Check the video’s audio track and source language, then try again.", "ja": "音声を認識できませんでした。動画の音声トラックと元の言語を確認して再試行してください。", "zh-Hant": "未辨識到語音，請檢查影片音軌和來源語言後重試。"},
+  "全片字幕": {"en": "Full-video subtitles", "ja": "動画全体の字幕", "zh-Hant": "全片字幕"},
+  "识别并翻译全片": {"en": "Transcribe and translate the entire video", "ja": "動画全体を書き起こして翻訳", "zh-Hant": "辨識並翻譯全片"},
+  "开始核对全片字幕": {"en": "Review subtitles for the entire video", "ja": "動画全体の字幕を校正", "zh-Hant": "開始核對全片字幕"},
+  "调用云端服务？": {"en": "Use cloud services?", "ja": "クラウドサービスを使用しますか？", "zh-Hant": "呼叫雲端服務？"},
+  "将处理整个视频，可能消耗账户额度并产生费用。": {"en": " will process the entire video. This may use your account credits and incur charges. ", "ja": " に動画全体の処理を依頼します。利用枠を消費し、料金が発生する場合があります。", "zh-Hant": "將處理整個影片，可能消耗帳戶額度並產生費用。"},
+  "将处理当前选段，可能消耗账户额度并产生费用。": {"en": " will process the selected range. This may use your account credits and incur charges. ", "ja": " に選択範囲の処理を依頼します。利用枠を消費し、料金が発生する場合があります。", "zh-Hant": "將處理目前的選段，可能消耗帳戶額度並產生費用。"},
+  "将处理视频的前 60 秒，可能消耗账户额度并产生费用。": {"en": " will process the first 60 seconds of the video. This may use your account credits and incur charges. ", "ja": " に動画の冒頭60秒までの処理を依頼します。利用枠を消費し、料金が発生する場合があります。", "zh-Hant": "將處理影片的前 60 秒，可能消耗帳戶額度並產生費用。"},
+  "识别服务会收到音频；翻译服务会收到字幕文本。": {"en": "The recognition service receives audio and the translation service receives subtitle text. ", "ja": "認識サービスには音声、翻訳サービスには字幕テキストが送られます。", "zh-Hant": "辨識服務會收到音訊，翻譯服務會收到字幕文字。"},
+  "仅发送字幕文字，不上传音视频。": {"en": "Only subtitle text is sent. ", "ja": "送信するのは字幕テキストのみです。", "zh-Hant": "僅傳送字幕文字，不上傳影音。"},
+  "具体费用以服务商计费为准。": {"en": "Your provider determines the final charges.", "ja": "実際の料金はサービス提供元の請求をご確認ください。", "zh-Hant": "實際費用以服務商計費為準。"},
+  "字幕时间应在视频内，单条文字不超过 1000 字。": {"en": "Keep subtitle times within the video and each line under 1,001 characters.", "ja": "字幕の時刻は動画の範囲内で指定し、各欄は1,000文字以内にしてください。", "zh-Hant": "字幕時間須在影片內，單條文字不得超過 1000 字。"},
+  "样式示例": {"en": "Style sample", "ja": "スタイル見本", "zh-Hant": "樣式範例"},
+  "字幕处理已完成 · %@ 条": {"en": "Subtitles ready · %@", "ja": "字幕処理が完了しました · %@ 件", "zh-Hant": "字幕處理已完成 · %@ 條"},
+  "未检测到语音": {"en": "No speech detected", "ja": "音声が検出されませんでした", "zh-Hant": "未偵測到語音"},
+  "以后不再询问": {"en": "Don’t ask again", "ja": "今後は確認しない", "zh-Hant": "以後不再詢問"},
+  "清空字幕前询问": {"en": "Ask before clearing subtitles", "ja": "字幕を消去する前に確認", "zh-Hant": "清空字幕前詢問"},
+  "将删除当前保存的原文、译文和待处理字幕，无法恢复。已导出的文件不受影响。": {"en": "This permanently deletes saved originals, translations, and pending subtitles. Exported files are unaffected.", "ja": "保存中の原文、訳文、処理待ちの字幕を削除します。元には戻せません。書き出したファイルには影響しません。", "zh-Hant": "將刪除目前儲存的原文、譯文和待處理字幕，無法復原。已匯出的檔案不受影響。"},
+  "当前选段未识别到语音，请检查音轨、选段范围和源语言后重试。": {"en": "No speech detected in this range. Check the audio track, range and source language, then retry.", "ja": "この範囲に音声が見つかりません。音声トラック、選択範囲、元の言語を確認して再試行してください。", "zh-Hant": "目前選段未偵測到語音，請檢查音軌、選段範圍和來源語言後重試。"},
+  "原选段已移除，请重新选择。": {"en": "This range was removed. Select another range.", "ja": "選択範囲は削除されました。選び直してください。", "zh-Hant": "原選段已移除，請重新選擇。"},
+  "识别或翻译服务已改变，请在剪辑台重新生成字幕。": {"en": "The recognition or translation service has changed. Generate subtitles again in the clip editor.", "ja": "認識または翻訳サービスが変更されました。編集画面で字幕を再生成してください。", "zh-Hant": "辨識或翻譯服務已變更，請在剪輯台重新產生字幕。"},
+  "请在模型与服务中选择识别和翻译服务。": {"en": "Select recognition and translation services in Models & Services.", "ja": "モデルとサービスで認識と翻訳サービスを選択してください。", "zh-Hant": "請在模型與服務中選擇辨識和翻譯服務。"},
+  "请在模型与服务中启用所选语言的识别与翻译服务。": {"en": "Enable recognition and translation for the selected languages in Models & Services.", "ja": "モデルとサービスで選択した言語の認識と翻訳を有効にしてください。", "zh-Hant": "請在模型與服務中啟用所選語言的辨識與翻譯服務。"},
+  "单次导出支持最长 10 分钟的片段，请缩短选段。": {"en": "Each exported clip can be up to 10 minutes long. Shorten the selected range.", "ja": "書き出し可能な長さは1クリップにつき10分までです。選択範囲を短くしてください。", "zh-Hant": "單次匯出支援最長 10 分鐘的片段，請縮短選段。"},
+  "确认删除": {"en": "Confirm deletion", "ja": "削除を確定", "zh-Hant": "確認刪除"},
+  "显示角色编号": {"en": "Show role numbers", "ja": "役割番号を表示", "zh-Hant": "顯示角色編號"},
+  "隐藏角色编号": {"en": "Hide role numbers", "ja": "役割番号を隠す", "zh-Hant": "隱藏角色編號"},
+  "角色": {
+    "en": "Speaker",
+    "ja": "話者",
+    "zh-Hant": "角色"
+  },
+  "多角色": {
+    "en": "Manage speakers",
+    "ja": "複数の話者",
+    "zh-Hant": "多角色"
+  },
+  "录制文件夹": {
+    "en": "Recording folder",
+    "ja": "録画フォルダ",
+    "zh-Hant": "錄製資料夾"
+  },
+  "导出文件夹": {
+    "en": "Export folder",
+    "ja": "書き出しフォルダ",
+    "zh-Hant": "匯出資料夾"
+  },
+  "关于 SimuSub": {
+    "en": "About SimuSub",
+    "ja": "SimuSub について",
+    "zh-Hant": "關於 SimuSub"
+  },
+  "使用说明": {
+    "en": "User guide",
+    "ja": "使い方",
+    "zh-Hant": "使用說明"
+  },
+  "复制路径": {
+    "en": "Copy path",
+    "ja": "パスをコピー",
+    "zh-Hant": "複製路徑"
+  },
+  "更换文件夹": {
+    "en": "Change folder",
+    "ja": "フォルダを変更",
+    "zh-Hant": "更換資料夾"
+  },
+  "保存录制到这里": {
+    "en": "Save recordings here",
+    "ja": "ここに録画を保存",
+    "zh-Hant": "在此儲存錄製檔案"
+  },
+  "1 路": {
+    "en": "1 stream",
+    "ja": "1 件",
+    "zh-Hant": "1 路"
+  },
+  "2 路": {
+    "en": "2 streams",
+    "ja": "2 件",
+    "zh-Hant": "2 路"
+  },
+  "3 路": {
+    "en": "3 streams",
+    "ja": "3 件",
+    "zh-Hant": "3 路"
+  },
+  "角色样式": {
+    "en": "Speaker styles",
+    "ja": "話者スタイル",
+    "zh-Hant": "角色樣式"
+  },
+  "角色名称": {
+    "en": "Speaker name",
+    "ja": "話者名",
+    "zh-Hant": "角色名稱"
+  },
+  "角色名称已存在": {
+    "en": "A speaker already has this name.",
+    "ja": "この話者名は使用済みです。",
+    "zh-Hant": "此角色名稱已存在"
+  },
+  "片段默认": {
+    "en": "Clip default",
+    "ja": "クリップの標準",
+    "zh-Hant": "片段預設"
+  },
+  "沿用上一条": {
+    "en": "Follow previous caption",
+    "ja": "前の字幕を引き継ぐ",
+    "zh-Hant": "沿用上一條"
+  },
+  "重命名或编辑样式": {
+    "en": "Rename or edit style",
+    "ja": "名前・スタイルを編集",
+    "zh-Hant": "重新命名或編輯樣式"
+  },
+  "保存项目": {
+    "en": "Save project",
+    "ja": "プロジェクトを保存",
+    "zh-Hant": "儲存專案"
+  },
+  "生成": {
+    "en": "Generate",
+    "ja": "生成",
+    "zh-Hant": "產生"
+  },
+  "编辑角色样式": {
+    "en": "Edit speaker style",
+    "ja": "話者スタイルを編集",
+    "zh-Hant": "編輯角色樣式"
+  },
+  "新建角色样式": {
+    "en": "New speaker style",
+    "ja": "話者スタイルを作成",
+    "zh-Hant": "新增角色樣式"
+  },
+  "从这条起": {
+    "en": "Starting with this caption",
+    "ja": "この字幕から",
+    "zh-Hant": "從這條起"
+  },
+  "编辑字幕": {
+    "en": "Edit caption",
+    "ja": "字幕を編集",
+    "zh-Hant": "編輯字幕"
+  },
+  "描边与阴影": {
+    "en": "Outline and shadow",
+    "ja": "縁取りと影",
+    "zh-Hant": "描邊與陰影"
+  },
+  "默认": {
+    "en": "Default",
+    "ja": "標準",
+    "zh-Hant": "預設"
+  },
+  "蓝边": {
+    "en": "Blue edge",
+    "ja": "青縁",
+    "zh-Hant": "藍邊"
+  },
+  "暖白": {
+    "en": "Warm white",
+    "ja": "温白色",
+    "zh-Hant": "暖白"
+  },
+  "文字颜色": {
+    "en": "Text color",
+    "ja": "文字色",
+    "zh-Hant": "文字顏色"
+  },
+  "填充颜色": {
+    "en": "Fill color",
+    "ja": "塗りの色",
+    "zh-Hant": "填充顏色"
+  },
+  "黑色": {
+    "en": "Black",
+    "ja": "黒",
+    "zh-Hant": "黑色"
+  },
+  "描边颜色": {
+    "en": "Outline color",
+    "ja": "縁取りの色",
+    "zh-Hant": "描邊顏色"
+  },
+  "描边宽度": {
+    "en": "Outline width",
+    "ja": "縁取りの太さ",
+    "zh-Hant": "描邊寬度"
+  },
+  "阴影": {
+    "en": "Shadow",
+    "ja": "影",
+    "zh-Hant": "陰影"
+  },
+  "字幕未补齐。请补齐字幕，或关闭烧录。": {
+    "en": "Complete the missing captions or turn off subtitle burn-in.",
+    "ja": "字幕を補完するか、字幕の焼き込みをオフにしてください。",
+    "zh-Hant": "字幕未補齊。請補齊字幕，或關閉燒錄。"
+  },
+  "片段起点": {
+    "en": "Clip start",
+    "ja": "クリップの開始点"
+  },
+  "片段终点": {
+    "en": "Clip end",
+    "ja": "クリップの終了点"
+  },
+  "更多字幕操作": {
+    "en": "More subtitle actions",
+    "ja": "その他の字幕操作",
+    "zh-Hant": "更多字幕操作"
+  },
+  "翻译语言": {
+    "en": "Translation languages",
+    "ja": "翻訳言語"
+  },
+  "关闭字幕并停止监听": {
+    "en": "Close subtitles and stop listening",
+    "ja": "字幕を閉じて聞き取りを停止"
+  },
+  "最小化到程序坞": {
+    "en": "Minimize to Dock",
+    "ja": "Dock にしまう"
+  },
+  "放大／恢复字幕窗口": {
+    "en": "Zoom or restore subtitle window",
+    "ja": "字幕ウインドウの拡大／復元"
+  },
+  "查看完整字幕": {
+    "en": "Show full subtitle",
+    "ja": "字幕の全文を表示"
+  },
+  "界面语言": {
+    "en": "Interface language",
+    "ja": "表示言語"
+  },
+  "工作空间": {
+    "en": "Workspace",
+    "ja": "ワークスペース"
+  },
+  "字幕同传": {
+    "en": "Live subtitles",
+    "ja": "リアルタイム字幕"
+  },
+  "直播录制": {
+    "en": "Live recording",
+    "ja": "ライブ録画"
+  },
+  "剪辑工作台": {
+    "en": "Clip studio",
+    "ja": "クリップ編集"
+  },
+  "模型与服务": {
+    "en": "Models & APIs",
+    "ja": "モデルとサービス"
+  },
+  "设置": {
+    "en": "Settings",
+    "ja": "設定"
+  },
+  "外观": {
+    "en": "Appearance",
+    "ja": "外観"
+  },
+  "录制": {
+    "en": "Recording",
+    "ja": "録画"
+  },
+  "平台": {
+    "en": "Platforms",
+    "ja": "プラットフォーム"
+  },
+  "权限": {
+    "en": "Permissions",
+    "ja": "権限"
+  },
+  "声音来源": {
+    "en": "Audio source",
+    "ja": "音声ソース"
+  },
+  "源语言": {
+    "en": "Source language",
+    "ja": "元の言語"
+  },
+  "翻译为": {
+    "en": "Translate to",
+    "ja": "翻訳先"
+  },
+  "日语": {
+    "en": "Japanese",
+    "ja": "日本語"
+  },
+  "简体中文": {
+    "en": "Simplified Chinese",
+    "ja": "簡体字中国語"
+  },
+  "繁体中文": {
+    "en": "Traditional Chinese",
+    "ja": "繁体字中国語"
+  },
+  "英语": {
+    "en": "English",
+    "ja": "英語"
+  },
+  "中文": {
+    "en": "Chinese",
+    "ja": "中国語"
+  },
+  "交换语言": {
+    "en": "Swap languages",
+    "ja": "言語を入れ替える"
+  },
+  "字幕外观": {
+    "en": "Subtitle appearance",
+    "ja": "字幕の外観"
+  },
+  "原文字体": {
+    "en": "Original font",
+    "ja": "原文のフォント"
+  },
+  "译文字体": {
+    "en": "Translation font",
+    "ja": "訳文のフォント"
+  },
+  "原文字号": {
+    "en": "Original size",
+    "ja": "原文の文字サイズ"
+  },
+  "译文字号": {
+    "en": "Translation size",
+    "ja": "訳文の文字サイズ"
+  },
+  "显示原文": {
+    "en": "Show original",
+    "ja": "原文を表示"
+  },
+  "开始同传": {
+    "en": "Start subtitles",
+    "ja": "字幕を開始"
+  },
+  "打开字幕浮窗": {
+    "en": "Open subtitle window",
+    "ja": "字幕ウィンドウを開く"
+  },
+  "中文和英语识别需多语言接口": {
+    "en": "Chinese and English need multilingual ASR",
+    "ja": "中国語・英語には多言語音声認識が必要です"
+  },
+  "系统字体": {
+    "en": "System font",
+    "ja": "システムフォント"
+  },
+  "其他": {
+    "en": "More",
+    "ja": "その他"
+  },
+  "搜索应用": {
+    "en": "Search apps",
+    "ja": "アプリを検索"
+  },
+  "刷新应用": {
+    "en": "Refresh apps",
+    "ja": "アプリを更新"
+  },
+  "没有匹配的应用": {
+    "en": "No matching apps",
+    "ja": "該当するアプリがありません"
+  },
+  "关闭应用列表": {
+    "en": "Close app list",
+    "ja": "アプリ一覧を閉じる"
+  },
+  "浅色": {
+    "en": "Light",
+    "ja": "ライト"
+  },
+  "深色": {
+    "en": "Dark",
+    "ja": "ダーク"
+  },
+  "跟随系统": {
+    "en": "System",
+    "ja": "システム"
+  },
+  "雾蓝": {
+    "en": "Mist blue",
+    "ja": "ミストブルー"
+  },
+  "鼠尾草绿": {
+    "en": "Sage",
+    "ja": "セージグリーン"
+  },
+  "柔紫": {
+    "en": "Soft purple",
+    "ja": "ソフトパープル"
+  },
+  "奶油黄": {
+    "en": "Cream",
+    "ja": "クリームイエロー"
+  },
+  "SimuSub 字标扫光": {
+    "en": "SimuSub wordmark shimmer",
+    "ja": "SimuSub ロゴ文字の光沢アニメーション",
+    "zh-Hant": "SimuSub 字標掃光"
+  },
+  "减少动态效果": {
+    "en": "Reduce motion",
+    "ja": "視差効果を減らす"
+  },
+  "恢复上次窗口": {
+    "en": "Restore last window",
+    "ja": "前回のウィンドウを復元"
+  },
+  "关闭设置": {
+    "en": "Close settings",
+    "ja": "設定を閉じる"
+  },
+  "保存位置": {
+    "en": "Save location",
+    "ja": "保存先"
+  },
+  "选择文件夹": {
+    "en": "Choose folder",
+    "ja": "フォルダを選択"
+  },
+  "格式": {
+    "en": "Format",
+    "ja": "形式"
+  },
+  "同时录制": {
+    "en": "Concurrent recordings",
+    "ja": "同時録画数"
+  },
+  "检查间隔": {
+    "en": "Check interval",
+    "ja": "確認間隔"
+  },
+  "%@ 秒": {
+    "en": "%@ sec",
+    "ja": "%@ 秒"
+  },
+  "%@ 分钟": {
+    "en": "%@ min",
+    "ja": "%@ 分"
+  },
+  "访客": {
+    "en": "Guest",
+    "ja": "ゲスト"
+  },
+  "使用访客": {
+    "en": "Use guest",
+    "ja": "ゲストを使用"
+  },
+  "使用 Guest": {
+    "en": "Use Guest",
+    "ja": "ゲストを使用"
+  },
+  "官网登录": {
+    "en": "Sign in",
+    "ja": "公式サイトでログイン"
+  },
+  "导入 Cookies": {
+    "en": "Import cookies",
+    "ja": "Cookie をインポート"
+  },
+  "导入 Cookies…": {
+    "en": "Import cookies…",
+    "ja": "Cookie をインポート…"
+  },
+  "已导入": {
+    "en": "Imported",
+    "ja": "インポート済み"
+  },
+  "已连接": {
+    "en": "Connected",
+    "ja": "接続済み"
+  },
+  "未连接": {
+    "en": "Disconnected",
+    "ja": "未接続"
+  },
+  "连接": {
+    "en": "Connect",
+    "ja": "接続"
+  },
+  "连接自己的账号": {
+    "en": "Connect your account",
+    "ja": "自分のアカウントを接続"
+  },
+  "打开官网登录": {
+    "en": "Open sign-in page",
+    "ja": "ログインページを開く"
+  },
+  "官网搜索": {
+    "en": "Search website",
+    "ja": "公式サイトで検索"
+  },
+  "高级 · 官方搜索接口（可选）": {
+    "en": "Advanced · Search API (optional)",
+    "ja": "詳細 · 検索 API（任意）"
+  },
+  "移除会话": {
+    "en": "Remove session",
+    "ja": "セッションを削除"
+  },
+  "移除并切换访客": {
+    "en": "Remove and use guest",
+    "ja": "削除してゲストに切り替える"
+  },
+  "移除接口凭证": {
+    "en": "Remove API credentials",
+    "ja": "API 認証情報を削除"
+  },
+  "仅保存所选平台的有效 Cookie；临时调用文件权限为 0600，用后删除。不会上传会话到 SimuSub 服务器。": {
+    "en": "Only cookies for this platform are stored locally. Temporary files use private permissions and are deleted after use.",
+    "ja": "選択したプラットフォームの Cookie のみをローカルに保存します。一時ファイルは非公開の権限で作成し、使用後に削除します。"
+  },
+  "保存到 Keychain": {
+    "en": "Save to Keychain",
+    "ja": "キーチェーンに保存"
+  },
+  "关闭连接设置": {
+    "en": "Close connection settings",
+    "ja": "接続設定を閉じる"
+  },
+  "应用音频": {
+    "en": "App audio",
+    "ja": "アプリの音声"
+  },
+  "已允许": {
+    "en": "Allowed",
+    "ja": "許可済み"
+  },
+  "未允许": {
+    "en": "Not allowed",
+    "ja": "未許可"
+  },
+  "检查并修复音频权限": {
+    "en": "Check audio permission",
+    "ja": "音声の権限を確認・修復"
+  },
+  "打开系统录制权限设置": {
+    "en": "Open recording permissions",
+    "ja": "システムの録画権限を開く"
+  },
+  "仍然无法采集？": {
+    "en": "Still unable to capture?",
+    "ja": "まだ収録できませんか？"
+  },
+  "重新打开应用": {
+    "en": "Reopen app",
+    "ja": "アプリを再起動"
+  },
+  "重新打开": {
+    "en": "Reopen",
+    "ja": "再起動"
+  },
+  "仅重新打开应用": {
+    "en": "Only reopen app",
+    "ja": "再起動のみ"
+  },
+  "重置本应用旧授权…": {
+    "en": "Reset this app's permission…",
+    "ja": "このアプリの権限をリセット…"
+  },
+  "重置本应用授权并重新打开": {
+    "en": "Reset permission and reopen",
+    "ja": "権限をリセットして再起動"
+  },
+  "重置本应用的音频授权并重新打开？": {
+    "en": "Reset audio permission and reopen?",
+    "ja": "音声の権限をリセットして再起動しますか？"
+  },
+  "重新打开应用？": {
+    "en": "Reopen app?",
+    "ja": "アプリを再起動しますか？"
+  },
+  "重新打开会结束当前会话，请先导出需要保存的字幕。": {
+    "en": "Reopening ends this session. Export any subtitles you want to keep first.",
+    "ja": "再起動すると現在のセッションが終了します。必要な字幕を先に書き出してください。"
+  },
+  "系统要求重新打开时，请先导出字幕。只有旧记录失效时才需要重置本应用授权，其他应用不受影响。": {
+    "en": "Export subtitles before reopening. Reset this app's permission only if the existing record has stopped working.",
+    "ja": "再起動の前に字幕を書き出してください。既存の許可が無効な場合のみ、このアプリの権限をリセットしてください。"
+  },
+  "请先导出需要保存的字幕。只清除 SimuSub 的应用音频旧授权；重新打开后需要你重新允许系统弹窗。": {
+    "en": "Export subtitles first. Only SimuSub's app audio permission is reset; you will need to allow it again after reopening.",
+    "ja": "必要な字幕を先に書き出してください。SimuSub の音声権限のみがリセットされます。再起動後に改めて許可してください。"
+  },
+  "屏幕与系统音频录制": {
+    "en": "Screen & system audio recording",
+    "ja": "画面とシステムオーディオの収録"
+  },
+  "系统设置  ›  隐私与安全性  ›  屏幕与系统音频录制": {
+    "en": "System Settings › Privacy & Security › Screen & System Audio Recording",
+    "ja": "システム設定 › プライバシーとセキュリティ › 画面収録とシステムオーディオ録音"
+  },
+  "语音识别": {
+    "en": "Speech recognition",
+    "ja": "音声認識"
+  },
+  "翻译": {
+    "en": "Translation",
+    "ja": "翻訳"
+  },
+  "本地日语识别": {
+    "en": "Local Japanese ASR",
+    "ja": "ローカル日本語認識"
+  },
+  "本地翻译": {
+    "en": "Local translation",
+    "ja": "ローカル翻訳"
+  },
+  "本地模型": {
+    "en": "Local model",
+    "ja": "ローカルモデル"
+  },
+  "本地引擎": {
+    "en": "Local engine",
+    "ja": "ローカルエンジン"
+  },
+  "本地": {
+    "en": "Local",
+    "ja": "ローカル"
+  },
+  "云端": {
+    "en": "Cloud",
+    "ja": "クラウド"
+  },
+  "OpenAI 转写": {
+    "en": "OpenAI transcription",
+    "ja": "OpenAI 文字起こし"
+  },
+  "OpenAI 翻译": {
+    "en": "OpenAI translation",
+    "ja": "OpenAI 翻訳"
+  },
+  "DeepSeek 字幕核对 / 翻译": {
+    "en": "DeepSeek review / translation",
+    "ja": "DeepSeek 校正・翻訳"
+  },
+  "自定义转写": {
+    "en": "Custom transcription",
+    "ja": "カスタム音声認識"
+  },
+  "自定义翻译": {
+    "en": "Custom translation",
+    "ja": "カスタム翻訳"
+  },
+  "选择服务": {
+    "en": "Select service",
+    "ja": "サービスを選択"
+  },
+  "添加接口": {
+    "en": "Add API",
+    "ja": "API を追加"
+  },
+  "添加 DeepSeek": {
+    "en": "Add DeepSeek",
+    "ja": "DeepSeek を追加"
+  },
+  "输入 API Key": {
+    "en": "Enter API key",
+    "ja": "API キーを入力"
+  },
+  "已保存密钥": {
+    "en": "Saved API key",
+    "ja": "API キー保存済み"
+  },
+  "API 地址": {
+    "en": "API URL",
+    "ja": "API URL"
+  },
+  "模型": {
+    "en": "Model",
+    "ja": "モデル"
+  },
+  "服务名称": {
+    "en": "Service name",
+    "ja": "サービス名"
+  },
+  "翻译提示词": {
+    "en": "Translation prompt",
+    "ja": "翻訳プロンプト"
+  },
+  "恢复默认提示词": {
+    "en": "Reset prompt",
+    "ja": "プロンプトをリセット"
+  },
+  "输入模型名称": {
+    "en": "Enter model name",
+    "ja": "モデル名を入力"
+  },
+  "测试连接": {
+    "en": "Test connection",
+    "ja": "接続をテスト"
+  },
+  "测试中…": {
+    "en": "Testing…",
+    "ja": "テスト中…"
+  },
+  "删除服务": {
+    "en": "Delete service",
+    "ja": "サービスを削除"
+  },
+  "删除服务配置？": {
+    "en": "Delete service configuration?",
+    "ja": "サービス設定を削除しますか？"
+  },
+  "高级": {
+    "en": "Advanced",
+    "ja": "詳細"
+  },
+  "超时 %@ 秒": {
+    "en": "Timeout: %@ sec",
+    "ja": "タイムアウト：%@ 秒"
+  },
+  "保存": {
+    "en": "Save",
+    "ja": "保存"
+  },
+  "已保存": {
+    "en": "Saved",
+    "ja": "保存済み"
+  },
+  "准备模型": {
+    "en": "Prepare models",
+    "ja": "モデルを準備"
+  },
+  "已就绪": {
+    "en": "Ready",
+    "ja": "準備完了"
+  },
+  "未安装": {
+    "en": "Not installed",
+    "ja": "未インストール"
+  },
+  "停止同传": {
+    "en": "Stop subtitles",
+    "ja": "字幕を停止"
+  },
+  "暂无字幕": {
+    "en": "No subtitles",
+    "ja": "字幕なし"
+  },
+  "还没有字幕": {
+    "en": "No subtitles yet",
+    "ja": "字幕はまだありません"
+  },
+  "双语": {
+    "en": "Bilingual",
+    "ja": "二言語"
+  },
+  "仅译文": {
+    "en": "Translation only",
+    "ja": "訳文のみ"
+  },
+  "译文字幕": {
+    "en": "Translated subtitles",
+    "ja": "翻訳字幕"
+  },
+  "双语字幕": {
+    "en": "Bilingual subtitles",
+    "ja": "二言語字幕"
+  },
+  "切换为仅原文": {
+    "en": "Show original only",
+    "ja": "原文のみに切り替え"
+  },
+  "切换为双语字幕": {
+    "en": "Switch to bilingual subtitles",
+    "ja": "二言語字幕に切り替え"
+  },
+  "字幕": {
+    "en": "Subtitles",
+    "ja": "字幕"
+  },
+  "字幕设置": {
+    "en": "Subtitle settings",
+    "ja": "字幕設定"
+  },
+  "返回首页（⌘⇧F）": {
+    "en": "Back to home (⌘⇧F)",
+    "ja": "ホームへ戻る（⌘⇧F）"
+  },
+  "清空所有字幕…": {
+    "en": "Clear all subtitles…",
+    "ja": "字幕をすべて消去…"
+  },
+  "清空所有字幕？": {
+    "en": "Clear all subtitles?",
+    "ja": "字幕をすべて消去しますか？"
+  },
+  "清空 %@ 条字幕": {
+    "en": "Clear %@ subtitles",
+    "ja": "%@ 件の字幕を消去"
+  },
+  "暂停同传": {
+    "en": "Pause subtitles",
+    "ja": "字幕を一時停止"
+  },
+  "开始／继续同传": {
+    "en": "Start / resume subtitles",
+    "ja": "字幕を開始・再開"
+  },
+  "取消置顶": {
+    "en": "Unpin",
+    "ja": "最前面を解除"
+  },
+  "置顶字幕": {
+    "en": "Pin subtitles",
+    "ja": "字幕を最前面に表示"
+  },
+  "导出字幕": {
+    "en": "Export subtitles",
+    "ja": "字幕を書き出す"
+  },
+  "正在翻译…": {
+    "en": "Translating…",
+    "ja": "翻訳中…"
+  },
+  "翻译未完成": {
+    "en": "Translation incomplete",
+    "ja": "翻訳未完了"
+  },
+  "正在监听 %@ · 等待语音…": {
+    "en": "Listening to %@ · Waiting for speech…",
+    "ja": "%@ を聴取中 · 音声を待機中…"
+  },
+  "正在检查录音权限…": {
+    "en": "Checking recording permission…",
+    "ja": "録音の権限を確認中…"
+  },
+  "正在加载服务…": {
+    "en": "Loading subtitle services…",
+    "ja": "字幕サービスを読み込み中…"
+  },
+  "正在启动音频采集…": {
+    "en": "Starting audio capture…",
+    "ja": "音声キャプチャを開始中…"
+  },
+  "正在启动同传…": {
+    "en": "Starting subtitles…",
+    "ja": "字幕を開始中…"
+  },
+  "正在读取应用列表…": {
+    "en": "Loading apps…",
+    "ja": "アプリを読み込み中…"
+  },
+  "正在暂停…": {
+    "en": "Pausing…",
+    "ja": "一時停止中…"
+  },
+  "已暂停 · 点击播放继续监听": {
+    "en": "Paused · Click play to resume",
+    "ja": "一時停止中 · 再生で再開"
+  },
+  "点击播放，选择要监听的应用": {
+    "en": "Click play to select an app",
+    "ja": "再生を押してアプリを選択"
+  },
+  "点击播放，继续监听 %@": {
+    "en": "Click play to resume %@",
+    "ja": "再生を押して %@ を再開"
+  },
+  "点击播放，重新准备本地引擎": {
+    "en": "Click play to prepare local models",
+    "ja": "再生を押してローカルモデルを準備"
+  },
+  "正在准备本地引擎 · %@%": {
+    "en": "Preparing local models · %@%",
+    "ja": "ローカルモデルを準備中 · %@%"
+  },
+  "进入纯字幕": {
+    "en": "Enter subtitle mode",
+    "ja": "字幕モードへ"
+  },
+  "退出纯字幕": {
+    "en": "Exit subtitle mode",
+    "ja": "字幕モードを終了"
+  },
+  "恢复完整界面": {
+    "en": "Restore workspace",
+    "ja": "ワークスペースを表示"
+  },
+  "纯字幕置顶": {
+    "en": "Keep subtitles on top",
+    "ja": "字幕を最前面に表示"
+  },
+  "字幕显示": {
+    "en": "Subtitle display",
+    "ja": "字幕表示"
+  },
+  "暂停字幕": {
+    "en": "Pause subtitles",
+    "ja": "字幕を一時停止"
+  },
+  "开始／继续字幕": {
+    "en": "Start / resume subtitles",
+    "ja": "字幕を開始・再開"
+  },
+  "展开字幕": {
+    "en": "Expand subtitles",
+    "ja": "字幕を展開"
+  },
+  "收起为悬浮图标": {
+    "en": "Collapse to floating icon",
+    "ja": "フローティングアイコンに縮小"
+  },
+  "返回": {
+    "en": "Back",
+    "ja": "戻る",
+    "zh-Hant": "返回"
+  },
+  "返回首页": {
+    "en": "Back to home",
+    "ja": "ホームへ戻る"
+  },
+  "返回同传字幕": {
+    "en": "Back to subtitles",
+    "ja": "字幕に戻る"
+  },
+  "返回工作空间": {
+    "en": "Back to workspace",
+    "ja": "ワークスペースに戻る"
+  },
+  "录制设置": {
+    "en": "Recording settings",
+    "ja": "録画設定"
+  },
+  "录制操作与文件": {
+    "en": "Recording & files",
+    "ja": "録画とファイル"
+  },
+  "录制历史": {
+    "en": "Recording history",
+    "ja": "録画履歴"
+  },
+  "录制当前直播": {
+    "en": "Record live stream",
+    "ja": "配信を録画"
+  },
+  "录制与切片": {
+    "en": "Recording & clips",
+    "ja": "録画とクリップ"
+  },
+  "项目与录制历史": {
+    "en": "Projects & recordings",
+    "ja": "プロジェクトと録画履歴"
+  },
+  "最近项目": {
+    "en": "Recent projects",
+    "ja": "最近のプロジェクト"
+  },
+  "暂无项目": {
+    "en": "No projects",
+    "ja": "プロジェクトなし"
+  },
+  "关注的主播": {
+    "en": "Followed creators",
+    "ja": "フォロー中の配信者"
+  },
+  "关注的直播": {
+    "en": "Followed streams",
+    "ja": "フォロー中の配信"
+  },
+  "主播监控": {
+    "en": "Live monitor",
+    "ja": "配信モニター"
+  },
+  "监控直播": {
+    "en": "Monitor streams",
+    "ja": "配信を監視"
+  },
+  "监控这位主播": {
+    "en": "Monitor creator",
+    "ja": "この配信者を監視"
+  },
+  "主播操作": {
+    "en": "Creator actions",
+    "ja": "配信者の操作"
+  },
+  "添加主播": {
+    "en": "Add creator",
+    "ja": "配信者を追加"
+  },
+  "搜索主播或粘贴直播链接": {
+    "en": "Search creators or paste a stream URL",
+    "ja": "配信者を検索・配信 URL を入力"
+  },
+  "清空搜索": {
+    "en": "Clear search",
+    "ja": "検索を消去"
+  },
+  "全部平台": {
+    "en": "All platforms",
+    "ja": "すべてのプラットフォーム"
+  },
+  "全部分类": {
+    "en": "All categories",
+    "ja": "すべてのカテゴリ"
+  },
+  "收起搜索结果": {
+    "en": "Hide search results",
+    "ja": "検索結果を閉じる"
+  },
+  "刷新直播状态": {
+    "en": "Refresh stream status",
+    "ja": "配信状況を更新"
+  },
+  "双击打开直播间": {
+    "en": "Double-click to watch",
+    "ja": "ダブルクリックで配信を開く"
+  },
+  "在浏览器观看": {
+    "en": "Watch in browser",
+    "ja": "ブラウザで視聴"
+  },
+  "点击在浏览器观看": {
+    "en": "Click to watch in browser",
+    "ja": "クリックしてブラウザで視聴"
+  },
+  "自动录制": {
+    "en": "Auto-record",
+    "ja": "自動録画"
+  },
+  "开播提醒": {
+    "en": "Live alerts",
+    "ja": "配信開始通知"
+  },
+  "允许系统开播提醒…": {
+    "en": "Allow live notifications…",
+    "ja": "配信開始通知を許可…"
+  },
+  "检查开播状态": {
+    "en": "Check live status",
+    "ja": "配信状況を確認"
+  },
+  "删除主播": {
+    "en": "Delete creator",
+    "ja": "配信者を削除"
+  },
+  "移除主播": {
+    "en": "Remove creator",
+    "ja": "配信者を削除"
+  },
+  "移除主播…": {
+    "en": "Remove creator…",
+    "ja": "配信者を削除…"
+  },
+  "移除主播确认": {
+    "en": "Remove creator?",
+    "ja": "配信者を削除しますか？"
+  },
+  "已保存的视频会保留": {
+    "en": "Saved videos will be kept",
+    "ja": "保存済みの動画は保持されます"
+  },
+  "剪辑这位主播的录像": {
+    "en": "Edit this creator's recordings",
+    "ja": "この配信者の録画を編集"
+  },
+  "打开录制文件夹": {
+    "en": "Open recordings folder",
+    "ja": "録画フォルダを開く"
+  },
+  "丢弃本次录制": {
+    "en": "Discard recording",
+    "ja": "この録画を破棄"
+  },
+  "丢弃本次录制，移到废纸篓": {
+    "en": "Discard recording and move to Trash",
+    "ja": "録画を破棄してゴミ箱に移動"
+  },
+  "丢弃本次录制？录像片段会移到系统废纸篓。": {
+    "en": "Discard this recording? Saved segments will move to Trash.",
+    "ja": "この録画を破棄しますか？保存済みの映像はゴミ箱に移動します。"
+  },
+  "停止并移到废纸篓": {
+    "en": "Stop and move to Trash",
+    "ja": "停止してゴミ箱に移動"
+  },
+  "停止录制并把已保存片段转换为 MP4，保留原文件": {
+    "en": "Stop and convert saved segments to MP4, keeping originals",
+    "ja": "録画を停止し、元ファイルを保持して MP4 に変換"
+  },
+  "暂停会先保存片段，继续后写入新片段": {
+    "en": "Pausing saves this segment; resuming starts a new one",
+    "ja": "一時停止時に保存し、再開後は新しいセグメントに録画します"
+  },
+  "等待录制片段保存": {
+    "en": "Waiting for segment to save",
+    "ja": "録画の保存を待機中"
+  },
+  "原文件": {
+    "en": "Original file",
+    "ja": "元ファイル"
+  },
+  "转换": {
+    "en": "Convert",
+    "ja": "変換"
+  },
+  "导出 MP4": {
+    "en": "Export MP4",
+    "ja": "MP4 を書き出す"
+  },
+  "导出 MP3": {
+    "en": "Export MP3",
+    "ja": "MP3 を書き出す"
+  },
+  "导出": {
+    "en": "Export",
+    "ja": "書き出す"
+  },
+  "导出 ": {
+    "en": "Export ",
+    "ja": "書き出す "
+  },
+  "导出 %@": {
+    "en": "Export %@",
+    "ja": "%@ を書き出す"
+  },
+  "使用已导入会话": {
+    "en": "Use imported session",
+    "ja": "インポートしたセッションを使用"
+  },
+  "使用 SimuSub": {
+    "en": "Start using SimuSub",
+    "ja": "SimuSub を使う"
+  },
+  "进入主界面": {
+    "en": "Open workspace",
+    "ja": "ワークスペースを開く"
+  },
+  "下一步": {
+    "en": "Next",
+    "ja": "次へ"
+  },
+  "上一步": {
+    "en": "Back",
+    "ja": "戻る"
+  },
+  "主题": {
+    "en": "Theme",
+    "ja": "テーマ"
+  },
+  "待开发": {
+    "en": "Coming soon",
+    "ja": "準備中"
+  },
+  "点击图标选择声音来源 · 左右滑动查看更多应用": {
+    "en": "Select an app · Scroll to see more",
+    "ja": "音声ソースを選択 · スクロールで他のアプリを表示"
+  },
+  "切换到 ": {
+    "en": "Switch to ",
+    "ja": "切り替え："
+  },
+  "选择 ": {
+    "en": "Select ",
+    "ja": "選択："
+  },
+  "搜索 ": {
+    "en": "Search ",
+    "ja": "検索："
+  },
+  "选择 %@": {
+    "en": "Select %@",
+    "ja": "%@ を選択"
+  },
+  "选择应用音频": {
+    "en": "Choose app audio",
+    "ja": "アプリの音声を選択"
+  },
+  "搜索应用名称或标识…": {
+    "en": "Search app name or identifier…",
+    "ja": "アプリ名・識別子を検索…"
+  },
+  "打开视频": {
+    "en": "Open video",
+    "ja": "動画を開く"
+  },
+  "导入其他视频": {
+    "en": "Import another video",
+    "ja": "別の動画を読み込む"
+  },
+  "导入其他视频…": {
+    "en": "Import another video…",
+    "ja": "別の動画を読み込む…"
+  },
+  "进入剪辑工作台": {
+    "en": "Open clip studio",
+    "ja": "クリップ編集を開く"
+  },
+  "继续剪辑": {
+    "en": "Continue editing",
+    "ja": "編集を続ける"
+  },
+  "添加选段": {
+    "en": "Add range",
+    "ja": "区間を追加"
+  },
+  "添加选中片段": {
+    "en": "Add selected clips",
+    "ja": "選択したクリップを追加"
+  },
+  "选择高光": {
+    "en": "Select highlights",
+    "ja": "ハイライトを選択"
+  },
+  "高光候选": {
+    "en": "Highlights",
+    "ja": "ハイライト候補"
+  },
+  "请先导入字幕，再推荐高光。": {
+    "en": "Import subtitles to find highlights.",
+    "ja": "ハイライトを分析するには、先に字幕を読み込んでください。",
+    "zh-Hant": "請先匯入字幕，再推薦精華片段。"
+  },
+  "最多段数": {
+    "en": "Maximum clips",
+    "ja": "候補数の上限",
+    "zh-Hant": "最多段數"
+  },
+  "请输入正整数。": {
+    "en": "Enter a positive whole number.",
+    "ja": "1 以上の整数を入力してください。",
+    "zh-Hant": "請輸入正整數。"
+  },
+  "最多 3 段": {
+    "en": "Up to 3 clips",
+    "ja": "最大 3 件"
+  },
+  "最多 5 段": {
+    "en": "Up to 5 clips",
+    "ja": "最大 5 件"
+  },
+  "最多 8 段": {
+    "en": "Up to 8 clips",
+    "ja": "最大 8 件"
+  },
+  "数量": {
+    "en": "Count",
+    "ja": "件数"
+  },
+  "选段": {
+    "en": "Ranges",
+    "ja": "区間"
+  },
+  "选段名称": {
+    "en": "Range name",
+    "ja": "区間名"
+  },
+  "名称": {
+    "en": "Name",
+    "ja": "名前"
+  },
+  "起点": {
+    "en": "Start",
+    "ja": "開始"
+  },
+  "终点": {
+    "en": "End",
+    "ja": "終了"
+  },
+  "设为起点": {
+    "en": "Set start",
+    "ja": "開始点に設定"
+  },
+  "设为终点": {
+    "en": "Set end",
+    "ja": "終了点に設定"
+  },
+  "选段起终点": {
+    "en": "Range start & end",
+    "ja": "区間の開始・終了"
+  },
+  "编辑时间": {
+    "en": "Edit time",
+    "ja": "時刻を編集"
+  },
+  "保存选段": {
+    "en": "Save range",
+    "ja": "区間を保存"
+  },
+  "复制选段": {
+    "en": "Duplicate range",
+    "ja": "区間を複製"
+  },
+  "删除选段": {
+    "en": "Delete range",
+    "ja": "区間を削除"
+  },
+  "移除选段": {
+    "en": "Remove range",
+    "ja": "区間を削除"
+  },
+  "移除这个选段？原视频和已导出文件会保留。": {
+    "en": "Remove this range? Original and exported files will be kept.",
+    "ja": "この区間を削除しますか？元の動画と書き出し済みのファイルは保持されます。"
+  },
+  "加入批量导出": {
+    "en": "Include in batch export",
+    "ja": "一括書き出しに追加"
+  },
+  "批量导出已选选段": {
+    "en": "Export selected ranges",
+    "ja": "選択した区間を書き出す"
+  },
+  "移出工作台": {
+    "en": "Remove from studio",
+    "ja": "ワークスペースから削除"
+  },
+  "移出当前项目？原视频和导出文件会保留。": {
+    "en": "Remove this project? Original and exported files will be kept.",
+    "ja": "このプロジェクトを削除しますか？元の動画と書き出し済みのファイルは保持されます。"
+  },
+  "预览": {
+    "en": "Preview",
+    "ja": "プレビュー"
+  },
+  "倍速": {
+    "en": "Speed",
+    "ja": "再生速度"
+  },
+  "布局设置": {
+    "en": "Layout",
+    "ja": "レイアウト"
+  },
+  "拖动进度条检查画面": {
+    "en": "Scrub to inspect frames",
+    "ja": "シークバーで映像を確認"
+  },
+  "拖动视频中的字幕，位置会保存并用于导出": {
+    "en": "Drag subtitles to set their export position",
+    "ja": "動画上の字幕をドラッグして書き出し位置を設定"
+  },
+  "生成字幕": {
+    "en": "Generate subtitles",
+    "ja": "字幕を生成"
+  },
+  "识别并翻译当前选段": {
+    "en": "Transcribe and translate the selected range",
+    "ja": "選択区間の音声を文字起こしして翻訳",
+    "zh-Hant": "辨識並翻譯目前選段"
+  },
+  "阴影强度": {
+    "en": "Shadow strength",
+    "ja": "影の濃さ",
+    "zh-Hant": "陰影強度"
+  },
+  "阴影高度": {
+    "en": "Shadow offset",
+    "ja": "影の上下位置",
+    "zh-Hant": "陰影高度"
+  },
+  "核对译文": {
+    "en": "Review translation",
+    "ja": "訳文を校正"
+  },
+  "模型核对": {
+    "en": "Model review",
+    "ja": "モデル校正"
+  },
+  "开始核对当前选段": {
+    "en": "Review current range",
+    "ja": "現在の区間を校正"
+  },
+  "使用服务设置中选定的翻译模型": {
+    "en": "Use the selected translation model",
+    "ja": "設定で選択した翻訳モデルを使用"
+  },
+  "核对完成，没有不同的译文建议。": {
+    "en": "Review complete. No changes suggested.",
+    "ja": "校正が完了しました。修正候補はありません。"
+  },
+  "现有：": {
+    "en": "Current:",
+    "ja": "現在："
+  },
+  "建议：": {
+    "en": "Suggestion:",
+    "ja": "候補："
+  },
+  "应用这条建议": {
+    "en": "Apply suggestion",
+    "ja": "この候補を適用"
+  },
+  "收起提示": {
+    "en": "Hide notice",
+    "ja": "通知を閉じる"
+  },
+  "收起": {
+    "en": "Collapse",
+    "ja": "折りたたむ"
+  },
+  "删除这条字幕": {
+    "en": "Delete subtitle",
+    "ja": "この字幕を削除"
+  },
+  "删除字幕": {
+    "en": "Delete subtitle",
+    "ja": "字幕を削除"
+  },
+  "添加字幕": {
+    "en": "Add subtitle",
+    "ja": "字幕を追加"
+  },
+  "导入字幕": {
+    "en": "Import subtitles",
+    "ja": "字幕を読み込む"
+  },
+  "字幕时间": {
+    "en": "Subtitle timing",
+    "ja": "字幕の時刻"
+  },
+  "字幕样式": {
+    "en": "Subtitle style",
+    "ja": "字幕スタイル"
+  },
+  "字幕样式预览": {
+    "en": "Subtitle preview",
+    "ja": "字幕プレビュー"
+  },
+  "样式": {
+    "en": "Style",
+    "ja": "スタイル"
+  },
+  "自定义": {
+    "en": "Custom",
+    "ja": "カスタム"
+  },
+  "自定义字幕样式": {
+    "en": "Custom subtitle style",
+    "ja": "字幕スタイルをカスタマイズ"
+  },
+  "预设": {
+    "en": "Presets",
+    "ja": "プリセット"
+  },
+  "预设名称": {
+    "en": "Preset name",
+    "ja": "プリセット名"
+  },
+  "我的样式": {
+    "en": "My styles",
+    "ja": "マイスタイル"
+  },
+  "保存为预设": {
+    "en": "Save preset",
+    "ja": "プリセットに保存"
+  },
+  "还没有保存的样式，可在自定义后保存为预设。": {
+    "en": "No saved styles. Customize a style and save it as a preset.",
+    "ja": "保存したスタイルはありません。カスタマイズ後にプリセットとして保存できます。"
+  },
+  "恢复默认": {
+    "en": "Reset",
+    "ja": "初期設定に戻す"
+  },
+  "恢复位置": {
+    "en": "Reset position",
+    "ja": "位置をリセット"
+  },
+  "恢复底部居中": {
+    "en": "Reset to bottom center",
+    "ja": "下中央に戻す"
+  },
+  "上下顺序": {
+    "en": "Line order",
+    "ja": "上下の順序"
+  },
+  "中文在上": {
+    "en": "Chinese first",
+    "ja": "中国語を上に"
+  },
+  "日语在上": {
+    "en": "Japanese first",
+    "ja": "日本語を上に"
+  },
+  "中 / 日": {
+    "en": "ZH / JA",
+    "ja": "中 / 日"
+  },
+  "字体": {
+    "en": "Font",
+    "ja": "フォント"
+  },
+  "加粗": {
+    "en": "Bold",
+    "ja": "太字"
+  },
+  "对齐方式": {
+    "en": "Alignment",
+    "ja": "配置"
+  },
+  "左": {
+    "en": "Left",
+    "ja": "左"
+  },
+  "居中": {
+    "en": "Center",
+    "ja": "中央"
+  },
+  "右": {
+    "en": "Right",
+    "ja": "右"
+  },
+  "字幕宽度": {
+    "en": "Subtitle width",
+    "ja": "字幕の幅"
+  },
+  "文字阴影": {
+    "en": "Text shadow",
+    "ja": "文字の影"
+  },
+  "背景透明度": {
+    "en": "Background opacity",
+    "ja": "背景の不透明度"
+  },
+  "高级设置 · 阴影与背景": {
+    "en": "Advanced · Shadow & background",
+    "ja": "詳細 · 影と背景"
+  },
+  "应用样式": {
+    "en": "Apply style",
+    "ja": "スタイルを適用"
+  },
+  "样式即时预览，应用后用于内嵌字幕导出。": {
+    "en": "Preview updates live. Applied styles are used for burned-in subtitles.",
+    "ja": "変更を即座にプレビューします。適用したスタイルで字幕を焼き込みます。"
+  },
+  "关闭样式设置": {
+    "en": "Close style settings",
+    "ja": "スタイル設定を閉じる"
+  },
+  "内嵌字幕": {
+    "en": "Burned-in subtitles",
+    "ja": "字幕焼き込み"
+  },
+  "调整": {
+    "en": "Adjust",
+    "ja": "調整"
+  },
+  "向前移动": {
+    "en": "Move earlier",
+    "ja": "前へ移動"
+  },
+  "向后移动": {
+    "en": "Move later",
+    "ja": "後ろへ移動"
+  },
+  "重试翻译": {
+    "en": "Retry translation",
+    "ja": "翻訳を再試行"
+  },
+  "保留原文并翻译": {
+    "en": "Keep original and translate",
+    "ja": "原文を保持して翻訳"
+  },
+  "采用新识别并翻译": {
+    "en": "Use new recognition and translate",
+    "ja": "新しい認識結果で翻訳"
+  },
+  "新识别候选：": {
+    "en": "New recognition:",
+    "ja": "新しい認識候補："
+  },
+  "本地 VTuber 术语库": {
+    "en": "Local VTuber glossary",
+    "ja": "ローカル VTuber 用語集"
+  },
+  "每行「日语 = 中文」。可添加主播名、游戏名和常用梗。用于本地识别热词、翻译与核对。热词是识别提示，不强行替换原文；模型不支持的字会提示跳过。": {
+    "en": "One “Japanese = Chinese” term per line. Used for Japanese recognition and Chinese translation.",
+    "ja": "1 行に「日本語 = 中国語」を入力します。日本語認識と中国語翻訳に使用します。"
+  },
+  "保存术语库": {
+    "en": "Save glossary",
+    "ja": "用語集を保存"
+  },
+  "载入默认词条": {
+    "en": "Load default terms",
+    "ja": "既定の用語を読み込む"
+  },
+  "在访达中显示模型目录": {
+    "en": "Show models in Finder",
+    "ja": "モデルフォルダを Finder で表示"
+  },
+  "重新准备本地引擎": {
+    "en": "Prepare local models again",
+    "ja": "ローカルモデルを再準備"
+  },
+  "取消下载": {
+    "en": "Cancel download",
+    "ja": "ダウンロードをキャンセル"
+  },
+  "清除筛选": {
+    "en": "Clear filters",
+    "ja": "フィルタをクリア"
+  },
+  "取消选择": {
+    "en": "Deselect",
+    "ja": "選択を解除"
+  },
+  "自动切片": {
+    "en": "Auto clips",
+    "ja": "自動クリップ"
+  },
+  "停止保存": {
+    "en": "Stop & save",
+    "ja": "停止して保存"
+  },
+  "开始录制": {
+    "en": "Start recording",
+    "ja": "録画を開始"
+  },
+  "开始监控": {
+    "en": "Start monitoring",
+    "ja": "監視を開始"
+  },
+  "暂停监控": {
+    "en": "Pause monitoring",
+    "ja": "監視を一時停止"
+  },
+  "未开播": {
+    "en": "Offline",
+    "ja": "配信休止中"
+  },
+  "直播中": {
+    "en": "Live",
+    "ja": "配信中"
+  },
+  "检查中": {
+    "en": "Checking",
+    "ja": "確認中"
+  },
+  "等待开播": {
+    "en": "Waiting for stream",
+    "ja": "配信開始を待機"
+  },
+  "检查失败": {
+    "en": "Check failed",
+    "ja": "確認失敗"
+  },
+  "删除": {
+    "en": "Delete",
+    "ja": "削除"
+  },
+  "移除": {
+    "en": "Remove",
+    "ja": "削除"
+  },
+  "暂停": {
+    "en": "Pause",
+    "ja": "一時停止"
+  },
+  "取消": {
+    "en": "Cancel",
+    "ja": "キャンセル"
+  },
+  "完成": {
+    "en": "Done",
+    "ja": "完了"
+  },
+  "知道了": {
+    "en": "OK",
+    "ja": "OK"
+  },
+  "需要处理": {
+    "en": "Action needed",
+    "ja": "確認が必要です"
+  },
+  "背景操作失败": {
+    "en": "Background action failed",
+    "ja": "背景の操作に失敗しました"
+  },
+  "按已保存设置重试": {
+    "en": "Retry saved settings",
+    "ja": "保存済みの設定で再試行"
+  },
+  "使用已保存的选段时间与字幕；内容未改动时复用成片并补齐字幕文件。": {
+    "en": "Uses saved ranges and subtitles. Existing exports are reused if unchanged.",
+    "ja": "保存済みの区間と字幕を使用します。変更がなければ既存の書き出しを再利用します。"
+  },
+  "关注列表只保存在本机。访客可读取公开直播；受登录限制的内容可使用自己的会话。": {
+    "en": "Follows stay on this Mac. Guest mode accesses public streams; restricted content requires your session.",
+    "ja": "フォロー一覧はこの Mac にのみ保存されます。公開配信はゲストで視聴でき、制限付きの配信には自分のセッションを使います。"
+  },
+  "在字幕同传页选择声音来源与模型，然后开始同传。日语和中文可分别选择字体；浮窗可拖大查看历史，切换双语或仅中文，并导出 TXT、SRT、VTT。": {
+    "en": "Choose an app and languages in Live subtitles, then start. Resize the floating window to view history or export subtitles.",
+    "ja": "リアルタイム字幕でアプリと言語を選択して開始します。字幕ウィンドウを広げると履歴を確認でき、字幕の書き出しもできます。"
+  },
+  "在直播录制页搜索并添加主播。平台入口可管理访客或导入的会话；右键主播可调整监控、提醒和自动录制。录制设置中可选择保存目录。关闭窗口继续运行，退出或睡眠后停止监控。": {
+    "en": "Add creators in Live recording. Right-click a creator for monitoring, alerts and auto-recording. Monitoring stops when the app quits or the Mac sleeps.",
+    "ja": "ライブ録画で配信者を追加します。配信者を右クリックすると監視・通知・自動録画を設定できます。アプリ終了時やスリープ中は監視が停止します。"
+  },
+  "从侧栏或首页打开独立剪辑窗，导入视频或已保存的录制。可新增、切换和删除选段，分别编辑日中字幕并设置样式；勾选片段后批量导出。原视频保留，任务可暂停或重试。高光候选由本地规则推荐；云端识别与核对会在调用前说明费用。": {
+    "en": "Import a video or recording into Clip studio, choose ranges, edit subtitles and export. Originals are kept. Cloud processing shows a cost notice before use.",
+    "ja": "クリップ編集で動画や録画を読み込み、区間や字幕を編集して書き出します。元の動画は保持されます。クラウド処理の前に料金を案内します。"
+  },
+  "早上好呀": {
+    "en": "Good morning",
+    "ja": "おはよう"
+  },
+  "同传运行中，停止后可切换模型。": {
+    "en": "Stop subtitles to change models.",
+    "ja": "モデルの変更には字幕を停止してください。"
+  },
+  "同传正在启动，停止后可切换模型。": {
+    "en": "Subtitles are starting. Stop to change models.",
+    "ja": "字幕を開始中です。停止後にモデルを変更できます。"
+  },
+  "正在完成最后一段字幕，完成后可切换模型。": {
+    "en": "Finishing the last subtitle. Models can be changed afterward.",
+    "ja": "最後の字幕を処理中です。完了後にモデルを変更できます。"
+  },
+  "正在处理音频，完成后可切换模型。": {
+    "en": "Processing audio. Models can be changed afterward.",
+    "ja": "音声を処理中です。完了後にモデルを変更できます。"
+  },
+  "同步到全部选段": {
+    "en": "Apply to all ranges",
+    "ja": "すべての区間に適用"
+  },
+  "打开设置": {
+    "en": "Open settings",
+    "ja": "設定を開く"
+  },
+  "等待字幕…": {
+    "en": "Waiting for subtitles…",
+    "ja": "字幕を待機中…"
+  },
+  "SimuSub 字幕": {
+    "en": "SimuSub subtitles",
+    "ja": "SimuSub 字幕"
+  },
+  "%@ 个选段 · ": {
+    "en": "%@ ranges · ",
+    "ja": "%@ 区間 · "
+  },
+  "%@ 条": {
+    "en": "%@ items",
+    "ja": "%@ 件"
+  },
+  "%@下载进度": {
+    "en": "%@ download progress",
+    "ja": "%@ のダウンロード進捗"
+  },
+  "%@模型位置": {
+    "en": "%@ model location",
+    "ja": "%@ モデルの場所"
+  },
+  "%@的应用预览": {
+    "en": "App preview for %@",
+    "ja": "%@ のアプリプレビュー"
+  },
+  "下载%@模型": {
+    "en": "Download %@ model",
+    "ja": "%@ モデルをダウンロード"
+  },
+  "取消%@模型下载": {
+    "en": "Cancel %@ download",
+    "ja": "%@ のダウンロードをキャンセル"
+  },
+  "显示%@模型目录": {
+    "en": "Show %@ model folder",
+    "ja": "%@ のモデルフォルダを表示"
+  },
+  "主题：%@": {
+    "en": "Theme: %@",
+    "ja": "テーマ：%@"
+  },
+  "位置 %@%": {
+    "en": "Position %@%",
+    "ja": "位置 %@%"
+  },
+  "原文修订记录（%@ 版）": {
+    "en": "Original revisions (%@)",
+    "ja": "原文の修正履歴（%@ 版）"
+  },
+  "字号  %@ px": {
+    "en": "Size  %@ px",
+    "ja": "文字サイズ  %@ px"
+  },
+  "导入片段 %@": {
+    "en": "Import segment %@",
+    "ja": "セグメント %@ を読み込む"
+  },
+  "将删除当前保存的全部原文、译文和待处理字幕，无法恢复。已导出的文件不受影响。%@": {
+    "en": "All current subtitles and pending work will be permanently cleared. Exported files are kept. %@",
+    "ja": "現在の字幕と処理待ちの字幕をすべて消去します。復元できません。書き出し済みのファイルは保持されます。%@"
+  },
+  "清空后将继续监听所选应用。": {
+    "en": "Listening to the selected app will continue.",
+    "ja": "消去後も選択したアプリの聴取を続けます。"
+  },
+  "正在搜索 %@…": {
+    "en": "Searching %@…",
+    "ja": "%@ を検索中…"
+  },
+  "添加 %@": {
+    "en": "Add %@",
+    "ja": "%@ を追加"
+  },
+  "监听 %@": {
+    "en": "Listening to %@",
+    "ja": "%@ を聴取中"
+  },
+  "移除 %@": {
+    "en": "Remove %@",
+    "ja": "%@ を削除"
+  },
+  "移除 %@？": {
+    "en": "Remove %@?",
+    "ja": "%@ を削除しますか？"
+  },
+  "移除本机保存的 %@ 会话？": {
+    "en": "Remove the saved %@ session?",
+    "ja": "保存済みの %@ セッションを削除しますか？"
+  },
+  " 直播间": {
+    "en": " stream",
+    "ja": "の配信"
+  },
+  " 账号入口": {
+    "en": " account",
+    "ja": "のアカウント"
+  },
+  " 连接": {
+    "en": " connection",
+    "ja": "の接続"
+  },
+  "%@ · %@\n%@\n双击观看 · 右键更多 · 左右切换": {
+    "en": "%@ · %@\n%@\nDouble-click to watch · Right-click for more · Swipe to switch",
+    "ja": "%@ · %@\n%@\nダブルクリックで視聴 · 右クリックでその他の操作 · 左右で切り替え"
+  },
+  "Twitch 官方关键词搜索和开播检查需要 Client ID 与 Access Token；访客可以按英文频道名或链接添加。": {
+    "en": "Twitch API search requires a Client ID and access token. Guest mode supports channel names and URLs.",
+    "ja": "Twitch の API 検索には Client ID とアクセストークンが必要です。ゲストではチャンネル名や URL から追加できます。"
+  },
+  "YouTube API Key 用于频道关键词搜索；直播检查与录制仍使用公开频道或已导入会话。": {
+    "en": "The YouTube API key enables channel search. Stream checks and recording use public channels or your imported session.",
+    "ja": "YouTube API キーはチャンネル検索に使用します。配信の確認と録画には公開チャンネルかインポート済みのセッションを使用します。"
+  },
+  "✓ 已开启": {
+    "en": "✓ Enabled",
+    "ja": "✓ 有効"
+  },
+  "✓ 已连接": {
+    "en": "✓ Connected",
+    "ja": "✓ 接続済み"
+  },
+  "下载": {
+    "en": "Download",
+    "ja": "ダウンロード"
+  },
+  "云端核对将发送当前日语、前两句日中字幕、后一句日语和邻近上下文匹配的术语；不发送音视频。在模型与服务中选择翻译服务。": {
+    "en": "Cloud review sends the current text, nearby subtitles and matching terms. Audio and video are not sent.",
+    "ja": "クラウド校正では現在の原文、前後の字幕と関連用語を送信します。音声や動画は送信しません。"
+  },
+  "优先使用已接入的浏览器会话；未接入时使用已导入的 Cookies，没有会话则使用访客。": {
+    "en": "Uses the connected browser session, then imported cookies, then guest access.",
+    "ja": "接続済みブラウザ、インポート済み Cookie、ゲストの順に使用します。"
+  },
+  "使用已导入会话（由平台验证有效性）": {
+    "en": "Using imported session (verified by the platform)",
+    "ja": "インポートしたセッションを使用中（プラットフォームが検証）"
+  },
+  "使用本机翻译模型，结合前后文和本地术语库，不上传字幕。": {
+    "en": "Uses local translation with context and the glossary. Subtitles stay on this Mac.",
+    "ja": "前後の文脈と用語集を使ってローカルで翻訳します。字幕をアップロードしません。"
+  },
+  "使用访客访问公开内容，或导入自己的 Cookies 会话。": {
+    "en": "Use guest access for public content, or import your cookies.",
+    "ja": "公開コンテンツにはゲストでアクセスするか、自分の Cookie を読み込みます。"
+  },
+  "保存中": {
+    "en": "Saving",
+    "ja": "保存中"
+  },
+  "停止并保存录制": {
+    "en": "Stop and save recording",
+    "ja": "停止して録画を保存"
+  },
+  "停止录制": {
+    "en": "Stop recording",
+    "ja": "録画を停止"
+  },
+  "关闭": {
+    "en": "Close",
+    "ja": "閉じる"
+  },
+  "内嵌字幕成片预览": {
+    "en": "Burned-in subtitle preview",
+    "ja": "字幕焼き込みのプレビュー"
+  },
+  "准备引擎": {
+    "en": "Prepare models",
+    "ja": "モデルを準備"
+  },
+  "分析并推荐": {
+    "en": "Analyze highlights",
+    "ja": "ハイライトを分析"
+  },
+  "原画面选段预览": {
+    "en": "Original range preview",
+    "ja": "元映像の区間プレビュー"
+  },
+  "取消连接": {
+    "en": "Cancel connection",
+    "ja": "接続をキャンセル"
+  },
+  "处理中…": {
+    "en": "Processing…",
+    "ja": "処理中…"
+  },
+  "完成定位": {
+    "en": "Finish positioning",
+    "ja": "位置調整を完了"
+  },
+  "实时字幕": {
+    "en": "Live subtitles",
+    "ja": "リアルタイム字幕"
+  },
+  "已添加": {
+    "en": "Added",
+    "ja": "追加済み"
+  },
+  "已载入视频 · 各选段独立保存": {
+    "en": "Video loaded · Ranges save independently",
+    "ja": "動画を読み込み済み · 区間ごとに保存"
+  },
+  "已连接浏览器会话": {
+    "en": "Browser session connected",
+    "ja": "ブラウザセッション接続済み"
+  },
+  "应用": {
+    "en": "App",
+    "ja": "アプリ"
+  },
+  "开启": {
+    "en": "Enable",
+    "ja": "有効にする"
+  },
+  "开启权限": {
+    "en": "Allow access",
+    "ja": "権限を許可"
+  },
+  "开播提醒与直播录制将在此接入。": {
+    "en": "Live alerts and recording will be available here.",
+    "ja": "配信開始通知と録画はここに表示されます。"
+  },
+  "当前字幕记录": {
+    "en": "Current subtitles",
+    "ja": "現在の字幕履歴"
+  },
+  "待开启": {
+    "en": "Not enabled",
+    "ja": "未設定"
+  },
+  "待配置": {
+    "en": "Not configured",
+    "ja": "未設定"
+  },
+  "把视频放到这里": {
+    "en": "Drop a video here",
+    "ja": "ここに動画をドロップ"
+  },
+  "推荐高光": {
+    "en": "Find highlights",
+    "ja": "ハイライトを検索"
+  },
+  "日语 · INT8 · 169 MB": {
+    "en": "Japanese · INT8 · 169 MB",
+    "ja": "日本語 · INT8 · 169 MB"
+  },
+  "显示密钥": {
+    "en": "Show key",
+    "ja": "キーを表示"
+  },
+  "隐藏密钥": {
+    "en": "Hide key",
+    "ja": "キーを隠す"
+  },
+  "暂停录制": {
+    "en": "Pause recording",
+    "ja": "録画を一時停止"
+  },
+  "本地引擎已就绪": {
+    "en": "Local models ready",
+    "ja": "ローカルモデル準備完了"
+  },
+  "本地模型 Index Translate 2B": {
+    "en": "Local Index Translate 2B model",
+    "ja": "ローカル Index Translate 2B モデル"
+  },
+  "本地模型 ReazonSpeech k2 v2": {
+    "en": "Local ReazonSpeech k2 v2 model",
+    "ja": "ローカル ReazonSpeech k2 v2 モデル"
+  },
+  "检查并录制当前直播": {
+    "en": "Check and record stream",
+    "ja": "配信を確認して録画"
+  },
+  "正在导入…": {
+    "en": "Importing…",
+    "ja": "読み込み中…"
+  },
+  "正在读取应用…": {
+    "en": "Loading apps…",
+    "ja": "アプリを読み込み中…"
+  },
+  "没有符合条件的主播": {
+    "en": "No matching creators",
+    "ja": "該当する配信者がいません"
+  },
+  "测试中": {
+    "en": "Testing",
+    "ja": "テスト中"
+  },
+  "添加主播后，在这里查看直播与录制状态": {
+    "en": "Add a creator to see stream and recording status",
+    "ja": "配信者を追加すると配信と録画の状況が表示されます"
+  },
+  "直播高光识别与内嵌字幕 MP4 导出将在此接入。": {
+    "en": "Live highlights and subtitled MP4 exports will be available here.",
+    "ja": "配信ハイライトの検出と字幕付き MP4 の書き出しはここに表示されます。"
+  },
+  "移动字幕": {
+    "en": "Move subtitles",
+    "ja": "字幕を移動"
+  },
+  "等待导入视频": {
+    "en": "Waiting for a video",
+    "ja": "動画の読み込みを待機中"
+  },
+  "继续": {
+    "en": "Resume",
+    "ja": "再開"
+  },
+  "继续录制": {
+    "en": "Resume recording",
+    "ja": "録画を再開"
+  },
+  "访客模式 · 无需登录": {
+    "en": "Guest mode · No sign-in",
+    "ja": "ゲストモード · ログイン不要"
+  },
+  "该平台还没有关注的主播": {
+    "en": "No followed creators on this platform",
+    "ja": "このプラットフォームにフォロー中の配信者はいません"
+  },
+  "请先打开 Safari 等应用，再刷新": {
+    "en": "Open an app such as Safari, then refresh",
+    "ja": "Safari などのアプリを開いてから更新してください"
+  },
+  "请在模型与服务中配置识别和翻译。": {
+    "en": "Configure recognition and translation in Models & services.",
+    "ja": "モデルとサービスで音声認識と翻訳を設定してください。"
+  },
+  "输入密钥": {
+    "en": "Enter key",
+    "ja": "キーを入力"
+  },
+  "选择模型": {
+    "en": "Choose models",
+    "ja": "モデルを選択"
+  },
+  "选择正在播放直播的应用，然后开始同传。": {
+    "en": "Choose an app playing a stream, then start subtitles.",
+    "ja": "配信を再生しているアプリを選択して字幕を開始してください。"
+  },
+  "正在准备视频播放…": {
+    "en": "Preparing video for playback…",
+    "ja": "動画の再生を準備中…",
+    "zh-Hant": "正在準備影片播放…"
+  },
+  "重试": {
+    "en": "Retry",
+    "ja": "再試行"
+  },
+  "校验中": {
+    "en": "Verifying",
+    "ja": "検証中"
+  },
+  "待下载": {
+    "en": "Not downloaded",
+    "ja": "未ダウンロード"
+  },
+  "下载中": {
+    "en": "Downloading",
+    "ja": "ダウンロード中"
+  },
+  "已暂停": {
+    "en": "Paused",
+    "ja": "一時停止中"
+  },
+  "取消中": {
+    "en": "Canceling",
+    "ja": "キャンセル中"
+  },
+  "已完成": {
+    "en": "Completed",
+    "ja": "完了"
+  },
+  "未完成": {
+    "en": "Incomplete",
+    "ja": "未完了"
+  },
+  "待检查": {
+    "en": "Not checked",
+    "ja": "未確認"
+  },
+  "正在录制": {
+    "en": "Recording",
+    "ja": "録画中"
+  },
+  "等待保存": {
+    "en": "Waiting to save",
+    "ja": "保存待ち"
+  },
+  "正在连接": {
+    "en": "Connecting",
+    "ja": "接続中"
+  },
+  "录制中": {
+    "en": "Recording",
+    "ja": "録画中"
+  },
+  "已停止": {
+    "en": "Stopped",
+    "ja": "停止済み"
+  },
+  "录制失败": {
+    "en": "Recording failed",
+    "ja": "録画失敗"
+  },
+  "已中断": {
+    "en": "Interrupted",
+    "ja": "中断"
+  },
+  "纯中文": {
+    "en": "Chinese only",
+    "ja": "中国語のみ"
+  },
+  "纯日语": {
+    "en": "Japanese only",
+    "ja": "日本語のみ"
+  },
+  "自动识别": {
+    "en": "Automatic",
+    "ja": "自動認識"
+  },
+  "双语：中文在上": {
+    "en": "Bilingual: Chinese first",
+    "ja": "二言語：中国語を上に"
+  },
+  "双语：日语在上": {
+    "en": "Bilingual: Japanese first",
+    "ja": "二言語：日本語を上に"
+  },
+  "未开始": {
+    "en": "Not started",
+    "ja": "未開始"
+  },
+  "已取消": {
+    "en": "Canceled",
+    "ja": "キャンセル済み"
+  },
+  "等待中": {
+    "en": "Waiting",
+    "ja": "待機中"
+  },
+  "正在处理": {
+    "en": "Processing",
+    "ja": "処理中"
+  },
+  "失败": {
+    "en": "Failed",
+    "ja": "失敗"
+  },
+  "准备就绪": {
+    "en": "Ready",
+    "ja": "準備完了"
+  },
+  "重新连接": {
+    "en": "Reconnect",
+    "ja": "再接続"
+  },
+  "已登录": {
+    "en": "Signed in",
+    "ja": "ログイン済み"
+  },
+  "未登录": {
+    "en": "Signed out",
+    "ja": "未ログイン"
+  },
+  "准备就绪 · 选择音频来源开始字幕": {
+    "en": "Ready · Select an audio source",
+    "ja": "準備完了 · 音声ソースを選択"
+  },
+  "请选择处理服务": {
+    "en": "Select a processing service",
+    "ja": "処理サービスを選択してください"
+  },
+  "%@尚未安装": {
+    "en": "%@ is not installed",
+    "ja": "%@ が未インストールです"
+  },
+  "%@的服务地址无效": {
+    "en": "Invalid URL for %@",
+    "ja": "%@ の URL が無効です"
+  },
+  "%@需要填写模型名称": {
+    "en": "Enter a model name for %@",
+    "ja": "%@ のモデル名を入力してください"
+  },
+  "%@需要保存 API Key": {
+    "en": "Save an API key for %@",
+    "ja": "%@ の API キーを保存してください"
+  },
+  "服务与模型": {
+    "en": "Models & services",
+    "ja": "モデルとサービス"
+  },
+  "字幕记录": {
+    "en": "Subtitle history",
+    "ja": "字幕履歴"
+  },
+  "导入音频；本地人声处理后，按说话停顿分段并翻译。": {
+    "en": "Import audio to transcribe and translate.",
+    "ja": "音声を読み込んで文字起こしと翻訳を行います。"
+  },
+  "请选择多语言识别接口": {
+    "en": "Select a multilingual ASR API",
+    "ja": "多言語音声認識 API を選択してください"
+  },
+  "选择声音来源和语言，开始同传。浮窗支持双语、仅译文和 TXT / SRT / VTT 导出。": {
+    "en": "Choose an app and languages, then start. The floating window supports bilingual subtitles, translations and TXT / SRT / VTT export.",
+    "ja": "アプリと言語を選択して開始します。字幕ウィンドウは二言語・訳文のみの表示と TXT / SRT / VTT 書き出しに対応しています。"
+  },
+  "确认下播中": {
+    "en": "Confirming stream end",
+    "ja": "配信終了を確認中"
+  },
+  "连接中": {
+    "en": "Connecting",
+    "ja": "接続中"
+  },
+  "正在保存": {
+    "en": "Saving",
+    "ja": "保存中"
+  },
+  "录制中断": {
+    "en": "Recording interrupted",
+    "ja": "録画中断"
+  },
+  "未能录制": {
+    "en": "Recording failed",
+    "ja": "録画失敗"
+  },
+  "已取消连接": {
+    "en": "Connection canceled",
+    "ja": "接続キャンセル済み"
+  },
+  "请选择多语言识别模型或接口": {
+    "en": "Select a multilingual model or API",
+    "ja": "多言語認識モデルか API を選択してください"
+  },
+  "打开模型文件夹": {
+    "en": "Open model folder",
+    "ja": "モデルフォルダを開く"
+  },
+  "选择模型文件夹": {
+    "en": "Choose model folder",
+    "ja": "モデルフォルダを選択"
+  },
+  "选择": {
+    "en": "Choose",
+    "ja": "選択"
+  },
+  "导入翻译模型": {
+    "en": "Import translation model",
+    "ja": "翻訳モデルを読み込む"
+  },
+  "导入已下载模型": {
+    "en": "Use downloaded model",
+    "ja": "ダウンロード済みモデルを使用"
+  },
+  "模型主页": {
+    "en": "Model website",
+    "ja": "モデルの公式ページ"
+  },
+  "移除模型": {
+    "en": "Remove model",
+    "ja": "モデルを一覧から削除"
+  },
+  "导入视频": {
+    "en": "Import video",
+    "ja": "動画を読み込む"
+  },
+  "剪辑项目": {
+    "en": "Clip projects",
+    "ja": "編集プロジェクト"
+  },
+  "重新选择模型": {
+    "en": "Choose model again",
+    "ja": "モデルを選び直す"
+  },
+  "模型文件夹": {
+    "en": "Model folder",
+    "ja": "モデルフォルダ"
+  },
+  "中 · 英 · 日": {
+    "en": "ZH · EN · JA",
+    "ja": "中 · 英 · 日"
+  },
+  "仅原文": {
+    "en": "Original only",
+    "ja": "原文のみ"
+  },
+  "原文": {
+    "en": "Original",
+    "ja": "原文"
+  },
+  "译文": {
+    "en": "Translation",
+    "ja": "訳文"
+  },
+  "请在系统设置中允许 SimuSub 采集应用音频。": {
+    "en": "Allow SimuSub to capture application audio in System Settings.",
+    "ja": "システム設定で SimuSub にアプリ音声の収録を許可してください。"
+  },
+  "准备本地字幕": {
+    "en": "Prepare local subtitles",
+    "ja": "ローカル字幕を準備"
+  },
+  "正在准备本地字幕": {
+    "en": "Preparing local subtitles",
+    "ja": "ローカル字幕を準備中"
+  },
+  "本次需下载 %@，准备好后自动开始同传。": {
+    "en": "Download %@ to start live subtitles automatically when ready.",
+    "ja": "%@ をダウンロードします。準備ができ次第、字幕が自動で開始します。"
+  },
+  "请先选择要采集声音的应用。": {
+    "en": "Choose an application to capture audio from.",
+    "ja": "音声を取り込むアプリを先に選択してください。"
+  },
+  "界面缩放": {
+    "en": "Interface Zoom",
+    "ja": "表示倍率"
+  },
+  "自动": {
+    "en": "Automatic",
+    "ja": "自動"
+  },
+  "Mac 声音": {
+    "en": "Mac audio",
+    "ja": "Mac の音声"
+  },
+  "监听 Mac 正在播放的声音": {
+    "en": "Listen to audio playing on this Mac",
+    "ja": "Mac で再生中の音声を聴く"
+  },
+  "仅原文 · 不翻译": {
+    "en": "Original only · No translation",
+    "ja": "原文のみ・翻訳しない"
+  },
+  "仅原文 · 点击恢复翻译": {
+    "en": "Original only · Click to resume translation",
+    "ja": "原文のみ・クリックで翻訳を再開"
+  },
+  "原文字幕": {
+    "en": "Original captions",
+    "ja": "原文字幕"
+  },
+  "原文已确认": {
+    "en": "Original confirmed",
+    "ja": "原文を確定しました"
+  },
+  "正在识别原文…": {
+    "en": "Recognizing speech…",
+    "ja": "原文を認識中…"
+  },
+  "麦克风": {
+    "en": "Microphone",
+    "ja": "マイク"
+  },
+  "画质": {
+    "en": "Quality",
+    "ja": "画質"
+  },
+  "字体大小": {
+    "en": "Font size",
+    "ja": "文字サイズ"
+  },
+  "原画": {
+    "en": "Source",
+    "ja": "ソース画質"
+  },
+  "播放位置": {
+    "en": "Playback position",
+    "ja": "再生位置",
+    "zh-Hant": "播放位置"
+  },
+  "片段名称": {
+    "en": "Clip name",
+    "ja": "クリップ名",
+    "zh-Hant": "片段名稱"
+  },
+  "项目名称": {
+    "en": "Project name",
+    "ja": "プロジェクト名",
+    "zh-Hant": "專案名稱"
+  },
+  "导出片段": {
+    "en": "Export clips",
+    "ja": "クリップを書き出す",
+    "zh-Hant": "匯出片段"
+  },
+  "烧录字幕到 MP4": {
+    "en": "Burn subtitles into MP4",
+    "ja": "字幕を MP4 に焼き込む",
+    "zh-Hant": "將字幕燒錄至 MP4"
+  },
+  "时间轴": {
+    "en": "Timeline",
+    "ja": "タイムライン",
+    "zh-Hant": "時間軸"
+  },
+  "添加自定义接口": {
+    "en": "Add custom endpoint",
+    "ja": "カスタム接続先を追加",
+    "zh-Hant": "新增自訂介面"
+  },
+  "移除此配置？": {
+    "en": "Remove this configuration?",
+    "ja": "この設定を削除しますか？",
+    "zh-Hant": "移除此設定？"
+  },
+  "仅移除配置，保留本地文件和已保存的密钥。": {
+    "en": "Only the configuration is removed. Local files and saved keys are kept.",
+    "ja": "設定のみを削除します。ローカルファイルと保存済みのキーは保持されます。",
+    "zh-Hant": "僅移除設定，保留本機檔案和已儲存的金鑰。"
+  },
+  "默认本地模型": {
+    "en": "Default local model",
+    "ja": "既定のローカルモデル",
+    "zh-Hant": "預設本機模型"
+  },
+  "导入本地模型": {
+    "en": "Import local model",
+    "ja": "ローカルモデルを読み込む",
+    "zh-Hant": "匯入本機模型"
+  },
+  "云端接口": {
+    "en": "Cloud endpoint",
+    "ja": "クラウド接続先",
+    "zh-Hant": "雲端介面"
+  },
+  "模型详情": {
+    "en": "Model details",
+    "ja": "モデルの詳細",
+    "zh-Hant": "模型詳細資訊"
+  },
+  "模型空间": {
+    "en": "Model storage",
+    "ja": "モデルのストレージ",
+    "zh-Hant": "模型空間"
+  },
+  "添加 ASR": {
+    "en": "Add ASR",
+    "ja": "ASR を追加",
+    "zh-Hant": "新增 ASR"
+  },
+  "添加翻译": {
+    "en": "Add translation",
+    "ja": "翻訳を追加",
+    "zh-Hant": "新增翻譯"
+  },
+  "编辑": {
+    "en": "Edit",
+    "ja": "編集",
+    "zh-Hant": "編輯"
+  },
+  "使用翻译": {
+    "en": "Use for translation",
+    "ja": "翻訳に使用",
+    "zh-Hant": "用於翻譯"
+  },
+  "状态": {
+    "en": "Status",
+    "ja": "状態",
+    "zh-Hant": "狀態"
+  },
+  "导入其他模型": {
+    "en": "Import another model",
+    "ja": "別のモデルを読み込む",
+    "zh-Hant": "匯入其他模型"
+  },
+  "编辑接口": {
+    "en": "Edit endpoint",
+    "ja": "接続先を編集",
+    "zh-Hant": "編輯介面"
+  },
+  "移除配置": {
+    "en": "Remove configuration",
+    "ja": "設定を削除",
+    "zh-Hant": "移除設定"
+  },
+  "选择兼容的模型文件夹；文件保留在原位置。": {
+    "en": "Choose a compatible model folder. Files stay in their original location.",
+    "ja": "対応するモデルフォルダを選択してください。ファイルは元の場所に保持されます。",
+    "zh-Hant": "選擇相容的模型資料夾；檔案保留在原位置。"
+  },
+  "导入": {
+    "en": "Import",
+    "ja": "読み込む",
+    "zh-Hant": "匯入"
+  },
+  "选择 GGUF 翻译模型…": {
+    "en": "Choose GGUF translation model…",
+    "ja": "GGUF 翻訳モデルを選択…",
+    "zh-Hant": "選擇 GGUF 翻譯模型…"
+  },
+  "连接与鉴权": {
+    "en": "Connection and authentication",
+    "ja": "接続と認証",
+    "zh-Hant": "連線與驗證"
+  },
+  "请填写名称和模型 ID。": {
+    "en": "Enter a name and model ID.",
+    "ja": "名前とモデル ID を入力してください。",
+    "zh-Hant": "請填寫名稱和模型 ID。"
+  },
+  "请输入有效的 http:// 或 https:// 接口地址。": {
+    "en": "Enter a valid http:// or https:// endpoint URL.",
+    "ja": "有効な http:// または https:// の接続先 URL を入力してください。",
+    "zh-Hant": "請輸入有效的 http:// 或 https:// 介面位址。"
+  },
+  "移除声音来源": {
+    "en": "Remove audio source",
+    "ja": "音声ソースを削除",
+    "zh-Hant": "移除聲音來源"
+  },
+  "遮挡原视频字幕": {
+    "en": "Cover existing video subtitles",
+    "ja": "動画の元の字幕を覆う",
+    "zh-Hant": "遮擋原影片字幕"
+  },
+  "字幕遮罩设置": {
+    "en": "Subtitle mask settings",
+    "ja": "字幕マスクの設定",
+    "zh-Hant": "字幕遮罩設定"
+  },
+  "关闭字幕样式": {
+    "en": "Close subtitle style",
+    "ja": "字幕スタイルを閉じる",
+    "zh-Hant": "關閉字幕樣式"
+  },
+  "遮罩": {
+    "en": "Mask",
+    "ja": "マスク",
+    "zh-Hant": "遮罩"
+  },
+  "启用字幕遮罩": {
+    "en": "Enable subtitle mask",
+    "ja": "字幕マスクを有効にする",
+    "zh-Hant": "啟用字幕遮罩"
+  },
+  "遮罩不透明度": {
+    "en": "Mask opacity",
+    "ja": "マスクの不透明度",
+    "zh-Hant": "遮罩不透明度"
+  },
+  "删除颜色": {
+    "en": "Remove color",
+    "ja": "色を削除",
+    "zh-Hant": "刪除顏色"
+  },
+  "恢复颜色": {
+    "en": "Restore color",
+    "ja": "色を戻す",
+    "zh-Hant": "恢復顏色"
+  },
+  "删除自定义颜色": {
+    "en": "Delete custom color",
+    "ja": "カスタムカラーを削除",
+    "zh-Hant": "刪除自訂顏色"
+  },
+  "自定义颜色": {
+    "en": "Custom color",
+    "ja": "カスタムカラー",
+    "zh-Hant": "自訂顏色"
+  },
+  "添加": {
+    "en": "Add",
+    "ja": "追加",
+    "zh-Hant": "新增"
+  },
+  "录制与剪辑": {
+    "en": "Recording and editing",
+    "ja": "録画と編集",
+    "zh-Hant": "錄製與剪輯"
+  },
+  "录制质量": {
+    "en": "Recording quality",
+    "ja": "録画品質",
+    "zh-Hant": "錄製品質"
+  },
+  "录制行为": {
+    "en": "Recording behavior",
+    "ja": "録画の動作",
+    "zh-Hant": "錄製行為"
+  },
+  "返回最近项目": {
+    "en": "Back to recent projects",
+    "ja": "最近のプロジェクトに戻る"
+  },
+  "选择选段": {
+    "en": "Select clip",
+    "ja": "クリップを選択"
+  },
+  "查看成片": {
+    "en": "Show exported video",
+    "ja": "書き出した動画を表示"
+  },
+  "模型操作": {
+    "en": "Model actions",
+    "ja": "モデル操作"
+  },
+  "移到废纸篓": {
+    "en": "Move to Trash",
+    "ja": "ゴミ箱に入れる"
+  },
+  "移除模型引用": {
+    "en": "Unlink model",
+    "ja": "モデルの参照を解除"
+  },
+  "已移除模型引用": {
+    "en": "Model unlinked",
+    "ja": "モデルの参照を解除しました"
+  },
+  "模型文件已移到废纸篓": {
+    "en": "Model files moved to Trash",
+    "ja": "モデルファイルをゴミ箱に移動しました"
+  },
+  "保留原位置的模型文件。": {
+    "en": "The model files stay in their original location.",
+    "ja": "元の場所にあるモデルファイルは保持されます。"
+  },
+  "此模型的文件将移到废纸篓，使用它的语言或服务需要重新准备模型。": {
+    "en": "The model files will move to Trash. Languages and services that use this model will need it again.",
+    "ja": "このモデルのファイルをゴミ箱に移動します。使用中の言語やサービスでは、再度モデルの準備が必要です。"
+  },
+  "无法打开模型文件夹": {
+    "en": "Could not open the model folder",
+    "ja": "モデルフォルダを開けませんでした"
+  },
+  "暂未添加主播": {
+    "en": "No creators added yet",
+    "ja": "まだ配信者が追加されていません"
+  },
+  "此平台暂无关注的主播": {
+    "en": "No followed creators on this platform",
+    "ja": "このプラットフォームにはフォロー中の配信者がいません"
+  },
+  "识别或翻译持续慢于直播，已暂停采集。已接收的语音和定稿将按顺序处理，完成后可以重新开始。": {
+    "en": "Recognition or translation has fallen behind. Capture is paused while received audio and final captions are processed in order. You can restart when processing finishes.",
+    "ja": "認識または翻訳が配信に追いつかないため、音声の取得を一時停止しました。受信した音声と確定字幕を順番に処理します。完了後に再開できます。"
+  },
+  "实时字幕需要读取 Mac 正在播放的声音。": {
+    "en": "Live subtitles need access to the audio playing on your Mac.",
+    "ja": "字幕同時通訳には、Mac で再生中の音声へのアクセスが必要です。"
+  },
+  "已允许 SimuSub 获取系统声音。": {
+    "en": "SimuSub can now access system audio.",
+    "ja": "SimuSub がシステム音声にアクセスできるようになりました。"
+  },
+  "打开 %@ 的开关，返回后会自动检查权限。": {
+    "en": "Turn on %@, then return here. Access will be checked automatically.",
+    "ja": "%@ をオンにして戻ると、許可の状態が自動で更新されます。"
+  },
+  "打开系统设置": {
+    "en": "Open System Settings",
+    "ja": "システム設定を開く"
+  },
+  "稍后设置，先剪辑本地视频": {
+    "en": "Set up later and edit a local video",
+    "ja": "あとで設定してローカル動画を編集"
+  },
+  "进入字幕同传": {
+    "en": "Open live subtitles",
+    "ja": "字幕同時通訳を開く"
+  }
+}

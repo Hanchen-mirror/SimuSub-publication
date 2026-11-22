@@ -1,0 +1,173 @@
+[
+  {
+    "id": "sensevoice",
+    "name": "SenseVoice Small INT8",
+    "purpose": "语音识别",
+    "engine": "senseVoice",
+    "homepage": "https://github.com/FunAudioLLM/SenseVoice",
+    "files": [
+      {
+        "name": "model.int8.onnx",
+        "url": "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/model.int8.onnx",
+        "byteCount": 239233841,
+        "sha256": "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51"
+      },
+      {
+        "name": "tokens.txt",
+        "url": "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/tokens.txt",
+        "byteCount": 315894,
+        "sha256": "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc"
+      }
+    ]
+  },
+  {
+    "id": "whisper-base",
+    "name": "Whisper Base INT8",
+    "purpose": "语音识别",
+    "engine": "whisper",
+    "homepage": "https://github.com/openai/whisper",
+    "files": [
+      {
+        "name": "base-decoder.int8.onnx",
+        "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/bb53ee204431c90d314c1cc08d28d23e5b7927cc/base-decoder.int8.onnx",
+        "byteCount": 130672026,
+        "sha256": "9759d217388a01b3a4c7c15533201067b48ae819c4daafc8624e64b9409dc02d"
+      },
+      {
+        "name": "base-encoder.int8.onnx",
+        "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/bb53ee204431c90d314c1cc08d28d23e5b7927cc/base-encoder.int8.onnx",
+        "byteCount": 29120534,
+        "sha256": "0b8fb1304b6109976038efff5ace81720e00386f3ff6b54ee8c75291ca0a1e11"
+      },
+      {
+        "name": "base-tokens.txt",
+        "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/bb53ee204431c90d314c1cc08d28d23e5b7927cc/base-tokens.txt",
+        "byteCount": 816730,
+        "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"
+      }
+    ]
+  },
+  {
+    "id": "hy-mt",
+    "name": "HY-MT1.5 1.8B Q4_K_M",
+    "purpose": "翻译",
+    "engine": "gguf",
+    "homepage": "https://github.com/Tencent-Hunyuan/Hy-MT",
+    "files": [
+      {
+        "name": "HY-MT1.5-1.8B-Q4_K_M.gguf",
+        "url": "https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF/resolve/265b2e615a7dc9b06c435dc878829ad99a512ba2/HY-MT1.5-1.8B-Q4_K_M.gguf",
+        "byteCount": 1133080512,
+        "sha256": "4383ac0c3c8e476de98ff979c2a3f069f8c4fb385e7860cf2d28da896cc477c7"
+      }
+    ]
+  },
+  {
+    "id": "whisper-small",
+    "name": "Whisper Small INT8",
+    "purpose": "语音识别",
+    "engine": "whisper",
+    "homepage": "https://github.com/openai/whisper",
+    "files": [
+      {
+        "name": "small-decoder.int8.onnx",
+        "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-decoder.int8.onnx",
+        "byteCount": 262226114,
+        "sha256": "acad50b5c782696e91b55914cc5ab4f756f1532f76e22aa6fc615f39fb69a8ee"
+      },
+      {
+        "name": "small-encoder.int8.onnx",
+        "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-encoder.int8.onnx",
+        "byteCount": 112442483,
+        "sha256": "4cbe7b22fa9026b843b60a68640c747de05bafb1a11b57edc0e66c232d9f33a9"
+      },
+      {
+        "name": "small-tokens.txt",
+        "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-tokens.txt",
+        "byteCount": 816730,
+        "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"
+      }
+    ]
+  },
+  {
+    "id": "qwen3-asr",
+    "name": "Qwen3-ASR 0.6B INT8",
+    "purpose": "语音识别",
+    "engine": "qwen3ASR",
+    "homepage": "https://github.com/QwenLM/Qwen3-ASR",
+    "files": [
+      {
+        "name": "conv_frontend.onnx",
+        "url": "https://huggingface.co/cattle12/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/603954e3768c2354ccaf1ca43092e844d975641d/conv_frontend.onnx",
+        "byteCount": 44148281,
+        "sha256": "d22dc4423e0940e49884e903d2ea2f7e5567c14fc1aed97e4e26d6b8f208ef9e"
+      },
+      {
+        "name": "decoder.int8.onnx",
+        "url": "https://huggingface.co/cattle12/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/603954e3768c2354ccaf1ca43092e844d975641d/decoder.int8.onnx",
+        "byteCount": 755914231,
+        "sha256": "4f6885be5959ae26af3089d38ee7972c5fafbeeb1cf8d5e76eab6d8b61ca5771"
+      },
+      {
+        "name": "encoder.int8.onnx",
+        "url": "https://huggingface.co/cattle12/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/603954e3768c2354ccaf1ca43092e844d975641d/encoder.int8.onnx",
+        "byteCount": 182491662,
+        "sha256": "60748d3e6744a57c9c91e1b17424a6c2990567e8adceb0783940c03ed98fa9d9"
+      },
+      {
+        "name": "merges.txt",
+        "url": "https://huggingface.co/cattle12/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/603954e3768c2354ccaf1ca43092e844d975641d/tokenizer/merges.txt",
+        "byteCount": 1671853,
+        "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+      },
+      {
+        "name": "tokenizer_config.json",
+        "url": "https://huggingface.co/cattle12/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/603954e3768c2354ccaf1ca43092e844d975641d/tokenizer/tokenizer_config.json",
+        "byteCount": 12487,
+        "sha256": "4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c"
+      },
+      {
+        "name": "vocab.json",
+        "url": "https://huggingface.co/cattle12/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/603954e3768c2354ccaf1ca43092e844d975641d/tokenizer/vocab.json",
+        "byteCount": 2776833,
+        "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+      }
+    ]
+  },
+  {
+    "id": "gemma4-e2b",
+    "name": "Gemma 4 E2B QAT Q4_0",
+    "purpose": "翻译",
+    "engine": "gguf",
+    "homepage": "https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf",
+    "files": [
+      {
+        "name": "gemma-4-E2B_q4_0-it.gguf",
+        "url": "https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf/resolve/675cff42a74c774d6cb76f76d8eacb49b48c9b93/gemma-4-E2B_q4_0-it.gguf",
+        "byteCount": 3349516256,
+        "sha256": "fa401b55b07ee70a54c6dae3903c783a6e65064312529ea57175cb5f8dec6634"
+      }
+    ]
+  },
+  {
+    "id": "gemma4-e4b",
+    "name": "Gemma 4 E4B QAT Q4_0",
+    "purpose": "翻译",
+    "engine": "gguf",
+    "homepage": "https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf",
+    "files": [
+      {
+        "name": "gemma-4-E4B_q4_0-it.gguf",
+        "url": "https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf/resolve/4b4a2c1d584be7264f87aac328a1bc739ce81b6c/gemma-4-E4B_q4_0-it.gguf",
+        "byteCount": 5154941280,
+        "sha256": "676c35070db6dbe52f93e9c864ee0fba4eddea94b9c875d9cb10daff453fbaee"
+      },
+      {
+        "name": "gemma-4-E4B-it-mmproj.gguf",
+        "url": "https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf/resolve/4b4a2c1d584be7264f87aac328a1bc739ce81b6c/gemma-4-E4B-it-mmproj.gguf",
+        "byteCount": 991552256,
+        "sha256": "7498a37cb619e55f2fcf87eb931f56e99389ed6d432e4c5c66110694c0d65578"
+      }
+    ]
+  }
+]

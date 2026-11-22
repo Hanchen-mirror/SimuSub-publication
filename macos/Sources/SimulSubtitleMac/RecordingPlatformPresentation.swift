@@ -1,67 +1,10 @@
 import SwiftUI
 
 @MainActor
-final class HomeLivePresentation: ObservableObject {
+final class CreatorSearchState: ObservableObject {
     @Published var platform: LivePlatform = .bilibili
-    @Published private(set) var searchVisible = true
     @Published var query = ""
     @Published var resultsVisible = false
-    @Published private(set) var accountPlatform: LivePlatform?
-    private var accountDismissal: Task<Void, Never>?
-    func showAccounts(_ platform: LivePlatform) {
-        accountDismissal?.cancel(); accountPlatform = platform
-    }
-    func leaveAccounts() {
-        accountDismissal?.cancel()
-        accountDismissal = Task { [weak self] in
-            do { try await Task.sleep(nanoseconds: 280_000_000) } catch { return }
-            guard !Task.isCancelled else { return }; self?.accountPlatform = nil
-        }
-    }
-    func closeAccounts() { accountDismissal?.cancel(); accountDismissal = nil; accountPlatform = nil }
-    @Published var draggingCreator: UUID?
-    @Published var dropTarget: UUID?
-    func select(_ platform: LivePlatform) {
-        if self.platform != platform { query = "" }
-        if accountPlatform != platform { closeAccounts() }
-        self.platform = platform; searchVisible = true; resultsVisible = false
-    }
-    func hideSearch() { closeAccounts(); searchVisible = false; resultsVisible = false }
-    func showSearch() { searchVisible = true }
-}
-
-/// Balanced rows: a partial last row is centered, without placeholder cells.
-struct CreatorGridMetrics {
-    let tile: CGFloat
-    let columns: Int
-    let gap: CGFloat = 22
-    init(width: CGFloat, height: CGFloat = 500, count: Int) {
-        let available = max(1, width), minimum: CGFloat = 104
-        let maximum = min(CGFloat(300), max(CGFloat(144), min(available * 0.27, height * 0.58)))
-        let maximumColumns = max(1, Int((available + gap) / (minimum + gap)))
-        if count <= 12 {
-            var bestSide: CGFloat = 0, bestColumns = 1
-            for candidate in 1...max(1, min(max(1, count), maximumColumns)) {
-                let rowCount = Int(ceil(Double(max(1, count)) / Double(candidate)))
-                let across = (available - CGFloat(candidate - 1) * gap) / CGFloat(candidate)
-                let down = (max(1, height) - 24 - CGFloat(rowCount - 1) * gap) / CGFloat(rowCount) - 60
-                let side = min(maximum, across, down)
-                if side > bestSide { bestSide = side; bestColumns = candidate }
-            }
-            if bestSide >= minimum {
-                columns = bestColumns; tile = bestSide
-            } else {
-                columns = max(1, min(max(1, count), maximumColumns))
-                tile = min(maximum, max(minimum, (available - CGFloat(columns - 1) * gap) / CGFloat(columns)))
-            }
-        } else {
-            columns = max(1, min(count, Int((available + gap) / (154 + gap))))
-            tile = min(164, max(minimum, (available - CGFloat(columns - 1) * gap) / CGFloat(columns)))
-        }
-    }
-    func rows(count: Int) -> [Range<Int>] {
-        stride(from: 0, to: count, by: columns).map { $0..<min(count, $0 + columns) }
-    }
 }
 
 enum CreatorBadge: Equatable {
